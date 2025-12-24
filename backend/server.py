@@ -1,48 +1,38 @@
 import os
 import json
-import uvicorn
 import datetime
 from typing import List, Optional, Dict
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from bson import ObjectId
+
+# --- FastAPI 核心 ---
+from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-# ✨ 引入官方 SDK (简化调用，提升稳定性)
+# --- 数据库与 AI ---
+from pymongo import MongoClient
 from openai import OpenAI, APIError
-
-# 🔐 安全库
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from dotenv import load_dotenv
 
-# 引入数据库逻辑
-from core.database import KnowledgeBase
+# 1. 加载环境变量
+load_dotenv()
 
-# ================= 配置 =================
+# ================= 配置区域 =================
 SECRET_KEY = os.getenv("SECRET_KEY", "hexcoach_secret_key_change_me_please")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token 7天过期
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7天过期
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017/")
 
-# ✨ 初始化 OpenAI 客户端 (适配 DeepSeek)
-client = OpenAI(
-    api_key=DEEPSEEK_API_KEY, 
-    base_url="https://api.deepseek.com"
-)
-
+# 初始化 APP
 app = FastAPI()
-db = KnowledgeBase()
 
-# 密码哈希工具
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-# OAuth2 方案
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# 🟢 允许跨域
+# 允许跨域
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -51,44 +41,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ================= 模型定义 =================
+# ================= 数据库连接 (直接连接，不依赖旧代码) =================
+try:
+    client = MongoClient(MONGO_URL)
+    db = client["lol_community"] # 确保和 seed_data.py 里的库名一致
+    print("✅ MongoDB 连接成功")
+except Exception as e:
+    print(f"❌ MongoDB 连接失败: {e}")
 
-class UserCreate(BaseModel):
-    username: str
-    password: str
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    username: str
-
-class TipInput(BaseModel):
-    hero: str
-    enemy: str
-    content: str
-    is_general: bool
-
-class LikeInput(BaseModel):
-    tip_id: str
-
-class FeedbackInput(BaseModel):
-    match_context: dict
-    description: str
-
-class AnalyzeRequest(BaseModel):
-    mode: str
-    myHero: str = ""
-    enemyHero: str = ""
-    myTeam: List[str] = []
-    enemyTeam: List[str] = []
-    userRole: str = "" # 用户手动选的位置 (兼容旧版)
-    
-    # ✨ 明确的分路信息 (字典格式: {"TOP": "Aatrox", "JUNGLE": "Lee Sin"})
-    # 前端如果有确定的数据 (LCU 或 用户手动修正)，传这两个字段
-    myLaneAssignments: Optional[Dict[str, str]] = None 
-    enemyLaneAssignments: Optional[Dict[str, str]] = None
-
-# ================= 🔐 核心权限逻辑 =================
+# ================= 工具与安全 =================
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -117,379 +80,365 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
     
-    user = db.get_user(username)
+    user = db.users.find_one({"username": username})
     if user is None:
         raise credentials_exception
     return user
 
-# ================= 🧠 智能分路算法 (Helper) =================
+# ================= 模型定义 =================
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    username: str
+
+class AnalyzeRequest(BaseModel):
+    mode: str
+    myHero: str = ""
+    enemyHero: str = ""
+    myTeam: List[str] = []
+    enemyTeam: List[str] = []
+    userRole: str = "" 
+    # ✨ 保留了你的分路数据结构
+    myLaneAssignments: Optional[Dict[str, str]] = None 
+    enemyLaneAssignments: Optional[Dict[str, str]] = None
+
+class TipInput(BaseModel):
+    hero: str
+    enemy: str = "None"
+    content: str
+    is_general: bool = False
+
+class FeedbackInput(BaseModel):
+    match_context: Optional[dict] = {}
+    description: str
+
+class LikeInput(BaseModel):
+    tip_id: str
+
+# ================= 🧠 核心逻辑工具函数 =================
+
+def smart_context_formatter(doc):
+    """
+    🔥 智能通用格式化器：读取 s15_details 并转为 AI 易读文本
+    """
+    if not doc or "data_modules" not in doc:
+        return ""
+
+    lines = []
+    # 遍历所有模块
+    for module_key, module_data in doc["data_modules"].items():
+        title = module_data.get("title", module_key)
+        lines.append(f"\n### {title}")
+        
+        items = module_data.get("items", [])
+        for item in items:
+            name = item.get("name") or item.get("concept") or "未命名"
+            rule = item.get("rule") or item.get("s15_rule") or ""
+            note = item.get("note") or item.get("ai_implication") or ""
+            
+            line = f"- **{name}**: {rule}"
+            if note:
+                line += f" (⚠️ 注意: {note})"
+            lines.append(line)
+
+    return "\n".join(lines)
 
 def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str, str]] = None):
     """
-    根据英雄列表和数据库信息，推断每条路是谁。
-    优先使用 fixed_assignments (用户手动修正的数据)。
+    🔥 保留了你的智能分路算法
     """
-    if not team_list:
-        return {}
-        
-    # 标准位置定义
+    if not team_list: return {}
     standard_roles = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
-    
-    # 1. 初始化结果，先填入用户锁定的位置 (Manual Override)
     final_roles = {role: "Unknown" for role in standard_roles}
     assigned_heroes = set()
 
+    # 1. 用户修正优先
     if fixed_assignments:
         for role, hero in fixed_assignments.items():
-            role_upper = role.upper()
-            # 简单校验：该位置有效 且 英雄确实在队伍里
-            if role_upper in standard_roles and hero in team_list:
-                final_roles[role_upper] = hero
+            if role.upper() in standard_roles and hero in team_list:
+                final_roles[role.upper()] = hero
                 assigned_heroes.add(hero)
     
-    # 2. 找出还未分配的英雄
+    # 2. 自动填补剩余位置
     remaining_heroes = [h for h in team_list if h not in assigned_heroes]
-    
-    # 3. 遍历未分配的英雄，查库进行“填空” (简单的贪心算法)
     for hero in remaining_heroes:
-        # 查库获取英雄首选位置
-        # 注意：这里安全调用 db.get_champion_info，防止方法不存在报错
-        hero_info = getattr(db, 'get_champion_info', lambda x: None)(hero)
+        # 从数据库查英雄定位 (兼容新结构)
+        hero_doc = db.champions.find_one({"id": hero})
+        pref_role = hero_doc.get('role', 'MID').upper() if hero_doc else "MID"
         
-        pref_role = hero_info.get('role', 'mid').upper() if hero_info else "MID"
+        # 简单映射
+        if pref_role in ["BOTTOM", "BOT"]: pref_role = "ADC"
+        if pref_role == "SUP": pref_role = "SUPPORT"
         
-        # 映射数据库的 role 到标准 role (防止叫法不一致)
-        role_map = {
-            "TOP": "TOP", "JUNGLE": "JUNGLE", "MID": "MID", 
-            "ADC": "ADC", "BOTTOM": "ADC", "SUPPORT": "SUPPORT", "SUP": "SUPPORT"
-        }
-        target = role_map.get(pref_role, "MID")
-
-        # 如果该位置是空的 (Unknown)，就填进去
-        if final_roles[target] == "Unknown":
-            final_roles[target] = hero
+        if final_roles.get(pref_role) == "Unknown":
+            final_roles[pref_role] = hero
         else:
-            # 如果位置被占了 (比如两个中单)，暂时先找一个空位填进去 (兜底策略)
+            # 简单兜底：找第一个空位
             for r in standard_roles:
                 if final_roles[r] == "Unknown":
                     final_roles[r] = hero
                     break
-    
-    # 清理掉还是 Unknown 的位置
+                    
     return {k: v for k, v in final_roles.items() if v != "Unknown"}
 
-# ================= 🚀 接口 API =================
-
-@app.get("/")
-def health_check():
-    return {"status": "DeepCoach Backend Running", "version": "S15.SDK.Final"}
+# ================= API 接口区域 =================
 
 # --- 1. 注册与登录 ---
-
 @app.post("/register")
 def register(user: UserCreate):
-    # 🚫 1. 定义保留字黑名单 (全部转小写比较)
-    RESERVED_USERNAMES = [
-        "admin", "administrator", "root", "system", "superuser", 
-        "support", "official", "hexcoach", "gm", "master"
-    ]
+    RESERVED = ["admin", "root", "system", "support", "hexcoach"]
+    clean_name = user.username.lower().strip()
     
-    # 🛡️ 2. 检查用户名是否违规
-    clean_username = user.username.lower().strip()
-    
-    # 检查是否在黑名单中
-    if clean_username in RESERVED_USERNAMES:
-        raise HTTPException(
-            status_code=400, 
-            detail="该用户名包含保留字，无法注册"
-        )
+    if clean_name in RESERVED or "admin" in clean_name:
+        raise HTTPException(status_code=400, detail="该用户名包含保留字")
         
-    # 检查是否包含 "admin" 字样 (防止 admin123 这种)
-    if "admin" in clean_username:
-        raise HTTPException(
-            status_code=400, 
-            detail="用户名不能包含 'admin' 字样"
-        )
+    if db.users.find_one({"username": user.username}):
+        raise HTTPException(status_code=400, detail="用户名已存在")
+        
     hashed_pw = get_password_hash(user.password)
-    if db.create_user(user.username, hashed_pw):
-        return {"status": "success", "msg": "注册成功，请登录"}
-    raise HTTPException(status_code=400, detail="用户名已存在")
+    new_user = {
+        "username": user.username,
+        "password": hashed_pw,
+        "role": "user",
+        "created_at": datetime.datetime.utcnow(),
+        "last_analysis_time": None
+    }
+    db.users.insert_one(new_user)
+    return {"status": "success", "msg": "注册成功"}
 
 @app.post("/token", response_model=Token)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = db.get_user(form_data.username)
+    user = db.users.find_one({"username": form_data.username})
     if not user or not verify_password(form_data.password, user['password']):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"sub": user['username']})
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+        
+    access_token = create_access_token(data={"sub": user['username'], "role": user.get("role", "user")})
     return {"access_token": access_token, "token_type": "bearer", "username": user['username']}
 
-# --- 2. 绝活社区 ---
+# --- 2. 绝活社区 (Tip Community) - 已恢复 ---
 
 @app.get("/tips")
-def get_tips(hero: str, enemy: str = "None", is_general: bool = False):
-    return db.get_tips_for_ui(hero, enemy, is_general)
+def get_tips(hero: Optional[str] = None, enemy: Optional[str] = None, limit: int = 50):
+    """获取绝活列表，支持按英雄筛选"""
+    query = {}
+    if hero: query["hero"] = hero
+    if enemy and enemy != "None": query["enemy"] = enemy
+    
+    # 按点赞数倒序
+    cursor = db.tips.find(query).sort("likes", -1).limit(limit)
+    
+    results = []
+    for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        results.append(doc)
+    return results
 
 @app.post("/tips")
 def add_tip(data: TipInput, current_user: dict = Depends(get_current_user)):
-    db.add_tip(data.hero, data.enemy, data.content, current_user['username'], data.is_general)
+    """发布新 Tip"""
+    new_tip = {
+        "hero": data.hero,
+        "enemy": data.enemy,
+        "content": data.content,
+        "is_general": data.is_general,
+        "author": current_user["username"],
+        "likes": 0,
+        "liked_by": [],
+        "created_at": datetime.datetime.utcnow()
+    }
+    db.tips.insert_one(new_tip)
     return {"status": "success"}
 
 @app.post("/like")
 def like_tip(data: LikeInput, current_user: dict = Depends(get_current_user)):
-    if db.toggle_like(data.tip_id, current_user['username']):
-        return {"status": "success"}
-    raise HTTPException(status_code=400, detail="点赞失败或已点过")
+    """点赞/取消点赞"""
+    try:
+        oid = ObjectId(data.tip_id)
+    except:
+        raise HTTPException(status_code=400, detail="ID格式错误")
+        
+    tip = db.tips.find_one({"_id": oid})
+    if not tip:
+        raise HTTPException(status_code=404, detail="Tip不存在")
+        
+    username = current_user['username']
+    if username in tip.get('liked_by', []):
+        # 取消点赞
+        db.tips.update_one({"_id": oid}, {"$inc": {"likes": -1}, "$pull": {"liked_by": username}})
+    else:
+        # 点赞
+        db.tips.update_one({"_id": oid}, {"$inc": {"likes": 1}, "$push": {"liked_by": username}})
+    
+    return {"status": "success"}
 
 @app.delete("/tips/{tip_id}")
-def delete_tip_endpoint(tip_id: str, current_user: dict = Depends(get_current_user)):
-    tip = db.get_tip_by_id(tip_id)
-    if not tip:
-        raise HTTPException(status_code=404, detail="评论不存在")
-    
-    is_admin = current_user.get('role') == 'admin' or current_user['username'] in ["admin", "root", "keonsuyun"]
-
-    if tip['author_id'] != current_user['username'] and not is_admin:
-        raise HTTPException(status_code=403, detail="你没有权限删除这条评论")
-    
-    if db.delete_tip(tip_id):
-        return {"status": "success", "msg": "删除成功"}
-    
-    raise HTTPException(status_code=500, detail="删除失败")
-
-# --- 3. 错误反馈 ---
-
-@app.post("/feedback")
-def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_current_user)):
+def delete_tip(tip_id: str, current_user: dict = Depends(get_current_user)):
+    """删除 Tip (仅作者或管理员)"""
     try:
-        feedback_entry = {
-            "user_id": current_user['username'],
-            "match_context": data.match_context,
-            "description": data.description,
-            "error_type": "user_report"
-        }
-        db.submit_feedback(feedback_entry)
-        return {"status": "success", "msg": "反馈已提交"}
-    except Exception as e:
-        print(f"Feedback Error: {e}")
-        raise HTTPException(status_code=500, detail="反馈提交失败")
+        oid = ObjectId(tip_id)
+    except:
+        raise HTTPException(status_code=400, detail="ID格式错误")
+        
+    tip = db.tips.find_one({"_id": oid})
+    if not tip:
+        raise HTTPException(status_code=404, detail="Tip不存在")
+        
+    is_admin = current_user.get('role') == 'admin' or current_user['username'] in ["admin", "root", "keonsuyun"]
+    is_author = tip.get('author') == current_user['username']
+    
+    if not (is_author or is_admin):
+        raise HTTPException(status_code=403, detail="无权删除")
+        
+    db.tips.delete_one({"_id": oid})
+    return {"status": "success"}
 
-# --- 4. AI 分析 (深度思考 R1 模式 - SDK 流式增强版) ---
+# --- 3. AI 分析接口 (集成新数据源 + 智能分路 + 防刷) ---
 
 @app.post("/analyze")
-async def analyze_match(data: AnalyzeRequest):
-    # ==========================================
-    # 1. 基础 S15 数据获取与环境构建
-    # ==========================================
-    game_constants = db.get_game_constants()
-    
-    s15_context = f"""
-    ### S15 核心环境数据
-    - 虚空巢虫: {game_constants.get('void_grubs_spawn')} (每波数量: {game_constants.get('void_grubs_count')})
-    - Atakhan: {game_constants.get('atakhan_spawn')}
-    - 版本特性: {game_constants.get('patch_notes')}
-    """
+async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_current_user)):
+    # 🛡️ 1. API Key 检查
+    if not DEEPSEEK_API_KEY:
+         def err(): yield json.dumps({"concise": {"title":"配置错误", "content":"服务端未配置 API Key"}})
+         return StreamingResponse(err(), media_type="application/json")
 
-    # ==========================================
-    # 2. 🚀 智能位置识别逻辑 (Core Logic)
-    # ==========================================
+    # 🛡️ 2. 60秒冷却检查
+    last_time = current_user.get("last_analysis_time")
+    now = datetime.datetime.utcnow()
+    if last_time:
+        if isinstance(last_time, str): last_time = datetime.datetime.fromisoformat(last_time)
+        delta = (now - last_time).total_seconds()
+        if delta < 60:
+            remaining = int(60 - delta)
+            def cooldown_err(): 
+                yield json.dumps({"concise": {"title": "技能冷却中", "content": f"请休息 {remaining} 秒后再提问！"}})
+            return StreamingResponse(cooldown_err(), media_type="application/json")
     
-    # A. 计算我方分路
+    # 更新时间
+    db.users.update_one({"username": current_user['username']}, {"$set": {"last_analysis_time": now}})
+
+    # ================= 数据准备 =================
+    
+    # 1. 智能推断分路 (使用你保留的逻辑)
     my_roles_map = infer_team_roles(data.myTeam, data.myLaneAssignments)
-    
-    # B. 计算敌方分路
     enemy_roles_map = infer_team_roles(data.enemyTeam, data.enemyLaneAssignments)
-
-    # C. 确定用户自己的位置
-    user_role_key = "MID" 
     
-    if data.userRole and data.userRole.upper() in ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]:
-        user_role_key = data.userRole.upper()
-    elif data.myHero:
+    # 确定用户位置
+    user_role_key = data.userRole.upper() if data.userRole else "MID"
+    # 如果没传位置但选了英雄，尝试反推
+    if not data.userRole and data.myHero:
         for r, h in my_roles_map.items():
-            if h == data.myHero:
-                user_role_key = r
-                break
-
-    # D. 确定我的对位英雄
+            if h == data.myHero: user_role_key = r; break
+            
+    # 确定对位英雄
     primary_enemy = enemy_roles_map.get(user_role_key, "Unknown")
-    
     if primary_enemy == "Unknown" and data.enemyHero:
         primary_enemy = data.enemyHero
 
-    # E. 构建上下文数据
-    bot_lane_context = ""
-    if user_role_key in ["ADC", "SUPPORT", "BOTTOM"]:
-        bot_lane_context = "【双人路特别提示】请特别关注我方辅助与ADC的技能配合，以及对线期谁更有线权。"
+    # 2. 读取 S15 机制 (使用新的智能格式化器)
+    s15_doc = db.constants.find_one({"_id": "s15_details"})
+    s15_context_text = smart_context_formatter(s15_doc)
 
-    def format_roles(role_map):
-        return " | ".join([f"{k}: {v}" for k, v in role_map.items() if v != "Unknown"])
+    # 3. 读取英雄数据
+    hero_doc = db.champions.find_one({"id": data.myHero})
+    hero_info_text = ""
+    if hero_doc:
+        hero_info_text = f"""
+        【我方英雄: {hero_doc.get('name', data.myHero)}】
+        - 定位: {hero_doc.get('role', '未知')}
+        - 梯队: {hero_doc.get('tier', '未知')}
+        - 标签: {', '.join(hero_doc.get('tags', []))}
+        """
+    else:
+        hero_info_text = f"【我方英雄】: {data.myHero} (暂无详细数据)"
 
-    my_team_str = format_roles(my_roles_map)
-    enemy_team_str = format_roles(enemy_roles_map)
+    # 4. 读取 Prompt 模板 (假设你在 prompts.json 里定义了 coach_system)
+    prompt_doc = db.prompts.find_one({"_id": "coach_system"})
+    base_prompt = prompt_doc['content'] if prompt_doc else "你是一个专业的LOL S15 教练。"
 
-    # ==========================================
-    # 3. 知识库检索 (RAG)
-    # ==========================================
-    top_tips = []
-    corrections = []
+    # 5. 组装 System Prompt
+    final_system_message = f"""
+    {base_prompt}
     
-    if data.myHero:
-        knowledge = db.get_top_knowledge_for_ai(data.myHero, primary_enemy)
-        top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
-        corrections = db.get_corrections(data.myHero, primary_enemy)
-
-    tips_text = "\n".join([f"- 社区心得: {t}" for t in top_tips]) if top_tips else "(暂无)"
+    {s15_context_text}
     
-    correction_prompt = ""
-    if corrections:
-        c_list = "\n".join([f"🔴 修正规则: {c}" for c in corrections])
-        correction_prompt = f"【已知错误修正】AI历史回答曾犯错，请务必遵守：\n{c_list}"
+    {hero_info_text}
+    """
 
-    # ==========================================
-    # 4. 角色与 Prompt 模式选择
-    # ==========================================
-    target_mode = data.mode 
-    hero_tier_info = ""
+    # 6. 组装 User Input
+    user_input_message = f"""
+    模式: {data.mode}
+    我方阵容: {', '.join([f'{k}:{v}' for k,v in my_roles_map.items()])}
+    敌方阵容: {', '.join([f'{k}:{v}' for k,v in enemy_roles_map.items()])}
+    我的英雄: {data.myHero} (位置: {user_role_key})
+    对位英雄: {primary_enemy}
+    """
 
-    if data.mode == "personal":
-        if not data.myHero:
-            def error_gen(): yield json.dumps({"concise": {"title": "缺少信息", "content": "请先选择你的英雄！"}})
-            return StreamingResponse(error_gen(), media_type="application/json")
+    # ================= AI 调用 (流式) =================
+    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 
-        hero_info = getattr(db, 'get_champion_info', lambda x: None)(data.myHero)
-        if hero_info:
-            print(f"📘 [DB] 英雄命中: {hero_info['name']} (定位: {hero_info['role']}, Tier: {hero_info['tier']})")
-            hero_tier_info = f"- 英雄强度情报: {data.myHero} 当前版本评级为 {hero_info.get('tier', '未知')}，主定位 {hero_info.get('role')}。"
-
-        if user_role_key == "JUNGLE":
-            target_mode = "personal_jungle"
-        else:
-            target_mode = "personal_lane"
-        
-        if hero_tier_info:
-            s15_context += f"\n{hero_tier_info}"
-
-    # ==========================================
-    # 5. Prompt 模板获取与动态注入
-    # ==========================================
-    template_doc = db.get_prompt_template(target_mode)
-    
-    if not template_doc:
-        def error_gen(): yield json.dumps({
-            "concise": {"title": "配置缺失", "content": f"未找到模式 [{target_mode}] 的提示词模板。"}, 
-            "detailed_tabs": [{"title": "系统提示", "content": "请管理员运行 `seed_data.py` 初始化 Prompt 库。"}]
-        })
-        return StreamingResponse(error_gen(), media_type="application/json")
-
-    try:
-        user_content = template_doc['user_template'].format(
-            mode=data.mode,
-            myTeam=f"{my_team_str} (原始: {str(data.myTeam)})",
-            enemyTeam=f"{enemy_team_str} (原始: {str(data.enemyTeam)})",
-            myHero=data.myHero,
-            enemyHero=primary_enemy,   # ✨ 传入智能计算后的对位英雄
-            userRole=user_role_key,    # ✨ 传入智能计算后的位置
-            s15_context=s15_context,
-            bot_lane_context=bot_lane_context,
-            tips_text=tips_text,
-            correction_prompt=correction_prompt
-        )
-        
-        system_content = template_doc['system_template'] + """ Output JSON only: {"concise": {"title": "...", "content": "..."}, "detailed_tabs": [{"title": "...", "content": "..."}]}"""
-
-    except KeyError as e:
-        def error_gen(): yield json.dumps({"concise": {"title": "模板渲染错误", "content": f"Prompt 模板中缺少变量占位符: {e}"}})
-        return StreamingResponse(error_gen(), media_type="application/json")
-
-    # ==========================================
-    # 6. 调用 OpenAI SDK (核心修改)
-    # ==========================================
-    if not DEEPSEEK_API_KEY: 
-        def error_gen(): yield json.dumps({"concise": {"title": "API Key Missing", "content": "No API Key configured in env."}})
-        return StreamingResponse(error_gen(), media_type="application/json")
-
-    # 你可以在这里切换 "deepseek-chat" (V3) 或 "deepseek-reasoner" (R1)
-    # 建议先用 chat 调试，稳定后再换 reasoner
-    MODEL_NAME = "deepseek-chat" 
-
-    def event_stream():
+    async def generate_stream():
         try:
-            print(f"🔄 [AI SDK] Requesting {MODEL_NAME} for {user_role_key} {data.myHero}...")
-            
-            # ✨ 使用官方 SDK 的 stream 功能
             stream = client.chat.completions.create(
-                model=MODEL_NAME,
+                model="deepseek-chat",
                 messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": user_content}
+                    {"role": "system", "content": final_system_message},
+                    {"role": "user", "content": user_input_message}
                 ],
-                stream=True, # 开启流式
-                temperature=0.6,
-                max_tokens=4000
+                stream=True
             )
-
-            print("✅ [AI SDK] Stream started.")
-
             for chunk in stream:
-                # 🛡️ 安全获取 delta 对象
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-                    
-                    # 🟢 只提取 content (忽略 reasoning_content)
-                    # 这样即使你将来切到 R1 模型，这里也会自动过滤掉思考过程
-                    if delta.content:
-                        print(delta.content, end="", flush=True)
-                        yield delta.content
-                    
-        except APIError as e:
-            print(f"❌ [AI SDK Error] {e}")
-            yield json.dumps({"concise": {"title": "API 错误", "content": str(e.message)}})
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
         except Exception as e:
-            print(f"❌ [Server Error] {e}")
-            yield json.dumps({"concise": {"title": "系统异常", "content": str(e)}})
+            print(f"AI Error: {e}")
+            yield json.dumps({"concise": {"title": "API Error", "content": "AI 服务连接失败，请检查 Key 或网络"}})
 
-    # 返回流式响应
-    return StreamingResponse(event_stream(), media_type="text/plain")
+    return StreamingResponse(generate_stream(), media_type="application/json")
 
-# backend/server.py
+# --- 4. 反馈与管理 ---
 
-# ================= 🛡️ 管理员后台接口 =================
+@app.post("/feedback")
+def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_current_user)):
+    """用户提交反馈"""
+    doc = {
+        "user_id": current_user['username'],
+        "description": data.description,
+        "match_context": data.match_context,
+        "created_at": datetime.datetime.utcnow(),
+        "status": "pending"
+    }
+    db.feedback.insert_one(doc)
+    return {"status": "success", "msg": "反馈已提交"}
 
 @app.get("/admin/feedbacks")
 def get_admin_feedbacks(current_user: dict = Depends(get_current_user)):
-    """
-    获取用户反馈列表。
-    🔒 安全机制：
-    1. Depends(get_current_user): 确保请求头带了有效 Token
-    2. 白名单检查: 确保用户名在管理员列表里
-    """
+    """管理员查看反馈"""
+    ADMINS = ["admin", "root", "keonsuyun", "HexCoach"]
+    if current_user.get('role') != 'admin' and current_user['username'] not in ADMINS:
+        raise HTTPException(status_code=403, detail="权限不足")
     
-    # ⚠️ 请务必把你的注册用户名填在这里！
-    ADMIN_WHITELIST = ["admin", "root", "keonsuyun", "HexCoach"] 
-    
-    # 也可以扩展为检查数据库里的 role 字段
-    is_admin = current_user.get('role') == 'admin' or current_user['username'] in ADMIN_WHITELIST
-    
-    if not is_admin:
-        # 403 Forbidden: 哪怕你登录了，权限不够也不让看
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="权限不足：仅管理员可访问此数据"
-        )
+    cursor = db.feedback.find().sort("created_at", -1).limit(50)
+    results = []
+    for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        results.append(doc)
+    return results
 
-    # 只有通过验证才会执行查库
-    feedbacks = db.get_all_feedbacks()
-    return feedbacks
+# ================= 静态文件托管 (Docker/Sealos 部署用) =================
+if os.path.exists("frontend/dist"):
+    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+    @app.get("/{full_path:path}")
+    async def catch_all(full_path: str):
+        # 排除 API 路径，避免 404 被前端路由捕获
+        if any(full_path.startswith(prefix) for prefix in ["api", "tips", "token", "register", "analyze", "feedback"]):
+            raise HTTPException(status_code=404)
+        return FileResponse("frontend/dist/index.html")
 
-app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
-
-# 2. 任何其他路径都返回 index.html (让 React 路由生效)
-@app.get("/{full_path:path}")
-async def catch_all(full_path: str):
-    return FileResponse("frontend/dist/index.html")
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

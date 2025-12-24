@@ -281,63 +281,93 @@ export default function App() {
 
   // 🔥 核心修改：流式分析 + 携带分路数据
   const handleAnalyze = async (mode) => {
-      setAnalyzeType(mode); setIsAnalyzing(true); setAiResult(null);
-      
-      // 1. 整理有效的修正数据
-      const validAssignments = {};
-      const currentEnemyNames = redTeam.map(c => c?.name).filter(Boolean); 
-      Object.keys(enemyLaneAssignments).forEach(key => {
-          const hero = enemyLaneAssignments[key];
-          if (hero && currentEnemyNames.includes(hero)) {
-              validAssignments[key] = hero;
-          }
-      });
+    // 🛡️ 1. 防手抖：如果正在分析中，直接忽略这次点击，防止重复扣费
+    if (isAnalyzing) return;
 
-      try {
-          const payload = {
-              mode, 
-              myHero: blueTeam[userSlot]?.name || "未知", 
-              myTeam: blueTeam.map(c => c?.name || "未选"), 
-              enemyTeam: redTeam.map(c => c?.name || "未选"), 
-              userRole, // 这里如果是空，后端会启用智能识别
-              ...(Object.keys(validAssignments).length > 0 && { enemyLaneAssignments: validAssignments })
-          };
+    // 🛡️ 2. 强制登录：如果没有 Token，直接弹出登录框，不发请求
+    if (!token) {
+        setAuthMode('login');    // 确保弹窗是登录模式
+        setShowLoginModal(true); // 打开弹窗
+        return;
+    }
 
-          // ✨ 使用 fetch 进行流式读取
-          const response = await fetch(`${API_BASE_URL}/analyze`, {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-                  ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-              },
-              body: JSON.stringify(payload)
-          });
+    // 🔒 3. 锁定状态：开始分析，按钮变灰
+    setAnalyzeType(mode);
+    setIsAnalyzing(true);
+    setAiResult(null);
 
-          if (!response.body) return;
+    // --- 数据整理逻辑 (保持不变) ---
+    const validAssignments = {};
+    const currentEnemyNames = redTeam.map(c => c?.name).filter(Boolean);
+    Object.keys(enemyLaneAssignments).forEach(key => {
+        const hero = enemyLaneAssignments[key];
+        if (hero && currentEnemyNames.includes(hero)) {
+            validAssignments[key] = hero;
+        }
+    });
 
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder("utf-8");
-          let done = false;
-          let accumulatedText = "";
+    try {
+        const payload = {
+            mode,
+            myHero: blueTeam[userSlot]?.name || "未知",
+            myTeam: blueTeam.map(c => c?.name || "未选"),
+            enemyTeam: redTeam.map(c => c?.name || "未选"),
+            userRole,
+            ...(Object.keys(validAssignments).length > 0 && { enemyLaneAssignments: validAssignments })
+        };
 
-          while (!done) {
-              const { value, done: doneReading } = await reader.read();
-              done = doneReading;
-              if (value) {
-                  const chunk = decoder.decode(value, { stream: true });
-                  accumulatedText += chunk;
-                  // 实时传给 UI 组件，让脏 JSON 解析器处理
-                  setAiResult(accumulatedText);
-              }
-          }
+        const response = await fetch(`${API_BASE_URL}/analyze`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // 带上 Token
+            },
+            body: JSON.stringify(payload)
+        });
 
-      } catch (e) {
-          console.error(e);
-          setAiResult({ concise: { title: "分析中断", content: "无法连接到 AI 服务" }, detailed_tabs: [] });
-      } finally { 
-          setIsAnalyzing(false); 
-      }
-  };
+        // 检查网络级错误
+        if (!response.ok) {
+             // 如果 Token 过期或非法
+             if (response.status === 401) {
+                 setShowLoginModal(true);
+                 throw new Error("登录已过期，请重新登录");
+             }
+             throw new Error(`请求失败: ${response.status}`);
+        }
+
+        if (!response.body) return;
+
+        // --- 流式读取逻辑 (保持不变) ---
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let done = false;
+        let accumulatedText = "";
+
+        while (!done) {
+            const { value, done: doneReading } = await reader.read();
+            done = doneReading;
+            if (value) {
+                const chunk = decoder.decode(value, { stream: true });
+                accumulatedText += chunk;
+                // 实时传给 UI
+                setAiResult(accumulatedText);
+            }
+        }
+
+    } catch (error) {
+        console.error("Analysis Error:", error);
+        // 发生错误时，给 UI 显示一个“错误简报”，而不是一直转圈
+        setAiResult(JSON.stringify({
+            concise: {
+                title: "分析请求中断",
+                content: `无法完成分析：${error.message || "网络异常，请检查连接"}`
+            }
+        }));
+    } finally {
+        // 🔓 4. 最终解锁：无论成功还是失败，都要让按钮恢复可点击状态
+        setIsAnalyzing(false);
+    }
+};
 
   const handleReportError = async () => {
     if (!currentUser) return setShowLoginModal(true);
@@ -495,7 +525,7 @@ export default function App() {
 
       {/* 2. 管理员入口按钮 (左下角红色悬浮盾牌) */}
       {/* 逻辑：只有登录了，且用户名在白名单里才显示按钮 */}
-      {currentUser && ["admin", "root", "keonsuyun", "HexCoach"].includes(currentUser) && (
+      {currentUser && ["admin", "root", "keonsuyun",].includes(currentUser) && (
           <button 
               onClick={() => setShowAdminPanel(true)}
               className="fixed bottom-4 left-4 z-50 bg-red-950/90 hover:bg-red-700 text-red-100 p-3 rounded-full shadow-[0_0_20px_rgba(220,38,38,0.6)] border border-red-500 transition-all hover:scale-110 group"

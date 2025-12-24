@@ -1,8 +1,0 @@
-{
-  "_id": "s15_rules",
-  "patch_version": "15.1",
-  "void_grubs_spawn": "6:00",
-  "void_grubs_count": "每次3只，只有1波",
-  "atakhan_spawn": "20:00 (代替大龙，随机刷新在上方或下方)",
-  "jungle_xp_mechanic": "野怪必须清理完整【6组】才能到达4级"
-}

@@ -1,108 +1,127 @@
 import json
 import os
+import datetime
 from pymongo import MongoClient
 from passlib.context import CryptContext
+from dotenv import load_dotenv
+
+# 1. 加载环境变量 (用于本地测试读取 .env，生产环境会自动读取系统变量)
+load_dotenv()
+
+# 2. 配置密码加密工具 (用于创建管理员密码)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def seed_admin_user(db):
-    print("\n🚀 [4/4] 正在检查/创建管理员账号...")
-    
-    # 这里定义你的超级管理员账号密码
-    ADMIN_USER = "admin"
-    ADMIN_PASS = "admin123" # ⚠️ 生产环境请务必修改这里的密码！
-    
-    existing_admin = db.users.find_one({"username": ADMIN_USER})
-    
-    if not existing_admin:
-        hashed_pw = pwd_context.hash(ADMIN_PASS)
-        admin_doc = {
-            "username": ADMIN_USER,
-            "password": hashed_pw,
-            "role": "admin", # 🔥 这里赋予至高无上的 admin 权限
-            "created_at": "SYSTEM_INIT"
-        }
-        db.users.insert_one(admin_doc)
-        print(f"✅ 管理员账号已创建: {ADMIN_USER} / {ADMIN_PASS}")
-    else:
-        # 如果你想强制重置管理员权限，可以在这里 update_one
-        db.users.update_one(
-            {"username": ADMIN_USER},
-            {"$set": {"role": "admin"}}
-        )
-        print("✅ 管理员账号已存在 (权限已确认)")
-
 def load_json(filename):
-    """安全加载 JSON 文件"""
-    # 获取 seed_data.py 所在的文件夹 (即 backend) 的绝对路径
+    """
+    辅助函数：从 backend/secure_data/ 目录安全读取 JSON 文件
+    """
+    # 获取当前脚本所在目录 (backend/)
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # 拼接目标路径
-    file_path = os.path.join(base_dir, 'secure_data', filename)
+    # 拼接完整路径
+    file_path = os.path.join(base_dir, "secure_data", filename)
     
-    # 🔍 调试打印
-    print(f"🔍 [Debug] 正在尝试读取文件: {file_path}")
-
     if not os.path.exists(file_path):
-        print(f"⚠️ 警告: 找不到 {filename}，请确保你已在本地创建了此敏感数据文件。")
-        return None  # 如果找不到文件返回 None
+        print(f"⚠️ [警告] 文件未找到: {filename} (跳过此项同步)")
+        return None
         
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"❌ [错误] 读取 {filename} 失败: {e}")
+        return None
 
 def seed_data():
-    """主播种函数"""
-    print("🔌 [Database] 正在尝试连接: mongodb://localhost:27017")
-    try:
-        client = MongoClient("mongodb://localhost:27017/")
-        db = client["lol_community"]
-        print("✅ [Database] 连接成功")
-    except Exception as e:
-        print(f"❌ [Database] 连接失败: {e}")
-        return
-
-    # --- 1. Prompts ---
-    print("\n🚀 [1/3] 正在同步 Prompts...")
-    prompts = load_json("prompts.json")
-    if prompts:
-        db.prompts.delete_many({})
-        db.prompts.insert_many(prompts)
-        print(f"✅ 成功更新 {len(prompts)} 条 Prompt 模板")
-    else:
-        print("❌ 跳过 Prompt 更新 (无数据或文件缺失)")
-
-    # --- 2. Champions ---
-    print("\n🚀 [2/3] 正在同步英雄数据...")
-    champions = load_json("champions.json")
-    if champions:
-        db.champions.delete_many({})
-        db.champions.insert_many(champions)
-        print(f"✅ 成功更新 {len(champions)} 个英雄数据")
-    else:
-        print("❌ 跳过英雄更新 (无数据或文件缺失)")
-
-    # --- 3. Game Constants (S15 Rules) ---
-    print("\n🚀 [3/3] 正在同步峡谷规则 (S15)...")
-    constants = load_json("game_constants.json")
+    print("🌱 [Seeding] 正在初始化数据库数据...")
     
-    if constants:
-        # 使用 replace_one 确保只有一份配置，upsert=True 表示不存在则创建
+    # 3. 连接数据库
+    # 优先读取环境变量里的 MONGO_URL，读不到则默认为本地
+    mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27017/")
+    client = MongoClient(mongo_url)
+    
+    # ⚠️ 确保这里的数据库名和你 server.py 里的一致
+    db = client["lol_community"] 
+
+    # ================= 4. 同步 Prompts (提示词) =================
+    print("\n🚀 [1/4] 同步 AI 提示词 (Prompts)...")
+    prompts_data = load_json("prompts.json")
+    
+    if prompts_data:
+        # 假设 prompts.json 格式为: {"system_coach": "你是一个...", "analysis_rule": "..."}
+        for key, content in prompts_data.items():
+            db.prompts.replace_one(
+                {"_id": key},         # 查询条件：按 _id 查找
+                {"content": content}, # 更新内容
+                upsert=True           # 如果不存在则插入，存在则更新
+            )
+        print("✅ Prompts 同步完成")
+
+    # ================= 5. 同步 Champions (英雄数据) =================
+    print("\n🚀 [2/4] 同步英雄数据 (Champions)...")
+    champs_data = load_json("champions.json")
+    
+    if champs_data:
+        # 假设 champions.json 是列表: [{"id": "Aatrox", "tier": "T1", ...}, ...]
+        count = 0
+        for hero in champs_data:
+            if "id" in hero:
+                db.champions.replace_one(
+                    {"id": hero["id"]}, # 使用英雄英文名 ID 作为主键
+                    hero, 
+                    upsert=True
+                )
+                count += 1
+        print(f"✅ 已同步 {count} 个英雄的数据")
+
+    # ================= 6. 同步 S15 机制 (S15 Mechanics) =================
+    print("\n🚀 [3/4] 同步 S15 赛季核心机制...")
+    s15_data = load_json("s15_mechanics.json")
+    
+    if s15_data:
+        # 将整个 JSON 存为一个单独的文档，ID 固定为 "s15_details"
+        # 这样 server.py 可以一次性读出所有配置
         db.constants.replace_one(
-            {"_id": "s15_rules"}, 
-            constants, 
+            {"_id": "s15_details"}, 
+            s15_data, 
             upsert=True
         )
-        print("✅ 成功更新 S15 峡谷规则数据库")
+        print("✅ S15 机制数据已覆盖旧版数据")
+
+    # ================= 7. 创建/检查 管理员账号 =================
+    print("\n🚀 [4/4] 检查管理员账号...")
+    
+    admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    admin_pass = os.getenv("ADMIN_PASSWORD") # 生产环境务必设置此环境变量
+
+    if not admin_pass:
+        print("⚠️ [跳过] 未检测到 ADMIN_PASSWORD 环境变量，不执行管理员创建。")
+        print("   (如果是本地测试，请在 .env 文件中设置 ADMIN_PASSWORD)")
     else:
-        print("❌ 跳过规则更新 (无数据或文件缺失)")
+        # 检查管理员是否已存在
+        existing_admin = db.users.find_one({"username": admin_user})
         
-    client = MongoClient("mongodb://localhost:27017/")
-    db = client["lol_community"]
-        
-    # ... Prompts, Champions, Constants 的同步 ...
+        if not existing_admin:
+            hashed_pw = pwd_context.hash(admin_pass)
+            new_admin = {
+                "username": admin_user,
+                "password": hashed_pw,
+                "role": "admin", # 🔥 关键：赋予管理员权限
+                "created_at": datetime.datetime.utcnow(),
+                "last_analysis_time": None
+            }
+            db.users.insert_one(new_admin)
+            print(f"✅ 管理员账号已创建: {admin_user}")
+        else:
+            # 可选：强制确保现有 admin 账号拥有 admin 权限
+            db.users.update_one(
+                {"username": admin_user},
+                {"$set": {"role": "admin"}}
+            )
+            print(f"ℹ️ 管理员账号 {admin_user} 已存在 (权限已确认)")
 
-    # ✨ 执行管理员注入
-    seed_admin_user(db)
-
-    print("\n🎉 所有机密数据同步完成！")
+    print("\n🎉 =========================================")
+    print("🎉 所有数据播种完成！后端已准备就绪。")
+    print("🎉 =========================================")
 
 if __name__ == "__main__":
     seed_data()
