@@ -4,7 +4,7 @@ import os
 import datetime
 import time
 from pymongo import MongoClient
-from pymongo.errors import ServerSelectionTimeoutError, ConfigurationError # 引入新异常
+from pymongo.errors import ServerSelectionTimeoutError, ConfigurationError 
 from bson.objectid import ObjectId
 
 class KnowledgeBase:
@@ -20,7 +20,7 @@ class KnowledgeBase:
             # 🟢 2. 强制连通性检查
             self.client.admin.command('ping')
             
-            # 🟢 3. 智能数据库选择 (修复版)
+            # 🟢 3. 智能数据库选择
             try:
                 # 尝试获取 URI 中指定的数据库
                 self.db = self.client.get_default_database()
@@ -37,7 +37,7 @@ class KnowledgeBase:
             self.corrections_col = self.db['corrections']
             self.users_col = self.db['users']
             self.prompt_templates_col = self.db['prompt_templates']
-            self.champions_col = self.db['champions'] # 确保加上这行
+            self.champions_col = self.db['champions'] 
 
             # === 索引初始化 ===
             self._init_indexes()
@@ -51,7 +51,6 @@ class KnowledgeBase:
         """辅助函数：打印连接目标，但隐藏密码"""
         try:
             if "@" in self.uri:
-                # 格式通常是 mongodb://user:pass@host...
                 part_after_at = self.uri.split("@")[1]
                 print(f"🔌 [Database] 正在尝试连接: mongodb://****:****@{part_after_at}")
             else:
@@ -68,106 +67,136 @@ class KnowledgeBase:
             self.corrections_col.create_index([("hero", 1), ("enemy", 1)])
             # 用户名唯一索引
             self.users_col.create_index("username", unique=True)
-            # Prompt 模式唯一索引 (如 'bp_coach' 只能有一条)
+            # Prompt 模式唯一索引
             self.prompt_templates_col.create_index("mode", unique=True)
             print("✅ [Database] 索引检查完毕")
         except Exception as e:
             print(f"⚠️ [Database] 索引创建警告: {e}")
 
-    def create_user(self, username, hashed_password, role="user"):
-            """创建用户，默认为普通用户"""
-            if self.db.users.find_one({"username": username}):
-                return False
-            
-            user_doc = {
-                "username": username,
-                "password": hashed_password,
-                "role": role,  # ✨ 强制写入角色字段
-                "created_at": datetime.datetime.utcnow()
+    # ==========================
+    # ⏱️ 频控与限流系统 (核心升级：15秒CD + 分栏目)
+    # ==========================
+    def check_and_update_usage(self, username, mode):
+        """
+        检查并更新用户的使用次数和冷却时间。
+        返回: (allowed: bool, message: str, remaining_seconds: int)
+        """
+        user = self.users_col.find_one({"username": username})
+        if not user:
+            return False, "用户不存在", 0
+
+        # 1. 获取当前状态
+        now = datetime.datetime.utcnow()
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # 数据结构初始化 (兼容旧数据)
+        usage_data = user.get("usage_stats", {})
+        last_reset = usage_data.get("last_reset_date", "")
+        
+        # 2. 跨天重置逻辑
+        if last_reset != today_str:
+            # 新的一天，重置计数
+            usage_data = {
+                "last_reset_date": today_str,
+                "counts": {},      # 各模式今日已用次数 { "bp": 2, "personal": 0 }
+                "last_access": {}  # 各模式上次使用时间
             }
-            self.db.users.insert_one(user_doc)
-            return True
+        
+        counts = usage_data.get("counts", {})
+        last_access = usage_data.get("last_access", {})
+
+        # 3. 检查冷却时间 (此处修改为 15 秒)
+        COOLDOWN_SECONDS = 15
+        
+        last_time_str = last_access.get(mode)
+        if last_time_str:
+            last_time = datetime.datetime.fromisoformat(last_time_str)
+            delta = (now - last_time).total_seconds()
+            if delta < COOLDOWN_SECONDS:
+                return False, f"技能冷却中 ({int(COOLDOWN_SECONDS - delta)}s)", int(COOLDOWN_SECONDS - delta)
+
+        # 4. 检查每日上限 (Pro/Admin 无限，普通用户 5次)
+        role = user.get("role", "user")
+        is_pro = role in ["vip", "svip", "admin", "pro", "HexCoach"] 
+        
+        current_count = counts.get(mode, 0)
+        max_daily = 5 # 普通用户上限
+        
+        if not is_pro and current_count >= max_daily:
+            return False, f"今日次数已耗尽 (普通用户每日 {max_daily} 次)", -1
+
+        # 5. 更新数据库 (通行)
+        counts[mode] = current_count + 1
+        last_access[mode] = now.isoformat()
+        
+        usage_data["counts"] = counts
+        usage_data["last_access"] = last_access
+        usage_data["last_reset_date"] = today_str # 确保更新日期
+
+        self.users_col.update_one(
+            {"username": username},
+            {"$set": {"usage_stats": usage_data}}
+        )
+
+        return True, "允许分析", 0
 
     # ==========================
-    # 👤 用户系统 (User Auth)
+    # 👤 用户系统
     # ==========================
-    def create_user(self, username, password_hash):
+    def create_user(self, username, hashed_password, role="user"):
         try:
+            if self.users_col.find_one({"username": username}):
+                return False
+                
             self.users_col.insert_one({
                 "username": username,
-                "password": password_hash,
-                "role": "user",
+                "password": hashed_password,
+                "role": role,
                 "created_at": datetime.datetime.utcnow()
             })
             return True
         except:
-            return False # 触发唯一索引冲突
+            return False 
+
+    def get_user(self, username):
+        return self.users_col.find_one({"username": username})
+
     # ==========================
-    # 👤 管理员
+    # 🛡️ 管理员功能
     # ==========================
- 
     def get_all_feedbacks(self, limit=50):
-        """
-        获取最新的反馈列表 (管理员专用)
-        按 _id 倒序排列 (即时间倒序)
-        """
         try:
-            # 假设你的集合名是 'feedback' (取决于 submit_feedback 怎么写的)
-            # 如果之前代码是 db.submit_feedback(...) 且没指定集合，请检查之前的 submit_feedback 实现
-            # 通常我们在 submit_feedback 里写的是: self.db.feedback.insert_one(...)
-            
-            cursor = self.db.feedback.find().sort('_id', -1).limit(limit)
-            
+            cursor = self.feedback_col.find().sort('_id', -1).limit(limit)
             results = []
             for doc in cursor:
-                doc['_id'] = str(doc['_id']) # 将 ObjectId 转为字符串，否则 JSON 报错
+                doc['_id'] = str(doc['_id'])
                 results.append(doc)
             return results
         except Exception as e:
             print(f"Error getting feedbacks: {e}")
             return []
 
-    def get_user(self, username):
-        return self.users_col.find_one({"username": username})
-
     # ==========================
-    # 📝 Prompt 动态配置 (核心资产解耦)
+    # 📝 配置与Prompt
     # ==========================
     def get_prompt_template(self, mode: str):
-        """
-        从数据库获取 Prompt 模板。
-        如果在数据库找不到，返回 None，Server 层需要处理兜底逻辑。
-        """
         return self.prompt_templates_col.find_one({"mode": mode})
 
-    # ==========================
-    # ⚙️ 基础配置 (S15 Config)
-    # ==========================
     def get_game_constants(self):
-        """从数据库获取 S15 游戏常量"""
         try:
-            # 去 constants 集合查找 _id 为 s15_rules 的文档
-            data = self.db.constants.find_one({"_id": "s15_rules"})
-            
-            if data:
-                return data
-            
-            # 💡 兜底策略：如果数据库还没播种，返回一个默认值，防止报错
-            print("⚠️ 警告: 数据库中未找到峡谷规则，使用默认空值")
+            data = self.config_col.find_one({"_id": "s15_rules"})
+            if data: return data
+            # 兜底
             return {
                 "patch_version": "Unknown",
                 "void_grubs_spawn": "Unknown",
                 "patch_notes": "数据缺失，请运行 seed_data.py",
-                "jungle_xp_mechanic": "数据缺失",
-                "jungle_routes_meta": "数据缺失"
             }
-            
         except Exception as e:
-            print(f"Error fetching constants: {e}")
             return {}
 
     # ==========================
-    # 💬 绝活社区 & AI 知识库
+    # 💬 绝活社区
     # ==========================
     def get_tips_for_ui(self, hero, enemy, is_general):
         query = {"hero": hero}
@@ -224,7 +253,7 @@ class KnowledgeBase:
             return False
 
     # ==========================
-    # 🧠 AI 接口
+    # 🧠 AI 辅助
     # ==========================
     def get_top_knowledge_for_ai(self, hero, enemy):
         gen_tips = self.get_tips_for_ui(hero, enemy, True)[:3]
@@ -251,8 +280,10 @@ class KnowledgeBase:
         self.feedback_col.insert_one(feedback_data)
 
     def get_champion_info(self, name_or_alias):
+        # 模糊匹配英雄名
         champ = self.champions_col.find_one({"name": {"$regex":f"^{name_or_alias}$", "$options": "i"}})
         if champ: return champ
+        # 别名匹配
         champ = self.champions_col.find_one({"alias": name_or_alias})
         if champ: return champ
         return None

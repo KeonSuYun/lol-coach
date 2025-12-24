@@ -2,6 +2,8 @@ import os
 import json
 import uvicorn
 import datetime
+from pathlib import Path
+from dotenv import load_dotenv
 from typing import List, Optional, Dict
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -21,8 +23,26 @@ from jose import JWTError, jwt
 # 引入数据库逻辑
 from core.database import KnowledgeBase
 
-# ================= 配置 =================
-SECRET_KEY = os.getenv("SECRET_KEY", "hexcoach_secret_key_change_me_please")
+# ================= 🔧 强制加载根目录 .env =================
+# 1. 获取 server.py 所在的目录 (即 backend)
+current_dir = Path(__file__).resolve().parent
+# 2. 获取根目录
+root_dir = current_dir.parent
+# 3. 拼接出 .env 的绝对路径
+env_path = root_dir / '.env'
+# 4. 加载指定路径的 .env
+load_dotenv(dotenv_path=env_path)
+
+# ================= 🛡️ 安全配置 =================
+# 1. 强制从环境变量读取 SECRET_KEY
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    print("⚠️ 警告: 未检测到 SECRET_KEY 环境变量！")
+    # 如果是生产环境，建议抛出异常阻止启动
+    # raise ValueError("❌ 严重错误: 生产环境必须配置 SECRET_KEY 环境变量！")
+    print("⚠️ 开发模式使用临时密钥 (切勿用于生产)")
+    SECRET_KEY = "dev_secret_key_change_me_immediately"
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token 7天过期
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
@@ -41,11 +61,21 @@ db = KnowledgeBase()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # OAuth2 方案
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
-# 🟢 允许跨域
+
+# 挂载静态资源 (确保 dist 目录存在，用于前端页面托管)
+if os.path.exists("frontend/dist/assets"):
+    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+
+# 🟢 2. 限制 CORS (跨域资源共享)
+ORIGINS = [
+    "http://localhost:5173",             # 本地前端开发端口
+    "http://127.0.0.1:5173",             # 本地前端开发端口
+    "https://kozzbluxklwn.sealosbja.site" # 🟢 你的生产环境前端域名
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -83,10 +113,10 @@ class AnalyzeRequest(BaseModel):
     enemyTeam: List[str] = []
     userRole: str = "" # 用户手动选的位置 (兼容旧版)
     
-    # ✨ 明确的分路信息 (字典格式: {"TOP": "Aatrox", "JUNGLE": "Lee Sin"})
-    # 前端如果有确定的数据 (LCU 或 用户手动修正)，传这两个字段
+    # ✨ 核心升级：接收分路修正 + 模型选择
     myLaneAssignments: Optional[Dict[str, str]] = None 
     enemyLaneAssignments: Optional[Dict[str, str]] = None
+    model_type: str = "chat" # 默认 V3 (chat)，可选 "reasoner" (R1)
 
 # ================= 🔐 核心权限逻辑 =================
 
@@ -127,7 +157,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str, str]] = None):
     """
     根据英雄列表和数据库信息，推断每条路是谁。
-    优先使用 fixed_assignments (用户手动修正的数据)。
+    优先使用 fixed_assignments (用户手动修正或LCU提供的数据)。
     """
     if not team_list:
         return {}
@@ -135,7 +165,7 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     # 标准位置定义
     standard_roles = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
     
-    # 1. 初始化结果，先填入用户锁定的位置 (Manual Override)
+    # 1. 初始化结果，先填入确定的位置
     final_roles = {role: "Unknown" for role in standard_roles}
     assigned_heroes = set()
 
@@ -153,12 +183,11 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     # 3. 遍历未分配的英雄，查库进行“填空” (简单的贪心算法)
     for hero in remaining_heroes:
         # 查库获取英雄首选位置
-        # 注意：这里安全调用 db.get_champion_info，防止方法不存在报错
         hero_info = getattr(db, 'get_champion_info', lambda x: None)(hero)
         
         pref_role = hero_info.get('role', 'mid').upper() if hero_info else "MID"
         
-        # 映射数据库的 role 到标准 role (防止叫法不一致)
+        # 映射数据库的 role 到标准 role
         role_map = {
             "TOP": "TOP", "JUNGLE": "JUNGLE", "MID": "MID", 
             "ADC": "ADC", "BOTTOM": "ADC", "SUPPORT": "SUPPORT", "SUP": "SUPPORT"
@@ -169,7 +198,7 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
         if final_roles[target] == "Unknown":
             final_roles[target] = hero
         else:
-            # 如果位置被占了 (比如两个中单)，暂时先找一个空位填进去 (兜底策略)
+            # 如果位置被占了，暂时先找一个空位填进去
             for r in standard_roles:
                 if final_roles[r] == "Unknown":
                     final_roles[r] = hero
@@ -178,7 +207,37 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     # 清理掉还是 Unknown 的位置
     return {k: v for k, v in final_roles.items() if v != "Unknown"}
 
-# ================= 🚀 接口 API =================
+# ================= 🔧 通用清洗工具 =================
+
+def dynamic_context_formatter(doc):
+    """
+    🔥 万能清洗器：动态读取数据库文档里的 data_modules
+    以后你加新的反馈、新的绝活、新的版本改动，只要 JSON 格式对，这里自动适配。
+    """
+    if not doc or "data_modules" not in doc:
+        return ""
+
+    prompt_lines = []
+    
+    # 遍历所有模块
+    for module_key, module_data in doc["data_modules"].items():
+        title = module_data.get("title", module_key)
+        prompt_lines.append(f"\n### {title}")
+        
+        items = module_data.get("items", [])
+        for item in items:
+            name = item.get("name", "未命名技巧")
+            rule = item.get("rule", "")
+            note = item.get("note", "")
+            
+            line = f"- **{name}**: {rule}"
+            if note:
+                line += f" (💡 注意: {note})"
+            prompt_lines.append(line)
+
+    return "\n".join(prompt_lines)
+
+# ================= 🚀 API 接口 =================
 
 @app.get("/")
 def health_check():
@@ -188,30 +247,15 @@ def health_check():
 
 @app.post("/register")
 def register(user: UserCreate):
-    # 🚫 1. 定义保留字黑名单 (全部转小写比较)
-    RESERVED_USERNAMES = [
-        "admin", "administrator", "root", "system", "superuser", 
-        "support", "official", "hexcoach", "gm", "master"
-    ]
-    
-    # 🛡️ 2. 检查用户名是否违规
+    RESERVED_USERNAMES = ["admin", "root", "system", "hexcoach", "gm", "master"]
     clean_username = user.username.lower().strip()
     
-    # 检查是否在黑名单中
-    if clean_username in RESERVED_USERNAMES:
-        raise HTTPException(
-            status_code=400, 
-            detail="该用户名包含保留字，无法注册"
-        )
-        
-    # 检查是否包含 "admin" 字样 (防止 admin123 这种)
-    if "admin" in clean_username:
-        raise HTTPException(
-            status_code=400, 
-            detail="用户名不能包含 'admin' 字样"
-        )
+    if clean_username in RESERVED_USERNAMES or "admin" in clean_username:
+        raise HTTPException(status_code=400, detail="该用户名包含保留字，无法注册")
+
     hashed_pw = get_password_hash(user.password)
-    if db.create_user(user.username, hashed_pw):
+    # 创建用户 (默认为 user 角色)
+    if db.create_user(user.username, hashed_pw, role="user"):
         return {"status": "success", "msg": "注册成功，请登录"}
     raise HTTPException(status_code=400, detail="用户名已存在")
 
@@ -250,6 +294,7 @@ def delete_tip_endpoint(tip_id: str, current_user: dict = Depends(get_current_us
     if not tip:
         raise HTTPException(status_code=404, detail="评论不存在")
     
+    # 权限检查：作者本人 或 管理员
     is_admin = current_user.get('role') == 'admin' or current_user['username'] in ["admin", "root", "keonsuyun"]
 
     if tip['author_id'] != current_user['username'] and not is_admin:
@@ -276,79 +321,34 @@ def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_curren
     except Exception as e:
         print(f"Feedback Error: {e}")
         raise HTTPException(status_code=500, detail="反馈提交失败")
-def dynamic_context_formatter(doc):
-    """
-    🔥 万能清洗器：动态读取数据库文档里的 data_modules
-    以后你加新的反馈、新的绝活、新的版本改动，只要 JSON 格式对，这里自动适配。
-    """
-    if not doc or "data_modules" not in doc:
-        return ""
 
-    prompt_lines = []
-    
-    # 遍历所有模块 (比如 "game_flow", "user_feedback", "hero_tips" 等)
-    for module_key, module_data in doc["data_modules"].items():
-        
-        # 1. 加上小标题
-        title = module_data.get("title", module_key)
-        prompt_lines.append(f"\n### {title}")
-        
-        # 2. 遍历该模块下的每一条知识
-        items = module_data.get("items", [])
-        for item in items:
-            name = item.get("name", "未命名技巧")
-            rule = item.get("rule", "")
-            note = item.get("note", "")
-            
-            # 拼装格式： - 技巧名: 规则 (💡 提示)
-            line = f"- **{name}**: {rule}"
-            if note:
-                line += f" (💡 注意: {note})"
-            
-            prompt_lines.append(line)
-
-    return "\n".join(prompt_lines)
-# --- 4. AI 分析 (深度思考 R1 模式 - SDK 流式增强版) ---
+# --- 4. AI 分析 (核心业务) ---
 
 @app.post("/analyze")
-async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_current_user)): # 👈 强制要求登录才能分析
-    # 🛡️ 1. 检查 API Key 是否存在
+async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_current_user)): 
+    # 🛡️ 1. 检查 API Key
     if not DEEPSEEK_API_KEY:
          def err(): yield json.dumps({"concise": {"title":"配置错误", "content":"服务端未配置 API Key"}})
          return StreamingResponse(err(), media_type="application/json")
 
-    # 🛡️ 2. 【新增】防刷逻辑：检查冷却时间 (例如 60秒)
-    last_time = current_user.get("last_analysis_time")
-    now = datetime.datetime.utcnow()
+    # 🛡️ 2. 频控检查 (15秒CD + 分栏目)
+    allowed, msg, remaining = db.check_and_update_usage(current_user['username'], data.mode)
     
-    if last_time:
-        # 数据库里存的是 ISO 格式字符串或 datetime 对象，这里做个兼容处理
-        if isinstance(last_time, str):
-            last_time = datetime.datetime.fromisoformat(last_time)
-            
-        # 计算时间差
-        delta = (now - last_time).total_seconds()
-        if delta < 60: # ⏳ 冷却时间设为 60 秒
-            remaining = int(60 - delta)
-            def cooldown_err(): 
-                yield json.dumps({
-                    "concise": {
-                        "title": "技能冷却中", 
-                        "content": f"教练正在喝水，请休息 {remaining} 秒后再提问！(防止API滥用)"
-                    }
-                })
-            return StreamingResponse(cooldown_err(), media_type="application/json")
+    if not allowed:
+        # 如果被拒绝，返回特定错误
+        def limit_err(): 
+            yield json.dumps({
+                "concise": {
+                    "title": "请求被拒绝", 
+                    "content": msg + ("\n💡 升级 VIP 可解锁无限次使用！" if remaining == -1 else "")
+                }
+            })
+        return StreamingResponse(limit_err(), media_type="application/json")
 
-    # 🛡️ 3. 更新用户的“上次分析时间”
-    db.db.users.update_one(
-        {"username": current_user['username']},
-        {"$set": {"last_analysis_time": now}}
-    )
     # ==========================================
-    # 1. 基础 S15 数据获取与环境构建
+    # 3. 基础 S15 数据获取
     # ==========================================
     game_constants = db.get_game_constants()
-    
     s15_context = f"""
     ### S15 核心环境数据
     - 虚空巢虫: {game_constants.get('void_grubs_spawn')} (每波数量: {game_constants.get('void_grubs_count')})
@@ -357,20 +357,22 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     """
 
     # ==========================================
-    # 2. 🚀 智能位置识别逻辑 (Core Logic)
+    # 4. 🚀 智能位置识别逻辑 (使用前端传来的 assignments)
     # ==========================================
     
-    # A. 计算我方分路
+    # A. 计算我方分路 (传入前端整理好的 myLaneAssignments)
     my_roles_map = infer_team_roles(data.myTeam, data.myLaneAssignments)
     
-    # B. 计算敌方分路
+    # B. 计算敌方分路 (传入 enemyLaneAssignments)
     enemy_roles_map = infer_team_roles(data.enemyTeam, data.enemyLaneAssignments)
 
     # C. 确定用户自己的位置
     user_role_key = "MID" 
     
+    # 优先信任前端明确传来的 userRole (LCU读取的)
     if data.userRole and data.userRole.upper() in ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]:
         user_role_key = data.userRole.upper()
+    # 兜底：如果 userRole 没传，尝试从 myHero 推断
     elif data.myHero:
         for r, h in my_roles_map.items():
             if h == data.myHero:
@@ -395,7 +397,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     enemy_team_str = format_roles(enemy_roles_map)
 
     # ==========================================
-    # 3. 知识库检索 (RAG)
+    # 5. 知识库检索 (RAG)
     # ==========================================
     top_tips = []
     corrections = []
@@ -413,7 +415,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         correction_prompt = f"【已知错误修正】AI历史回答曾犯错，请务必遵守：\n{c_list}"
 
     # ==========================================
-    # 4. 角色与 Prompt 模式选择
+    # 6. Prompt 模板获取
     # ==========================================
     target_mode = data.mode 
     hero_tier_info = ""
@@ -425,7 +427,6 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
         hero_info = getattr(db, 'get_champion_info', lambda x: None)(data.myHero)
         if hero_info:
-            print(f"📘 [DB] 英雄命中: {hero_info['name']} (定位: {hero_info['role']}, Tier: {hero_info['tier']})")
             hero_tier_info = f"- 英雄强度情报: {data.myHero} 当前版本评级为 {hero_info.get('tier', '未知')}，主定位 {hero_info.get('role')}。"
 
         if user_role_key == "JUNGLE":
@@ -436,9 +437,6 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         if hero_tier_info:
             s15_context += f"\n{hero_tier_info}"
 
-    # ==========================================
-    # 5. Prompt 模板获取与动态注入
-    # ==========================================
     template_doc = db.get_prompt_template(target_mode)
     
     if not template_doc:
@@ -454,8 +452,8 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             myTeam=f"{my_team_str} (原始: {str(data.myTeam)})",
             enemyTeam=f"{enemy_team_str} (原始: {str(data.enemyTeam)})",
             myHero=data.myHero,
-            enemyHero=primary_enemy,   # ✨ 传入智能计算后的对位英雄
-            userRole=user_role_key,    # ✨ 传入智能计算后的位置
+            enemyHero=primary_enemy,   
+            userRole=user_role_key,    
             s15_context=s15_context,
             bot_lane_context=bot_lane_context,
             tips_text=tips_text,
@@ -469,43 +467,35 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         return StreamingResponse(error_gen(), media_type="application/json")
 
     # ==========================================
-    # 6. 调用 OpenAI SDK (核心修改)
+    # 7. 调用 OpenAI SDK (动态切换模型)
     # ==========================================
-    if not DEEPSEEK_API_KEY: 
-        def error_gen(): yield json.dumps({"concise": {"title": "API Key Missing", "content": "No API Key configured in env."}})
-        return StreamingResponse(error_gen(), media_type="application/json")
-
-    # 你可以在这里切换 "deepseek-chat" (V3) 或 "deepseek-reasoner" (R1)
-    # 建议先用 chat 调试，稳定后再换 reasoner
-    MODEL_NAME = "deepseek-chat" 
+    # 🔥 根据前端参数切换模型
+    if data.model_type == "reasoner":
+        MODEL_NAME = "deepseek-reasoner" # R1
+        print(f"🧠 [AI] 用户 {current_user['username']} 启用思考模式 (R1)")
+    else:
+        MODEL_NAME = "deepseek-chat"     # V3
+        print(f"🚀 [AI] 用户 {current_user['username']} 使用极速模式 (V3)")
 
     def event_stream():
         try:
             print(f"🔄 [AI SDK] Requesting {MODEL_NAME} for {user_role_key} {data.myHero}...")
             
-            # ✨ 使用官方 SDK 的 stream 功能
             stream = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": system_content},
                     {"role": "user", "content": user_content}
                 ],
-                stream=True, # 开启流式
+                stream=True, 
                 temperature=0.6,
                 max_tokens=4000
             )
 
-            print("✅ [AI SDK] Stream started.")
-
             for chunk in stream:
-                # 🛡️ 安全获取 delta 对象
                 if chunk.choices:
                     delta = chunk.choices[0].delta
-                    
-                    # 🟢 只提取 content (忽略 reasoning_content)
-                    # 这样即使你将来切到 R1 模型，这里也会自动过滤掉思考过程
                     if delta.content:
-                        print(delta.content, end="", flush=True)
                         yield delta.content
                     
         except APIError as e:
@@ -515,10 +505,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             print(f"❌ [Server Error] {e}")
             yield json.dumps({"concise": {"title": "系统异常", "content": str(e)}})
 
-    # 返回流式响应
     return StreamingResponse(event_stream(), media_type="text/plain")
-
-# backend/server.py
 
 # ================= 🛡️ 管理员后台接口 =================
 
@@ -526,31 +513,27 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 def get_admin_feedbacks(current_user: dict = Depends(get_current_user)):
     """
     获取用户反馈列表。
-    🔒 安全机制：
-    1. Depends(get_current_user): 确保请求头带了有效 Token
-    2. 白名单检查: 确保用户名在管理员列表里
+    🔒 安全机制：双重验证 (DB Role + Hardcoded Whitelist)
     """
+    is_db_admin = current_user.get("role") == "admin"
+    SUPER_ADMINS = ["admin", "root", "keonsuyun", "HexCoach"] 
+    is_super_admin = current_user["username"] in SUPER_ADMINS
     
-    # ⚠️ 请务必把你的注册用户名填在这里！
-    ADMIN_WHITELIST = ["admin", "root", "keonsuyun", "HexCoach"] 
-    
-    # 也可以扩展为检查数据库里的 role 字段
-    is_admin = current_user.get('role') == 'admin' or current_user['username'] in ADMIN_WHITELIST
-    
-    if not is_admin:
-        # 403 Forbidden: 哪怕你登录了，权限不够也不让看
+    if not (is_db_admin or is_super_admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="权限不足：仅管理员可访问此数据"
         )
 
-    # 只有通过验证才会执行查库
     feedbacks = db.get_all_feedbacks()
     return feedbacks
 
 # 2. 任何其他路径都返回 index.html (让 React 路由生效)
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    return FileResponse("frontend/dist/index.html")
+    if os.path.exists("frontend/dist/index.html"):
+        return FileResponse("frontend/dist/index.html")
+    return {"error": "Frontend build not found. Please run 'npm run build' in frontend folder."}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
