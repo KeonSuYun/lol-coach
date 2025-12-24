@@ -48,26 +48,46 @@ def seed_data():
     
     if prompts_data:
         count = 0
-        # 如果是列表
+        # 如果是列表 (你的 prompts.json 是这种情况)
         if isinstance(prompts_data, list):
             for item in prompts_data:
-                p_id = item.get("id") or item.get("_id") or item.get("name")
-                p_content = item.get("content") or item.get("prompt") or item.get("template")
-                if p_id and p_content:
-                    db.prompts.replace_one({"_id": p_id}, {"content": p_content}, upsert=True)
+                # 🔥 修改点 1: 增加对 'mode' 字段的识别
+                p_id = item.get("id") or item.get("_id") or item.get("name") or item.get("mode")
+                
+                # 🔥 修改点 2: 只要有 ID 就直接存整个对象，不再强制要求 'content' 字段
+                # 这样你的 system_template 和 user_template 都会被完整存入数据库
+                if p_id:
+                    # 确保 _id 存在，方便后续查询
+                    item["_id"] = p_id
+                    db.prompts.replace_one({"_id": p_id}, item, upsert=True)
                     count += 1
-        # 如果是字典
+        
+        # 如果是字典 (旧格式兼容)
         elif isinstance(prompts_data, dict):
             for key, content in prompts_data.items():
-                real_content = content.get("content", content) if isinstance(content, dict) else content
-                db.prompts.replace_one({"_id": key}, {"content": real_content}, upsert=True)
+                real_content = content
+                # 如果 content 是个字典，确保里面有 _id
+                if isinstance(content, dict):
+                     content["_id"] = key
+                     real_content = content
+                else:
+                     # 如果是纯字符串，包装一下
+                     real_content = {"_id": key, "content": content}
+                     
+                db.prompts.replace_one({"_id": key}, real_content, upsert=True)
                 count += 1
         print(f"✅ 已同步 {count} 条 Prompt")
 
     # ================= 2. 同步 Champions (智能 ID 识别) =================
     print("\n🚀 [2/4] 同步英雄数据 (Champions)...")
-    champs_data = load_json("champions.json")
     
+    # 👇👇👇 【新增这两行】 👇👇👇
+    db.champions.delete_many({}) 
+    print("🧹 已清空旧英雄数据，准备重新写入...")
+    # 👆👆👆 
+    
+    champs_data = load_json("champions.json")
+
     if champs_data:
         success_count = 0
         
