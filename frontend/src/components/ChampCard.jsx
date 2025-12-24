@@ -1,9 +1,18 @@
+// frontend/src/components/ChampCard.jsx
+
 import React from 'react';
 import { Search } from 'lucide-react';
 
-const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe }) => {
+// 接收新的 role 属性
+const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
   const isEmpty = !champ;
   const isMe = !isEnemy && idx === userSlot;
+
+  // 🗺️ 备用映射：如果没传 role，才用楼层兜底 (Blind Pick 模式可能需要)
+  const ROLE_MAP_FALLBACK = ["TOP", "JUG", "MID", "ADC", "SUP"];
+  
+  // 优先使用传入的准确 role，否则回退到楼层判断
+  const displayRole = role || ROLE_MAP_FALLBACK[idx] || "";
 
   return (
     <div className={`relative flex items-center gap-3 p-2.5 mb-2 rounded-lg border transition-all cursor-pointer group select-none backdrop-blur-sm
@@ -31,13 +40,23 @@ const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe }) => {
           {!isEmpty && <div className="text-[10px] text-slate-500 truncate">{champ.title}</div>}
       </div>
 
-      {!isEnemy && (
-           <div onClick={(e) => { e.stopPropagation(); onSelectMe(idx); }}
-                className={`px-2 py-1 rounded text-[10px] font-bold tracking-wide transition-all border cursor-pointer
-                ${isMe ? 'bg-amber-600 border-amber-500 text-white shadow-sm' : 'border-transparent text-slate-600 hover:bg-slate-800'}`}>
-               {isMe ? 'ME' : 'SET'}
-           </div>
-      )}
+      <div className="flex flex-col items-end gap-1">
+          {/* ✨ 使用计算后的 displayRole */}
+          <div className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border tracking-wider
+              ${isEnemy 
+                ? 'text-red-400/50 border-red-900/30 bg-red-950/30' 
+                : 'text-slate-500 border-slate-700/50 bg-slate-800/30'}`}>
+              {displayRole}
+          </div>
+
+          {!isEnemy && (
+             <div onClick={(e) => { e.stopPropagation(); onSelectMe(idx); }}
+                  className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wide transition-all border cursor-pointer
+                  ${isMe ? 'bg-amber-600 border-amber-500 text-white shadow-sm' : 'border-transparent text-slate-600 hover:bg-slate-800 hover:text-slate-400'}`}>
+                 {isMe ? 'ME' : 'SET'}
+             </div>
+          )}
+      </div>
     </div>
   );
 };
