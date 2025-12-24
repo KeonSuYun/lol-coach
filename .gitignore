@@ -13,11 +13,15 @@ Thumbs.db
 # 忽略打包产物
 dist/
 
-# 忽略敏感数据文件
-backend/secure_data/prompts.json
-backend/secure_data/champions.json
 
 # 忽略环境配置
 .env
 .DS_Store
 __pycache__/
+
+venv/
+.env
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.DS_Store
