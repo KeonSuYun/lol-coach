@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, Unplug, User, LogOut } from 'lucide-react';
+import { Link, Unplug, User, LogOut, Download } from 'lucide-react';
 import { ROLES } from '../config/constants';
 
 const Header = ({ version, lcuStatus, userRole, setUserRole, currentUser, logout, setShowLoginModal }) => {
@@ -10,10 +10,25 @@ const Header = ({ version, lcuStatus, userRole, setUserRole, currentUser, logout
               HEX<span className="text-amber-500">COACH</span>
           </h1>
           <div className="flex items-center gap-3 mt-2 text-xs font-mono text-slate-500">
+               {/* 连接状态指示器 */}
                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border ${lcuStatus==='connected' ? 'border-green-500/30 bg-green-900/20 text-green-400' : 'border-red-500/30 bg-red-900/20 text-red-400'}`}>
                   {lcuStatus==='connected' ? <Link size={10}/> : <Unplug size={10}/>}
                   <span>{lcuStatus==='connected' ? "CLIENT CONNECTED" : "WAITING FOR CLIENT..."}</span>
                </div>
+
+               {/* ✨ 新增：下载助手按钮 (未连接时显示) */}
+               {lcuStatus !== 'connected' && (
+                   <a 
+                       href="/download/DeepCoach-Helper.exe" 
+                       download="DeepCoach-Helper.exe"
+                       className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold text-slate-900 bg-amber-500 rounded hover:bg-amber-400 transition-colors cursor-pointer"
+                       title="下载连接助手以同步客户端数据"
+                   >
+                       <Download size={10}/>
+                       <span>下载助手</span>
+                   </a>
+               )}
+
                <span>|</span>
                <span>{version}</span>
           </div>
