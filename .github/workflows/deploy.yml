@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ "main" ] # 当推送到 main 分支时触发
+    branches: [ "master" ] # 当推送到 main 分支时触发
 
 env:
   # 镜像名称: ghcr.io/你的github用户名/仓库名:latest
