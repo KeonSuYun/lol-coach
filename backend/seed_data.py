@@ -47,15 +47,41 @@ def seed_data():
     prompts_data = load_json("prompts.json")
     
     if prompts_data:
-        # 假设 prompts.json 格式为: {"system_coach": "你是一个...", "analysis_rule": "..."}
-        for key, content in prompts_data.items():
-            db.prompts.replace_one(
-                {"_id": key},         # 查询条件：按 _id 查找
-                {"content": content}, # 更新内容
-                upsert=True           # 如果不存在则插入，存在则更新
-            )
+        # ✨ 修复逻辑：自动判断是 列表 还是 字典
+        
+        # 情况 A: 如果是列表 [ {"id": "xxx", "content": "xxx"}, ... ]
+        if isinstance(prompts_data, list):
+            print("ℹ️ 检测到 prompts.json 为列表格式，正在适配...")
+            for item in prompts_data:
+                # 尝试获取 id (兼容 id, _id, name)
+                p_id = item.get("id") or item.get("_id") or item.get("name")
+                # 尝试获取内容 (兼容 content, prompt, template)
+                p_content = item.get("content") or item.get("prompt") or item.get("template")
+                
+                if p_id and p_content:
+                    db.prompts.replace_one(
+                        {"_id": p_id}, 
+                        {"content": p_content}, 
+                        upsert=True
+                    )
+                    
+        # 情况 B: 如果是字典 { "coach_system": "你是一个...", ... }
+        elif isinstance(prompts_data, dict):
+            print("ℹ️ 检测到 prompts.json 为字典格式...")
+            for key, content in prompts_data.items():
+                # 如果 content 还是个字典，取里面的 content 字段，否则直接用
+                real_content = content
+                if isinstance(content, dict):
+                    real_content = content.get("content", str(content))
+                
+                db.prompts.replace_one(
+                    {"_id": key},         
+                    {"content": real_content}, 
+                    upsert=True           
+                )
         print("✅ Prompts 同步完成")
-
+    else:
+        print("⚠️ 未找到 prompts.json 或文件为空")
     # ================= 5. 同步 Champions (英雄数据) =================
     print("\n🚀 [2/4] 同步英雄数据 (Champions)...")
     champs_data = load_json("champions.json")
