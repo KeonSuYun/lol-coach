@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 这是一个自定义滚动条样式，你的 App.jsx 里用到了它 */
+/* 自定义滚动条样式 */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
@@ -15,10 +15,4 @@
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #475569; 
-}
-
-body {
-  background-color: #050508; /* 防止加载时出现白屏闪烁 */
-  margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }

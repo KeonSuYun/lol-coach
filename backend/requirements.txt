@@ -4,3 +4,6 @@ pydantic
 pymongo
 python-dotenv
 requests  
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
