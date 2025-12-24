@@ -18,7 +18,6 @@ from jose import JWTError, jwt
 from core.database import KnowledgeBase
 
 # ================= 配置 =================
-# ⚠️ 生产环境请务必修改 SECRET_KEY
 SECRET_KEY = os.getenv("SECRET_KEY", "hexcoach_secret_key_change_me_please")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token 7天过期
@@ -56,11 +55,9 @@ class TipInput(BaseModel):
     enemy: str
     content: str
     is_general: bool
-    # author_id 不需要前端传，后端从 Token 解析
 
 class LikeInput(BaseModel):
     tip_id: str
-    # user_id 不需要前端传，后端从 Token 解析
 
 class FeedbackInput(BaseModel):
     match_context: dict
@@ -136,7 +133,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token(data={"sub": user['username']})
     return {"access_token": access_token, "token_type": "bearer", "username": user['username']}
 
-# --- 2. 绝活社区 (部分需登录) ---
+# --- 2. 绝活社区 ---
 
 @app.get("/tips")
 def get_tips(hero: str, enemy: str = "None", is_general: bool = False):
@@ -158,15 +155,11 @@ def like_tip(data: LikeInput, current_user: dict = Depends(get_current_user)):
 
 @app.delete("/tips/{tip_id}")
 def delete_tip_endpoint(tip_id: str, current_user: dict = Depends(get_current_user)):
-    """
-    需登录：删除评论
-    权限: 只有 '作者本人' 或 '管理员'
-    """
+    """需登录：删除评论"""
     tip = db.get_tip_by_id(tip_id)
     if not tip:
         raise HTTPException(status_code=404, detail="评论不存在")
     
-    # 简单的管理员判断 (实际可扩展 role 字段)
     is_admin = current_user.get('role') == 'admin' or current_user['username'] in ["admin", "root", "keonsuyun"]
 
     if tip['author_id'] != current_user['username'] and not is_admin:
@@ -177,10 +170,11 @@ def delete_tip_endpoint(tip_id: str, current_user: dict = Depends(get_current_us
     
     raise HTTPException(status_code=500, detail="删除失败")
 
-# --- 3. 错误反馈 (需登录) ---
+# --- 3. 错误反馈 ---
 
 @app.post("/feedback")
 def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_current_user)):
+    """需登录：提交错误反馈"""
     try:
         feedback_entry = {
             "user_id": current_user['username'],
@@ -194,7 +188,7 @@ def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_curren
         print(f"Feedback Error: {e}")
         raise HTTPException(status_code=500, detail="反馈提交失败")
 
-# --- 4. AI 分析 (核心大脑) ---
+# --- 4. AI 分析 (深度思考 R1 模式 - 非流式) ---
 
 @app.post("/analyze")
 def analyze_match(data: AnalyzeRequest):
@@ -208,15 +202,13 @@ def analyze_match(data: AnalyzeRequest):
     - 版本特性: {game_constants.get('patch_notes')}
     """
 
-    # 2. 获取知识库 (社区 + 纠错)
+    # 2. 获取知识库
     top_tips = []
     corrections = []
     
     if data.myHero:
-        # 绝活 Top 3
         knowledge = db.get_top_knowledge_for_ai(data.myHero, data.enemyHero)
         top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
-        # 历史修正
         corrections = db.get_corrections(data.myHero, data.enemyHero)
 
     tips_text = "\n".join([f"- 玩家心得: {t}" for t in top_tips]) if top_tips else "(暂无)"
@@ -231,49 +223,57 @@ def analyze_match(data: AnalyzeRequest):
         """
 
     # 3. 构建 Prompt
-    system_role = "你是一名英雄联盟 S15 职业教练。"
+    system_role = "你是一名英雄联盟 S15 职业教练。请直接输出纯 JSON，不要包含任何 Markdown 代码块标签（如 ```json）。"
     json_rule = """Output JSON only: {"concise": {"title": "...", "content": "..."}, "detailed_tabs": [{"title": "...", "content": "..."}]}"""
     
     user_instruction = f"""
-    模式: {data.mode}
-    我方: {data.myTeam} (我玩 {data.myHero})
-    敌方: {data.enemyTeam}
+    模式: {data.mode} | 我方: {data.myTeam} (我玩 {data.myHero}) | 敌方: {data.enemyTeam}
     
     {s15_context}
     {correction_prompt}
 
     参考社区心得:
     {tips_text}
-    
-    请输出 JSON 分析结果。
     """
 
-    # 4. 调用 DeepSeek
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key: 
         return {"concise": {"title": "Key Missing", "content": "No API Key configured."}}
 
+    # backend/server.py 中的修改点
+
     try:
+        api_url = "https://api.deepseek.com/chat/completions"
+
         res = requests.post(
-            "https://api.deepseek.com/chat/completions",
+            api_url,
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "model": "deepseek-chat",
+                "model": "deepseek-reasoner",
                 "messages": [
                     {"role": "system", "content": system_role + " " + json_rule},
                     {"role": "user", "content": user_instruction}
                 ],
-                "temperature": 0.7,
                 "stream": False
             },
-            timeout=30
+            timeout=120
         )
-        content = res.json()['choices'][0]['message']['content']
+        
+        result_json = res.json()
+        
+        # 打印一下结果，方便调试
+        if "error" in result_json:
+            print(f"API Error: {result_json['error']}")
+            return {"concise": {"title": "API错误", "content": result_json["error"].get("message")}}
+
+        content = result_json['choices'][0]['message']['content']
         content = content.replace("```json", "").replace("```", "").strip()
         return json.loads(content)
-    except Exception as e:
-        print(f"AI Error: {e}")
-        raise HTTPException(status_code=500, detail="AI分析服务异常")
 
+    except Exception as e:
+        # 这里的打印会告诉您最真实的错误
+        print(f"AI Error: {e}")
+        return {"concise": {"title": "服务异常", "content": f"分析失败: {str(e)}"}, "detailed_tabs": []}
+    
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

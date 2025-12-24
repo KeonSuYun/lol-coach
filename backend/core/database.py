@@ -17,7 +17,8 @@ class KnowledgeBase:
             self.config_col = self.db['config']           # 存 S15 赛季数据
             self.corrections_col = self.db['corrections'] # 存管理员确认的真理
             self.users_col = self.db['users']             # 存用户信息
-            
+            self.tips_col.create_index([("hero", 1), ("enemy", 1)])
+            self.corrections_col.create_index([("hero", 1), ("enemy", 1)])
             print(f"✅ 成功连接到数据库: {self.db.name}")
         except Exception as e:
             print(f"❌ 数据库连接失败: {e}")
@@ -37,7 +38,11 @@ class KnowledgeBase:
             "created_at": datetime.datetime.utcnow()
         })
         return True
-
+    
+    def get_prompt_template(self, mode: str):
+    
+        return self.db.prompt_templates.find_one({"mode": mode})
+    
     def get_user(self, username):
         """获取用户信息 (用于登录校验)"""
         return self.users_col.find_one({"username": username})
