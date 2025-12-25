@@ -165,12 +165,12 @@ class KnowledgeBase:
             if delta < COOLDOWN_SECONDS:
                 return False, f"技能冷却中 ({int(COOLDOWN_SECONDS - delta)}s)", int(COOLDOWN_SECONDS - delta)
 
-        # 4. 检查每日上限 (Pro/Admin 无限，普通用户 5次)
+        # 4. 检查每日上限 (Pro/Admin 无限，普通用户 10次)
         role = user.get("role", "user")
-        is_pro = role in ["vip", "svip", "admin", "pro", "HexCoach"] 
+        is_pro = role in ["vip", "svip", "admin", "pro"] 
         
         current_count = counts.get(mode, 0)
-        max_daily = 5 # 普通用户上限
+        max_daily = 10 # 普通用户上限
         
         if not is_pro and current_count >= max_daily:
             return False, f"今日次数已耗尽 (普通用户每日 {max_daily} 次)", -1
@@ -211,7 +211,7 @@ class KnowledgeBase:
             # 🔥 核心防刷 1: 设备锁 (同一个设备 ID 只能注册 3 个号)
             if device_id and device_id != "unknown_client_error":
                 device_count = self.users_col.count_documents({"device_id": device_id})
-                if device_count >= 3:
+                if device_count >= 1:
                     print(f"🚫 注册拦截: 设备 {device_id} 账号过多 ({device_count})")
                     return "DEVICE_LIMIT"
 

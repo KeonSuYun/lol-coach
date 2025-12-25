@@ -42,8 +42,6 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     # 🚨 生产环境严禁使用默认密钥，如果没有配置，直接报错停止启动
     print("❌ [致命错误] 生产环境必须配置 SECRET_KEY 环境变量！")
-    # 为了保证您能先跑起来，这里给一个临时兜底，但在正式商业运营中请务必在 .env 设置
-    SECRET_KEY = "prod_secret_key_please_change_this_in_env_file_immediately" 
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token 7天过期
@@ -53,9 +51,8 @@ MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017/")
 # 2. 邮件配置 (优先读取环境变量，保留默认值以便您直接运行)
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.qq.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-SMTP_USER = os.getenv("SMTP_USER", "904085736@qq.com") 
-# ⚠️ 强烈建议在 .env 中设置 SMTP_PASSWORD，不要直接硬编码在代码里
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "fjgdtorjrkkdbgae") 
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD" ) 
 
 # ✨ 初始化 OpenAI 客户端
 client = OpenAI(
