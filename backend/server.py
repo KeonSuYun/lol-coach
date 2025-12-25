@@ -78,16 +78,27 @@ if os.path.exists("frontend/dist/assets"):
 
 # 🟢 3. 严格 CORS 配置 (生产环境)
 ORIGINS = [
-    "https://kozzbluxklwn.sealosbja.site", # 🟢 您的生产域名
-    # "http://localhost:5173",             # 🚫 生产环境注释掉本地调试端口
-    # "http://127.0.0.1:5173"
+    "https://kozzbluxklwn.sealosbja.site",
+     "https://www.haxcoach.com",
+        "https://haxcoach.com", 
 ]
+
+# ✨ 新增：如果是开发模式，自动把 localhost 加回去
+# 在本地运行时，您可以在终端设置 export ENV=dev (Linux/Mac) 或 set ENV=dev (Windows)
+# 或者直接在 IDE 的运行配置里加环境变量
+if os.getenv("ENV") == "dev" or os.getenv("DEBUG") == "true":
+    print("🔓 [CORS] 开发模式：允许 Localhost 跨域请求")
+    ORIGINS.extend([
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000"
+    ])
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ORIGINS, # 仅允许白名单域名
+    allow_origins=ORIGINS, 
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], # 最小权限原则
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], 
     allow_headers=["*"],
 )
 
