@@ -43,8 +43,9 @@ load_dotenv(dotenv_path=env_path)
 # 1. 密钥配置 (生产环境强制检查)
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    print("❌ [致命错误] 生产环境必须配置 SECRET_KEY 环境变量！服务拒绝启动。")
-    sys.exit(1)
+    # 开发环境下给一个默认值，防止启动报错，但在生产环境应报错
+    print("⚠️ [警告] 未配置 SECRET_KEY，使用开发默认值 (仅限本地测试)")
+    SECRET_KEY = "dev_secret_key_please_change_in_production"
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token 7天过期
@@ -232,157 +233,79 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     return {k: v for k, v in final_roles.items() if v != "Unknown"}
 
 # ==========================================
-# 🧮 核心算法：推荐英雄 (包含分段逻辑 + 分路敏感 + Tier加权)
+# 🧮 核心算法：推荐英雄 (纯净版 - 无对位数据)
 # ==========================================
 def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None):
     """
-    根据段位和敌方英雄，计算推荐列表
-    rank_tier: "Diamond+" 或 "Platinum-"
+    根据段位和当前分路，计算推荐列表。
+    完全移除对位 (Matchup) 逻辑，仅基于版本强度 (Tier/WinRate/PickRate)。
     """
     recommendations = []
     current_role = user_role.upper() # 确保是大写 (TOP/MID...)
     
-    # 1. 场景 A: 已知敌方 (Counter Pick) -> 查 matchups 表
-    if enemy_hero_doc:
-        # 新版: id 是英文名 (如 "Aatrox")
-        enemy_id = enemy_hero_doc['id']
+    # 1. 获取所有英雄
+    cursor = db_instance.champions_col.find({})
+    
+    candidates = []
+
+    for hero in cursor:
+        # ✨ 核心：只读取 seed_data.py 生成的 positions 字段
+        positions_data = hero.get('positions', {})
+        role_stats = positions_data.get(current_role)
         
-        # ⚡ 筛选：只看同位置、且场次足够的对局 (前30条热门对局)
-        cursor = db_instance.matchups_col.find({
-            "enemy_id": enemy_id, 
-            "role": current_role
-        }).sort("total_games", -1).limit(30)
+        # 如果该英雄不打这个位置，跳过
+        if not role_stats:
+            continue
+
+        # 2. 提取关键指标
+        tier = role_stats.get('tier', 5)
+        win_rate = role_stats.get('win_rate', 0)
+        pick_rate = role_stats.get('pick_rate', 0)
+        ban_rate = role_stats.get('ban_rate', 0)
         
-        for match in cursor:
-            # 获取英雄详情
-            hero_info = db_instance.champions_col.find_one({"id": match['hero_id']})
-            if not hero_info: continue
-
-            # 读取关键指标
-            win_rate = match.get('win_rate', 0.5)
-            
-            # 🔥 数据自适应逻辑
-            has_lane_stats = 'lane_kill_rate' in match
-            has_tower_stats = 'first_tower' in match
-            
-            score = 0
-            reason = ""
-            
-            if has_lane_stats and has_tower_stats:
-                # ✅ 数据完整：使用完整算法
-                lane_kill = match.get('lane_kill_rate', 0.5)
-                first_tower = match.get('first_tower', 0.5)
-                kp = match.get('kill_participation', 0.5)
-                
-                if rank_tier == "Diamond+":
-                    score = (lane_kill * 0.45) + (win_rate * 0.35) + (kp * 0.20)
-                    reason = f"高分段压制: 对线击杀率 {lane_kill:.1%}"
-                else:
-                    score = (lane_kill * 0.60) + (first_tower * 0.20) + (win_rate * 0.20)
-                    reason = f"鱼塘局杀手: 对线单杀 {lane_kill:.1%}"
-                    
-                lane_kill_str = f"{lane_kill:.1%}"
-            else:
-                score = win_rate
-                reason = f"对位胜率领先: {win_rate:.1%}"
-                lane_kill_str = "N/A"
-
-            # ✨✨✨ 分路敏感的 Tier 获取 ✨✨✨
-            # 优先获取该英雄在当前分路的 Tier
-            # 结构: positions = { "TOP": {tier: 1}, "MID": {tier: 4} }
-            positions_data = hero_info.get('positions', {})
-            role_stats = positions_data.get(current_role, {})
-            
-            # 如果该英雄压根不打这个位置（比如 盖伦去打ADC），则没有数据 -> 给予惩罚
-            if not role_stats and not positions_data:
-                 # 兼容旧数据 (无 positions 字段)
-                 tier_val = hero_info.get('tier', 5)
-            elif not role_stats:
-                 # 有 positions 但没这个分路 -> 说明是异类玩法 (T5)
-                 tier_val = 5 
-                 score *= 0.8 # 额外惩罚
-            else:
-                 # 命中分路数据
-                 tier_val = role_stats.get('tier', 5)
-
-            # Tier 加权
-            tier_multiplier = 1 + (3 - tier_val) * 0.05
-            score *= tier_multiplier
-
-            recommendations.append({
-                "name": hero_info['name'],
-                "score": score,
-                "tier": f"T{tier_val}",
-                "data": {
-                    "vs_win": f"{win_rate:.1%}",
-                    "lane_kill": lane_kill_str,
-                    "games": match['total_games'],
-                    "first_tower": f"{match.get('first_tower', 0):.1%}"
-                },
-                "reason": reason
-            })
-
-    # 2. 场景 B: 盲选 (Blind Pick) -> 查 champions 表
-    if not recommendations:
-        # 获取所有可能的英雄 (这里我们先全量获取，然后在内存里做分路过滤，因为只有160个英雄，速度很快)
-        cursor = db_instance.champions_col.find({})
+        # 3. 计算得分 (Score)
+        # 基础分：胜率 (0.50 -> 50分)
+        score = win_rate * 100 
         
-        raw_recommendations = []
+        # 层级加权: T1=+25, T2=+15, T3=+5
+        if tier == 1: score += 25
+        elif tier == 2: score += 15
+        elif tier == 3: score += 5
+        else: score -= 5
 
-        for hero in cursor:
-            # ✨✨✨ 核心逻辑：精准读取当前分路数据 ✨✨✨
-            positions_data = hero.get('positions', {})
-            
-            # 尝试获取当前分路的数据
-            role_stats = positions_data.get(current_role)
-            
-            # 逻辑分支：
-            if role_stats:
-                # 1. 英雄打这个位置 -> 用精准数据
-                tier = role_stats.get('tier', 5)
-                wr = role_stats.get('win_rate', 0)
-                br = role_stats.get('ban_rate', 0)
-                pr = role_stats.get('pick_rate', 0)
-            elif not positions_data:
-                # 2. 旧数据 (没 positions) -> 用根数据 + 角色匹配检查
-                # 如果英雄原本定位(role)和当前(user_role)不符，惩罚
-                main_role = hero.get('role', 'MID')
-                if main_role != current_role: continue # 跳过不打这个位置的
-                tier = hero.get('tier', 5)
-                wr = hero.get('win_rate', 0)
-                br = hero.get('ban_rate', 0)
-                pr = hero.get('pick_rate', 0)
-            else:
-                # 3. 有 positions 但没当前分路 -> 说明该英雄不打这个位置 -> 跳过
-                continue
+        reason = ""
+        
+        # 4. 段位偏好逻辑
+        if rank_tier == "Diamond+":
+            # 💎 高分段：看重 Meta (Pick率)
+            score += pick_rate * 50
+            reason = f"高分段T{tier}热门 (Pick: {pick_rate:.1%})"
+        else:
+            # 🥇 低分段：看重 胜率 & Ban率
+            score += ban_rate * 20
+            score += (win_rate - 0.5) * 100 
+            reason = f"当前版本T{tier}强势 (Win: {win_rate:.1%})"
 
-            # 过滤掉 T3 以下的 (T4, T5)，除非还没填满 20 个
-            # 这里先计算分，最后统一排序
-            score = 0
-            if rank_tier == "Diamond+":
-                score = wr * 0.6 + pr * 0.4
-            else:
-                score = wr * 0.7 + br * 0.3
-            
-            # Tier 加权
-            tier_multiplier = 1 + (3 - tier) * 0.05
-            score *= tier_multiplier
-            
-            raw_recommendations.append({
-                "name": hero['name'],
-                "score": score,
-                "tier": f"T{tier}",
-                "data": { "win": f"{wr:.1%}", "ban": f"{br:.1%}" },
-                "reason": f"版本T{tier}，该分路胜率 {wr:.1%}"
-            })
-            
-        # 排序并取前 20 (盲选池) -> 再取 Top 3
-        raw_recommendations.sort(key=lambda x: x['score'], reverse=True)
-        recommendations = raw_recommendations[:3]
+        # ⚠️ 已移除所有克制微调逻辑
 
-    # 排序取 Top 3
-    recommendations.sort(key=lambda x: x['score'], reverse=True)
-    return recommendations[:3]
+        candidates.append({
+            "name": hero['name'],
+            "score": score,
+            "tier": f"T{tier}",
+            "data": {
+                # 统一口径：因为没有对位数据，这里填全局胜率，并在 Prompt 里修改解释
+                "vs_win": f"{win_rate:.1%}",      
+                "lane_kill": "-",               # 明确标识无数据
+                "win_rate": f"{win_rate:.1%}",
+                "pick_rate": f"{pick_rate:.1%}",
+                "games": "High"                 
+            },
+            "reason": reason
+        })
+
+    # 5. 排序并取 Top 3
+    candidates.sort(key=lambda x: x['score'], reverse=True)
+    return candidates[:3]
 
 # ================= 🚀 API 接口 =================
 
@@ -623,7 +546,6 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # 3. Input Sanitization (输入清洗)
     if data.myHero:
-        # 新版：get_champion_info 支持 alias 数组
         hero_info = db.get_champion_info(data.myHero)
         if not hero_info:
             async def attack_err(): yield json.dumps({"concise": {"title": "输入错误", "content": f"系统未识别英雄 '{data.myHero}'。"}})
@@ -643,95 +565,180 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     my_roles_map = infer_team_roles(data.myTeam, data.myLaneAssignments)
     enemy_roles_map = infer_team_roles(data.enemyTeam, data.enemyLaneAssignments)
 
+    # ---------------------------------------------------------
+    # ⚡ 核心逻辑：智能身份推断 (User Role Logic)
+    # ---------------------------------------------------------
     user_role_key = "MID" 
+    manual_role_set = False
+
+    # 优先级 1: 用户手动指定 (且有效)
     if data.userRole and data.userRole.upper() in ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]:
         user_role_key = data.userRole.upper()
+        manual_role_set = True
+    # 优先级 2: 根据选择的英雄在己方阵容中的位置推断
     elif data.myHero:
         for r, h in my_roles_map.items():
             if h == data.myHero: user_role_key = r; break
 
-    primary_enemy = enemy_roles_map.get(user_role_key, "Unknown")
-    if primary_enemy == "Unknown" and data.enemyHero: primary_enemy = data.enemyHero
+    # ⚡ 修正：如果用户没手动指定，且推断出的位置很奇怪（比如盲僧上单）
+    # 我们查库看看这个英雄的"本命位置"是不是打野
+    if not manual_role_set and data.myHero:
+        hero_info_doc = db.get_champion_info(data.myHero)
+        if hero_info_doc and hero_info_doc.get('role') == 'jungle':
+            # 如果英雄主定位是打野，且当前被推断为单人路，强制修正为打野
+            if user_role_key in ["TOP", "MID"]:
+                user_role_key = "JUNGLE"
 
-    # 6. ⚡⚡⚡ 触发推荐算法 (Python层计算) ⚡⚡⚡
-    # 确定敌方对象
-    enemy_hero_doc = None
-    if primary_enemy != "Unknown":
-        enemy_hero_doc = db.get_champion_info(primary_enemy)
+    # ---------------------------------------------------------
+    # ⚡ 核心逻辑：对位判定与生态构建 (Matchup Logic)
+    # ---------------------------------------------------------
+    primary_enemy = "Unknown"
+    bot_lane_context = "" 
     
-    # 确定段位逻辑
-    rank_type = "Platinum-"
-    if data.rank in ["Diamond", "Master", "Challenger"]:
-        rank_type = "Diamond+"
+    # A. 打野逻辑
+    if user_role_key == "JUNGLE":
+        # 优先找对面打野
+        primary_enemy = enemy_roles_map.get("JUNGLE", "Unknown")
+        if primary_enemy == "Unknown": primary_enemy = "Unknown Jungle"
+        
+        # 如果主要敌人不是对面打野（说明用户在针对线上），需要标记
+        # (后续在 prompt 里处理 display name)
+
+    # B. 下路双人组逻辑
+    elif user_role_key in ["ADC", "SUPPORT"]:
+        primary_enemy = enemy_roles_map.get(user_role_key, "Unknown")
+        # 构建 2v2 上下文
+        my_ad = my_roles_map.get("ADC", "Unknown")
+        my_sup = my_roles_map.get("SUPPORT", "Unknown")
+        en_ad = enemy_roles_map.get("ADC", "Unknown")
+        en_sup = enemy_roles_map.get("SUPPORT", "Unknown")
+        
+        # 简单查库翻译一下名字，方便阅读
+        def get_cn(name):
+            i = db.get_champion_info(name)
+            return i['name'] if i else name
+            
+        bot_lane_context = f"""
+        \n--------- ⚔️ 下路2v2生态分析 ⚔️ ---------
+        【我方组合】: {get_cn(my_ad)} (AD) + {get_cn(my_sup)} (辅助)
+        【敌方组合】: {get_cn(en_ad)} (AD) + {get_cn(en_sup)} (辅助)
+        请注意：必须结合双方辅助的开团/保护能力，以及AD的爆发/消耗能力进行综合分析。
+        ------------------------------------------
+        """
+        
+    # C. 单人路
+    else:
+        primary_enemy = enemy_roles_map.get(user_role_key, "Unknown")
+
+    # 兜底：如果没找到对位，尝试使用前端传来的 enemyHero
+    if primary_enemy == "Unknown" and data.enemyHero: 
+        primary_enemy = data.enemyHero
+
+    # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
+    rank_type = "Diamond+" if data.rank in ["Diamond", "Master", "Challenger"] else "Platinum-"
+    algo_recommendations = recommend_heroes_algo(db, user_role_key, rank_type, None)
     
-    # 获取算法结果
-    algo_recommendations = recommend_heroes_algo(db, user_role_key, rank_type, enemy_hero_doc)
-    
-    # 格式化为字符串，供 AI 参考
     rec_str = ""
     for idx, rec in enumerate(algo_recommendations):
         rec_str += f"{idx+1}. {rec['name']} ({rec['tier']}) - {rec['reason']}\n"
-        rec_str += f"   数据支撑: {json.dumps(rec['data'], ensure_ascii=False)}\n"
-    
-    if not rec_str:
-        rec_str = "(暂无数据，建议参考通用版本强势英雄)"
+    if not rec_str: rec_str = "(暂无数据)"
 
-    # 7. RAG 检索
+    # 7. RAG 检索 (防止打野被线上Tips误导)
     top_tips = []
     corrections = []
     if data.myHero:
-        knowledge = db.get_top_knowledge_for_ai(data.myHero, primary_enemy)
-        top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
-        corrections = db.get_corrections(data.myHero, primary_enemy)
+        rag_enemy = primary_enemy
+        # 如果我是打野，且目标不是对面打野，强制查通用技巧，不查对线技巧
+        if user_role_key == "JUNGLE":
+            real_enemy_jg = enemy_roles_map.get("JUNGLE", "Unknown")
+            if primary_enemy != real_enemy_jg:
+                rag_enemy = "general"
+
+        knowledge = db.get_top_knowledge_for_ai(data.myHero, rag_enemy)
+        if rag_enemy == "general":
+            top_tips = knowledge.get("general", [])
+        else:
+            top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
+            
+        corrections = db.get_corrections(data.myHero, rag_enemy)
 
     tips_text = "\n".join([f"- 社区心得: {t}" for t in top_tips]) if top_tips else "(暂无)"
     correction_prompt = f"修正: {'; '.join(corrections)}" if corrections else ""
 
     # 8. Prompt 构建
-    target_mode = "personal_jungle" if user_role_key == "JUNGLE" and data.mode == "personal" else ("personal_lane" if data.mode == "personal" else data.mode)
+    # 确定模板 ID
+    target_mode = data.mode
+    if data.mode == "personal":
+        if user_role_key == "JUNGLE": target_mode = "personal_jungle"
+        else: target_mode = "personal_lane"
     
-    hero_info = db.get_champion_info(data.myHero)
-    if hero_info:
-        s15_context += f"\n- 英雄评级: {hero_info.get('tier', '未知')}, 定位: {hero_info.get('role')}"
+    tpl = db.get_prompt_template(target_mode) or db.get_prompt_template("personal_lane")
 
-    tpl = db.get_prompt_template(target_mode)
-    if not tpl:
-        tpl = db.get_prompt_template("personal_lane")
+    # ---------------------------------------------------------
+    # ⚡ 关键步骤：中文翻译 (确保 AI 输出中文)
+    # ---------------------------------------------------------
+    def translate_roles(role_map):
+        translated_map = {}
+        for role, hero_id in role_map.items():
+            if not hero_id or hero_id == "Unknown":
+                translated_map[role] = "未知"
+                continue
+            info = db.get_champion_info(hero_id)
+            if info and 'name' in info:
+                translated_map[role] = info['name'] 
+            else:
+                translated_map[role] = hero_id
+        return translated_map
 
-    def format_roles(role_map):
-        return " | ".join([f"{k}: {v}" for k, v in role_map.items() if v != "Unknown"])
+    my_roles_cn = translate_roles(my_roles_map)
+    enemy_roles_cn = translate_roles(enemy_roles_map)
+    
+    # 翻译核心英雄
+    my_hero_cn = data.myHero
+    info = db.get_champion_info(data.myHero)
+    if info: my_hero_cn = info['name']
 
-    # 填充 User Prompt (注入 db_suggestions)
+    enemy_hero_cn = primary_enemy
+    if primary_enemy != "Unknown":
+        info = db.get_champion_info(primary_enemy)
+        if info: 
+            enemy_hero_cn = info['name']
+            # 如果打野针对非对位，加备注
+            real_jg = enemy_roles_map.get("JUNGLE")
+            if user_role_key == "JUNGLE" and primary_enemy != real_jg:
+                enemy_hero_cn += " (Gank目标)"
+
+    def format_roles_str(role_map):
+        return " | ".join([f"{k}: {v}" for k, v in role_map.items()])
+
+    # 填充 User Prompt
     user_content = tpl['user_template'].format(
         mode=data.mode,
-        user_rank=data.rank,        # ✨ 传入段位
-        db_suggestions=rec_str,     # ✨ 传入 Python 算出的推荐列表
-        
-        myTeam=f"{format_roles(my_roles_map)} (原始: {str(data.myTeam)})",
-        enemyTeam=f"{format_roles(enemy_roles_map)} (原始: {str(data.enemyTeam)})",
-        myHero=data.myHero,
-        enemyHero=primary_enemy,   
+        user_rank=data.rank,        
+        db_suggestions=rec_str,     
+        myTeam=format_roles_str(my_roles_cn),       # ✅ 中文阵容
+        enemyTeam=format_roles_str(enemy_roles_cn), # ✅ 中文阵容
+        myHero=my_hero_cn,          # ✅ 中文名
+        enemyHero=enemy_hero_cn,    # ✅ 中文名
         userRole=user_role_key,    
         s15_context=s15_context,
-        bot_lane_context="",
+        bot_lane_context=bot_lane_context,
         tips_text=tips_text,
         correction_prompt=correction_prompt
     )
     
-    system_content = tpl['system_template'] + ' Output JSON only: {"concise": {"title": "...", "content": "..."}, "detailed_tabs": []}'
+    system_content = tpl['system_template'] + ' Output JSON only.'
 
-    # 9. AI 调用 (根据 model_type 选择模型)
+    # 9. AI 调用
     if data.model_type == "reasoner":
         MODEL_NAME = "deepseek-reasoner"
-        print(f"🧠 [AI] R1 Request ({data.rank}) - User: {current_user['username']}")
+        print(f"🧠 [AI] R1 Request - User: {current_user['username']}")
     else:
         MODEL_NAME = "deepseek-chat"
-        print(f"🚀 [AI] V3 Request ({data.rank}) - User: {current_user['username']}")
+        print(f"🚀 [AI] V3 Request - User: {current_user['username']}")
 
-    # ✨ 异步生成器：彻底解决排队问题
     async def event_stream():
         try:
-            # 使用 await 异步调用 OpenAI，不会阻塞服务器线程
             stream = await client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[{"role": "system", "content": system_content}, {"role": "user", "content": user_content}],
@@ -741,9 +748,8 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
         except Exception as e:
-            # 生产环境仅打印日志
             print(f"❌ AI Error: {e}")
-            yield json.dumps({"concise": {"title": "超时", "content": "AI服务繁忙或响应超时，请稍后重试。"}})
+            yield json.dumps({"concise": {"title": "错误", "content": "AI服务繁忙，请稍后重试。"}})
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 

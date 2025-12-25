@@ -41,8 +41,7 @@ class KnowledgeBase:
             # ✨ 验证码与订单
             self.otps_col = self.db['otps']
             self.orders_col = self.db['orders']
-            # ✨ 对位数据集合
-            self.matchups_col = self.db['matchups']
+            
 
             # === 索引初始化 ===
             self._init_indexes()
@@ -74,8 +73,7 @@ class KnowledgeBase:
             self.users_col.create_index("ip")
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
             self.orders_col.create_index("order_no", unique=True)
-            # ✨ Matchups 索引 (加速推荐算法)
-            self.matchups_col.create_index([("enemy_id", 1), ("role", 1)])
+
             
             print("✅ [Database] 索引检查完毕")
         except Exception as e:

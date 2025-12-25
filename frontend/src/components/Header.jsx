@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon, Trophy } from 'lucide-react';
+// ROLES 引用如果不再使用也可以删除，或者保留不动
 import { ROLES } from '../config/constants';
 
 // 定义段位列表
@@ -21,7 +22,6 @@ const Header = ({
     useThinkingModel, setUseThinkingModel,
     setShowPricingModal,
     accountInfo,
-    // ✨ 新增：接收段位状态
     userRank, setUserRank
 }) => {
   
@@ -60,7 +60,7 @@ const Header = ({
       {/* 右侧功能区 */}
       <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
 
-          {/* ✨✨✨ 新增：段位选择器 ✨✨✨ */}
+          {/* 段位选择器 */}
           <div className="flex flex-col items-start gap-1">
             <div className="flex items-center gap-1 px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg">
                 <Trophy size={12} className="text-yellow-500" />
@@ -126,17 +126,7 @@ const Header = ({
               </button>
           </div>
 
-          {/* 位置选择 */}
-          <div className="flex p-1 bg-slate-900/80 rounded-xl border border-slate-800">
-              {ROLES.map(r => (
-                  <button key={r.id} onClick={() => setUserRole(r.id)} 
-                      className={`relative px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center gap-2
-                      ${userRole===r.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-800'}`}>
-                      <span>{r.icon}</span>
-                      <span className="hidden sm:inline">{r.label}</span>
-                  </button>
-              ))}
-          </div>
+          {/* ❌ 已删除位置选择 ❌ */}
 
           {/* 用户信息 */}
           {currentUser ? (

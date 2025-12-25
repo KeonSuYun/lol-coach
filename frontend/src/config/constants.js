@@ -9,7 +9,7 @@ export const DDRAGON_BASE = "https://ddragon.leagueoflegends.com";
 export const ROLES = [
   { id: 'TOP', label: '上单', icon: '🛡️', color: 'text-gray-400', bg: 'from-gray-500/20 to-gray-600/5' },
   { id: 'JUNGLE', label: '打野', icon: '🌿', color: 'text-green-400', bg: 'from-green-500/20 to-green-600/5' }, 
-  { id: 'MIDDLE', label: '中单', icon: '🔮', color: 'text-red-400', bg: 'from-red-500/20 to-red-600/5' },
-  { id: 'BOTTOM', label: '射手', icon: '🏹', color: 'text-blue-400', bg: 'from-blue-500/20 to-blue-600/5' },
-  { id: 'UTILITY', label: '辅助', icon: '❤️', color: 'text-yellow-400', bg: 'from-yellow-500/20 to-yellow-600/5' },
+  { id: 'MID', label: '中单', icon: '🔮', color: 'text-red-400', bg: 'from-red-500/20 to-red-600/5' },
+  { id: 'ADC', label: '射手', icon: '🏹', color: 'text-blue-400', bg: 'from-blue-500/20 to-blue-600/5' },
+  { id: 'SUPPORT', label: '辅助', icon: '❤️', color: 'text-yellow-400', bg: 'from-yellow-500/20 to-yellow-600/5' },
 ];

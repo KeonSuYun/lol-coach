@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { Shield, Users, Zap, Brain, Crosshair, RefreshCcw, ShieldAlert, RotateCcw, Trash2, Sparkles, Sword, Activity } from 'lucide-react';
+import { Shield, Users, Zap, Brain, Crosshair, RefreshCcw, ShieldAlert, RotateCcw, Trash2, Activity } from 'lucide-react';
 import AdminDashboard from './components/AdminDashboard';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from './config/constants';
 
@@ -29,14 +29,22 @@ export default function App() {
   
   const [blueTeam, setBlueTeam] = useState(() => loadState('blueTeam', Array(5).fill(null)));
   const [redTeam, setRedTeam] = useState(() => loadState('redTeam', Array(5).fill(null)));
+  
   const [myTeamRoles, setMyTeamRoles] = useState(() => loadState('myTeamRoles', Array(5).fill("")));
   
   const [userRole, setUserRole] = useState(() => loadState('userRole', '')); 
+  const [lcuRealRole, setLcuRealRole] = useState(""); 
+
   const [userSlot, setUserSlot] = useState(0); 
   const [lcuStatus, setLcuStatus] = useState("disconnected");
   const [userRank, setUserRank] = useState(() => loadState('userRank', 'Gold'));
+  
   const [enemyLaneAssignments, setEnemyLaneAssignments] = useState(() => 
       loadState('enemyLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
+  );
+
+  const [myLaneAssignments, setMyLaneAssignments] = useState(() => 
+      loadState('myLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
   );
 
   const [useThinkingModel, setUseThinkingModel] = useState(() => loadState('useThinkingModel', false));
@@ -68,6 +76,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('myTeamRoles', JSON.stringify(myTeamRoles)); }, [myTeamRoles]);
   useEffect(() => { localStorage.setItem('userRole', JSON.stringify(userRole)); }, [userRole]);
   useEffect(() => { localStorage.setItem('enemyLaneAssignments', JSON.stringify(enemyLaneAssignments)); }, [enemyLaneAssignments]);
+  useEffect(() => { localStorage.setItem('myLaneAssignments', JSON.stringify(myLaneAssignments)); }, [myLaneAssignments]);
   useEffect(() => { localStorage.setItem('aiResults', JSON.stringify(aiResults)); }, [aiResults]);
   useEffect(() => { localStorage.setItem('analyzeType', JSON.stringify(analyzeType)); }, [analyzeType]);
   useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
@@ -79,9 +88,12 @@ export default function App() {
       setBlueTeam(emptyTeam); setRedTeam(emptyTeam);
       setMyTeamRoles(Array(5).fill(""));
       setEnemyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" });
+      setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" });
+      
       setAiResults({ bp: null, personal: null, team: null });
       localStorage.removeItem('blueTeam'); localStorage.removeItem('redTeam');
       localStorage.removeItem('myTeamRoles'); localStorage.removeItem('enemyLaneAssignments');
+      localStorage.removeItem('myLaneAssignments'); 
       localStorage.removeItem('aiResults');
   };
 
@@ -129,12 +141,22 @@ export default function App() {
       const connect = () => {
           ws = new WebSocket(BRIDGE_WS_URL);
           ws.onopen = () => setLcuStatus("connected");
-          ws.onclose = () => { setLcuStatus("disconnected"); timer = setTimeout(connect, 3000); };
+          ws.onclose = () => { 
+              setLcuStatus("disconnected"); 
+              setLcuRealRole(""); 
+              timer = setTimeout(connect, 3000); 
+          };
           ws.onmessage = (event) => {
               try {
                   const msg = JSON.parse(event.data);
                   if (msg.type === 'CHAMP_SELECT') setRawLcuData(msg.data);
-                  if (msg.type === 'STATUS' && msg.data === 'connected') setLcuStatus("connected");
+                  if (msg.type === 'STATUS') {
+                       if(msg.data === 'connected') setLcuStatus("connected");
+                       else if(msg.data === 'disconnected') {
+                           setLcuStatus("disconnected");
+                           setLcuRealRole("");
+                       }
+                  }
               } catch(e){}
           };
       };
@@ -159,20 +181,25 @@ export default function App() {
       const newBlue = mapTeam(session.myTeam);
       const newRed = mapTeam(session.theirTeam);
       if (newBlue.some(c => c !== null) || newRed.some(c => c !== null)) { setBlueTeam(newBlue); setRedTeam(newRed); }
+      
       const roles = Array(5).fill(""); 
-      const lcuRoleMap = { "TOP": "TOP", "JUNGLE": "JUG", "MIDDLE": "MID", "BOTTOM": "ADC", "UTILITY": "SUP" };
+      const lcuRoleMap = { "TOP": "TOP", "JUNGLE": "JUNGLE", "MIDDLE": "MID", "BOTTOM": "ADC", "UTILITY": "SUPPORT" };
       session.myTeam.forEach(p => {
           const idx = p.cellId % 5;
           const rawRole = p.assignedPosition?.toUpperCase();
           if (rawRole && lcuRoleMap[rawRole]) roles[idx] = lcuRoleMap[rawRole];
       });
       if (roles.some(r => r !== "")) setMyTeamRoles(roles);
+      
       const localPlayer = session.myTeam.find(p => p.cellId === session.localPlayerCellId);
       if (localPlayer) {
           setUserSlot(localPlayer.cellId % 5);
-          const apiRoleMap = { "TOP": "TOP", "JUNGLE": "JUNGLE", "MIDDLE": "MID", "BOTTOM": "ADC", "UTILITY": "SUPPORT" };
           const assigned = localPlayer.assignedPosition?.toUpperCase();
-          if (assigned && apiRoleMap[assigned]) setUserRole(apiRoleMap[assigned]);
+          if (assigned && lcuRoleMap[assigned]) {
+              const standardRole = lcuRoleMap[assigned];
+              setUserRole(standardRole);      
+              setLcuRealRole(standardRole);   
+          }
       }
   };
   
@@ -200,9 +227,12 @@ export default function App() {
         const guesses = guessRoles(redTeam);
         setEnemyLaneAssignments(prev => {
             const next = { ...prev };
+            const currentEnemies = redTeam.map(c => c?.name).filter(Boolean);
             Object.keys(guesses).forEach(role => {
-                const current = prev[role];
-                if (!current || !redTeam.some(c => c?.name === current)) next[role] = guesses[role];
+                const currentAssignedName = prev[role];
+                if (!currentAssignedName || !currentEnemies.includes(currentAssignedName)) {
+                    if (guesses[role]) next[role] = guesses[role];
+                }
             });
             return next;
         });
@@ -264,30 +294,49 @@ export default function App() {
     setAnalyzingStatus(prev => ({ ...prev, [mode]: true }));
     setAiResults(prev => ({ ...prev, [mode]: null })); 
 
-    const myLaneAssignments = {};
-    const roleMapping = { "TOP": "TOP", "JUG": "JUNGLE", "MID": "MID", "ADC": "ADC", "SUP": "SUPPORT" };
+    const payloadAssignments = {};
     blueTeam.forEach((hero, idx) => {
-        if (hero && myTeamRoles[idx]) {
-            const standardRole = roleMapping[myTeamRoles[idx]];
-            if (standardRole) myLaneAssignments[standardRole] = hero.name;
+        const roleMap = { "TOP": "TOP", "JUG": "JUNGLE", "JUNGLE": "JUNGLE", "MID": "MID", "ADC": "ADC", "BOTTOM": "ADC", "SUP": "SUPPORT", "SUPPORT": "SUPPORT" };
+        const rawRole = myTeamRoles[idx];
+        const standardRole = roleMap[rawRole] || rawRole;
+        if (hero && standardRole) {
+             payloadAssignments[standardRole] = hero.key;
         }
     });
 
-    const validEnemyAssignments = {};
-    const currentEnemyNames = redTeam.map(c => c?.name).filter(Boolean);
-    Object.keys(enemyLaneAssignments).forEach(key => {
-        const hero = enemyLaneAssignments[key];
-        if (hero && currentEnemyNames.includes(hero)) validEnemyAssignments[key] = hero;
+    Object.keys(myLaneAssignments).forEach(role => {
+        const heroName = myLaneAssignments[role];
+        if (heroName) {
+            const hero = blueTeam.find(h => h?.name === heroName);
+            if (hero) payloadAssignments[role] = hero.key;
+        }
     });
 
-    const myHeroKey = blueTeam[userSlot]?.key || blueTeam[userSlot]?.name || "未知";
+    let finalUserRole = lcuRealRole || userRole;
+    const myHeroName = blueTeam[userSlot]?.name;
+    if (myHeroName) {
+         const manualRole = Object.keys(myLaneAssignments).find(r => myLaneAssignments[r] === myHeroName);
+         if (manualRole) finalUserRole = manualRole;
+    }
 
     try {
         const payload = {
-            mode, myHero: myHeroKey, myTeam: blueTeam.map(c => c?.name || "未选"), enemyTeam: redTeam.map(c => c?.name || "未选"),
-            userRole, rank: userRank,
-            myLaneAssignments: Object.keys(myLaneAssignments).length > 0 ? myLaneAssignments : null,
-            enemyLaneAssignments: Object.keys(validEnemyAssignments).length > 0 ? validEnemyAssignments : null,
+            mode, 
+            myHero: blueTeam[userSlot]?.key || "", 
+            myTeam: blueTeam.map(c => c?.key || ""), 
+            enemyTeam: redTeam.map(c => c?.key || ""),
+            userRole: finalUserRole, 
+            rank: userRank,
+            myLaneAssignments: Object.keys(payloadAssignments).length > 0 ? payloadAssignments : null,
+            enemyLaneAssignments: (() => {
+                const clean = {};
+                Object.keys(enemyLaneAssignments).forEach(k => {
+                     const heroName = enemyLaneAssignments[k];
+                     const heroObj = redTeam.find(c => c?.name === heroName);
+                     if(heroObj) clean[k] = heroObj.key;
+                });
+                return Object.keys(clean).length > 0 ? clean : null;
+            })(),
             model_type: useThinkingModel ? "reasoner" : "chat" 
         };
 
@@ -326,17 +375,14 @@ export default function App() {
   };
 
   return (
-    // ✨ 核心升级：全局背景与字体优化
-    <div className="min-h-screen bg-[#090a0f] text-slate-300 font-sans selection:bg-blue-500/30 selection:text-blue-200">
-      {/* 动态背景光晕 */}
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-          <div className="absolute top-[-20%] left-[20%] w-[600px] h-[600px] bg-blue-600/10 rounded-full blur-[120px] mix-blend-screen animate-pulse-slow"></div>
-          <div className="absolute bottom-[-10%] right-[10%] w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[100px] mix-blend-screen"></div>
-      </div>
+    // ✨ 美化点：径向渐变深色背景
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#2a2a30] via-[#1a1a20] to-[#121214] text-slate-300 font-sans selection:bg-blue-500/30 selection:text-blue-200">
+      
+      {/* 顶部微弱光效 */}
+      <div className="fixed top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-blue-500/30 to-transparent z-50"></div>
 
       <div className="relative z-10 flex flex-col items-center p-2 md:p-6">
         
-        {/* 顶部导航 */}
         <Header 
             version={version} lcuStatus={lcuStatus} 
             userRole={userRole} setUserRole={setUserRole} 
@@ -346,37 +392,66 @@ export default function App() {
             userRank={userRank} setUserRank={setUserRank}  
         />
 
-        <div className="w-full max-w-[1480px] mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        <div className="w-full max-w-[1480px] mt-2 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
             
             {/* --- 左侧：我方阵容 (Ally) --- */}
-            <div className="lg:col-span-3 flex flex-col gap-5">
-                <div className="bg-[#13151b] border border-white/5 rounded-xl shadow-2xl overflow-hidden backdrop-blur-sm">
-                    {/* 标题栏 */}
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-gradient-to-r from-blue-500/10 to-transparent">
+            <div className="lg:col-span-3 flex flex-col gap-4">
+                {/* 容器美化：半透明 + 边框 */}
+                <div className="bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-[#2c2c33]/50">
                         <div className="flex items-center gap-2">
-                            <div className="p-1.5 bg-blue-500/20 rounded-lg"><Shield size={16} className="text-blue-400" /></div>
-                            <span className="text-sm font-bold tracking-wider text-blue-100">ALLY TEAM</span>
+                            <Shield size={16} className="text-blue-500" />
+                            <span className="text-sm font-bold tracking-wider text-slate-200">ALLY TEAM</span>
                         </div>
-                        <button onClick={handleClearSession} className="text-slate-500 hover:text-red-400 transition-colors p-2 hover:bg-white/5 rounded-lg" title="清空对局">
-                            <Trash2 size={16}/>
+                        <button onClick={handleClearSession} className="text-slate-500 hover:text-red-400 transition-colors" title="清空对局">
+                            <Trash2 size={15}/>
                         </button>
                     </div>
                     
-                    {/* 英雄卡片列表 */}
-                    <div className="p-4 space-y-3">
+                    <div className="p-3 space-y-2">
                         {blueTeam.map((c, i) => (
-                            <div key={i} className={`relative transition-all duration-300 ${userSlot === i ? 'scale-[1.02] z-10' : 'hover:bg-white/2'}`}>
+                            <div key={i} className={`relative rounded-lg overflow-hidden transition-all ${userSlot === i ? 'bg-[#32323a] ring-1 ring-blue-500/50' : ''}`}>
                                 <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={myTeamRoles[i]} />
-                                {/* 高亮光效 */}
-                                {userSlot === i && (
-                                    <div className="absolute inset-0 border border-blue-500/30 rounded-lg shadow-[0_0_15px_rgba(59,130,246,0.15)] pointer-events-none"></div>
-                                )}
                             </div>
                         ))}
                     </div>
                 </div>
+
+                {/* 己方分路面板 */}
+                <div className="p-4 bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-lg">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <Activity size={14} className="text-blue-400"/>
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">MY LANE</span>
+                        </div>
+                        <button onClick={() => setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-500 hover:text-white transition-colors">
+                            <RefreshCcw size={12} />
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                        {["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].map(role => {
+                            const lcuDefaultHero = blueTeam.find((_, i) => myTeamRoles[i] === role)?.name || "";
+                            return (
+                                <div key={role} className="flex flex-col gap-1">
+                                    <label className="text-[9px] uppercase text-slate-500 text-center font-bold">{role.substring(0,3)}</label>
+                                    <select 
+                                        className={`w-full text-[10px] py-1.5 rounded-md bg-[#1a1a20] outline-none appearance-none text-center cursor-pointer transition-all hover:bg-[#25252b]
+                                            ${myLaneAssignments[role] 
+                                                ? 'text-blue-400 font-bold border border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.1)]' 
+                                                : 'text-slate-500 border border-white/5 hover:border-white/10'}
+                                        `}
+                                        value={myLaneAssignments[role] || lcuDefaultHero}
+                                        onChange={(e) => setMyLaneAssignments({...myLaneAssignments, [role]: e.target.value})}
+                                    >
+                                        <option value="">-</option>
+                                        {blueTeam.map((c, i) => c?.name ? <option key={i} value={c.name}>{c.name}</option> : null)}
+                                    </select>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
                 
-                {/* 移动端功能切换 */}
                 <div className="lg:hidden grid grid-cols-3 gap-3">
                     {['bp', 'personal', 'team'].map(m => (
                         <AnalysisButton 
@@ -390,27 +465,24 @@ export default function App() {
                 </div>
             </div>
             
-            {/* --- 中间：核心分析台 (Analysis Hub) --- */}
-            <div className="lg:col-span-6 flex flex-col gap-6 h-[calc(100vh-140px)] lg:h-[820px]">
+            {/* --- 中间：核心分析台 --- */}
+            <div className="lg:col-span-6 flex flex-col gap-4 h-[calc(100vh-140px)] lg:h-[820px]">
                 
-                {/* 分析模式切换器 (Tab Bar) */}
-                <div className="hidden lg:grid grid-cols-3 gap-4 p-1.5 bg-[#13151b]/80 backdrop-blur rounded-2xl border border-white/5">
+                {/* Tab Bar */}
+                <div className="hidden lg:grid grid-cols-3 gap-3 p-1 bg-[#232329]/90 backdrop-blur rounded-xl border border-white/5 shadow-lg">
                     <AnalysisButton mode="bp" activeColor="purple" icon={<Users size={18}/>} label="BP 推荐" desc="阵容优劣分析" onClick={() => handleTabClick('bp')} analyzeType={analyzeType} isAnalyzing={isModeAnalyzing('bp')}/>
                     <AnalysisButton mode="personal" activeColor="amber" icon={<Zap size={18}/>} label="王者私教" desc="绝活对线指导" onClick={() => handleTabClick('personal')} analyzeType={analyzeType} isAnalyzing={isModeAnalyzing('personal')}/>
                     <AnalysisButton mode="team" activeColor="cyan" icon={<Brain size={18}/>} label="运营教练" desc="大局观与决策" onClick={() => handleTabClick('team')} analyzeType={analyzeType} isAnalyzing={isModeAnalyzing('team')}/>
                 </div>
 
-                {/* 结果展示容器 (Glass Panel) */}
-                <div className="relative flex-1 min-h-0 flex flex-col bg-[#13151b] rounded-2xl border border-white/5 shadow-2xl overflow-hidden group transition-all duration-500 hover:border-white/10">
+                {/* 结果展示 */}
+                <div className="relative flex-1 min-h-0 flex flex-col bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-2xl overflow-hidden group">
+                    <div className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-${analyzeType==='bp'?'purple':analyzeType==='personal'?'amber':'cyan'}-500/50 to-transparent`}></div>
                     
-                    {/* 顶部装饰条 */}
-                    <div className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-${analyzeType==='bp'?'purple':analyzeType==='personal'?'amber':'cyan'}-500 to-transparent opacity-70`}></div>
-                    
-                    {/* 重试按钮 */}
                     {aiResults[analyzeType] && !isModeAnalyzing(analyzeType) && (
                         <button 
                             onClick={(e) => { e.stopPropagation(); handleAnalyze(analyzeType, true); }}
-                            className="absolute top-4 right-14 z-20 p-2 bg-black/40 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all border border-white/5 backdrop-blur-md"
+                            className="absolute top-4 right-14 z-20 p-2 bg-[#1a1a20]/80 hover:bg-[#32323a] rounded-lg text-slate-400 hover:text-white transition-all border border-white/5 backdrop-blur"
                             title="重新生成"
                         >
                             <RotateCcw size={16} />
@@ -427,30 +499,32 @@ export default function App() {
                 </div>
             </div>
             
-            {/* --- 右侧：敌方与社区 (Enemy & Tips) --- */}
-            <div className="lg:col-span-3 flex flex-col gap-5">
+            {/* --- 右侧：敌方与社区 --- */}
+            <div className="lg:col-span-3 flex flex-col gap-4">
                 
                 {/* 敌方阵容 */}
-                <div className="bg-[#13151b] border border-red-500/10 rounded-xl shadow-2xl overflow-hidden backdrop-blur-sm">
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-gradient-to-r from-red-500/10 to-transparent">
+                <div className="bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-[#2c2c33]/50">
                         <div className="flex items-center gap-2">
-                            <div className="p-1.5 bg-red-500/20 rounded-lg"><Crosshair size={16} className="text-red-400" /></div>
-                            <span className="text-sm font-bold tracking-wider text-red-100">ENEMY TEAM</span>
+                            <Crosshair size={16} className="text-red-500" />
+                            <span className="text-sm font-bold tracking-wider text-slate-200">ENEMY TEAM</span>
                         </div>
                     </div>
-                    <div className="p-4 space-y-3">
+                    <div className="p-3 space-y-2">
                         {redTeam.map((c, i) => (
-                            <ChampCard key={i} champ={c} idx={i} isEnemy={true} userSlot={userSlot} role={Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === c?.name)?.substring(0,3) || ""} />
+                            <div key={i} className="relative rounded-lg overflow-hidden">
+                                <ChampCard champ={c} idx={i} isEnemy={true} userSlot={userSlot} role={Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === c?.name)?.substring(0,3) || ""} />
+                            </div>
                         ))}
                     </div>
                 </div>
 
-                {/* 敌方分路微调 */}
-                <div className="p-4 bg-[#13151b] rounded-xl border border-white/5">
+                {/* 敌方分路 */}
+                <div className="p-4 bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-lg">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <Activity size={14} className="text-slate-500"/>
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">LANE ASSIGNMENT</span>
+                            <Activity size={14} className="text-red-400"/>
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">ENEMY LANE</span>
                         </div>
                         <button onClick={() => setEnemyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-600 hover:text-white transition-colors">
                             <RefreshCcw size={12} />
@@ -461,8 +535,10 @@ export default function App() {
                             <div key={role} className="flex flex-col gap-1">
                                 <label className="text-[9px] uppercase text-slate-600 text-center font-bold">{role.substring(0,3)}</label>
                                 <select 
-                                    className={`w-full text-[10px] py-1.5 rounded bg-[#090a0f] border border-white/5 outline-none appearance-none text-center cursor-pointer hover:border-white/20 transition-colors
-                                        ${enemyLaneAssignments[role] ? 'text-amber-400 font-bold border-amber-500/30' : 'text-slate-500'}
+                                    className={`w-full text-[10px] py-1.5 rounded-md bg-[#1a1a20] outline-none appearance-none text-center cursor-pointer transition-all hover:bg-[#25252b]
+                                        ${enemyLaneAssignments[role] 
+                                            ? 'text-amber-500 font-bold border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.1)]' 
+                                            : 'text-slate-500 border border-white/5 hover:border-white/10'}
                                     `}
                                     value={enemyLaneAssignments[role]}
                                     onChange={(e) => setEnemyLaneAssignments({...enemyLaneAssignments, [role]: e.target.value})}
@@ -475,8 +551,8 @@ export default function App() {
                     </div>
                 </div>
                 
-                {/* 社区 Tips (填充剩余空间) */}
-                <div className="flex-1 min-h-[300px] bg-[#13151b] rounded-xl border border-white/5 shadow-xl overflow-hidden flex flex-col">
+                {/* 社区 Tips */}
+                <div className="flex-1 min-h-[300px] bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-xl overflow-hidden flex flex-col">
                     <CommunityTips tips={tips} currentUser={currentUser} onOpenPostModal={() => { if(!currentUser) setShowLoginModal(true); else setShowTipModal(true); }} onLike={handleLike} onDelete={handleDeleteTip} />
                 </div>
             </div>
