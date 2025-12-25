@@ -16,6 +16,7 @@ import CommunityTips from './components/CommunityTips';
 import LoginModal from './components/modals/LoginModal';
 import TipModal from './components/modals/TipModal';
 import FeedbackModal from './components/modals/FeedbackModal';
+import PricingModal from './components/modals/PricingModal'; 
 
 // 🔧 辅助函数：安全读取 LocalStorage
 const loadState = (key, defaultVal) => {
@@ -46,36 +47,32 @@ export default function App() {
       loadState('enemyLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
   );
 
-  // ✨ 新增：模型模式状态 (默认 false = 极速模式)
   const [useThinkingModel, setUseThinkingModel] = useState(() => loadState('useThinkingModel', false));
 
-  // AI 结果多轨化
   const [aiResults, setAiResults] = useState(() => 
       loadState('aiResults', { bp: null, personal: null, team: null })
   );
 
-  // 运行状态
   const [analyzingStatus, setAnalyzingStatus] = useState({}); 
-  
-  // 控制器引用
   const abortControllersRef = useRef({ bp: null, personal: null, team: null });
-
-  // 辅助函数
   const isModeAnalyzing = (mode) => !!analyzingStatus[mode];
   const [analyzeType, setAnalyzeType] = useState(() => loadState('analyzeType', 'bp')); 
   const [viewMode, setViewMode] = useState('detailed');
   const [activeTab, setActiveTab] = useState(0);
 
-  // 社区 & 弹窗
   const [tips, setTips] = useState([]);
   const [inputContent, setInputContent] = useState(""); 
   const [tipTargetEnemy, setTipTargetEnemy] = useState(null);
   const [showTipModal, setShowTipModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
-  // 认证
+  // 认证状态
   const [currentUser, setCurrentUser] = useState(null);
+  // ✨ 新增：存储用户的详细账户信息 (包括 role, expire_at)
+  const [accountInfo, setAccountInfo] = useState(null);
+  
   const [token, setToken] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "" });
@@ -89,7 +86,6 @@ export default function App() {
   useEffect(() => { localStorage.setItem('enemyLaneAssignments', JSON.stringify(enemyLaneAssignments)); }, [enemyLaneAssignments]);
   useEffect(() => { localStorage.setItem('aiResults', JSON.stringify(aiResults)); }, [aiResults]);
   useEffect(() => { localStorage.setItem('analyzeType', JSON.stringify(analyzeType)); }, [analyzeType]);
-  // ✨ 保存模型偏好
   useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
 
   // 🧹 清空会话
@@ -110,7 +106,30 @@ export default function App() {
       localStorage.removeItem('aiResults');
   };
 
-  // === 3. 初始化 & Auth ===
+  // === 3. 初始化 & Auth & LCU ===
+  
+  // Axios 实例 (自动带 Token)
+  const authAxios = useMemo(() => {
+      const instance = axios.create({ baseURL: API_BASE_URL });
+      instance.interceptors.request.use(config => {
+          if (token) config.headers.Authorization = `Bearer ${token}`;
+          return config;
+      });
+      return instance;
+  }, [token]);
+
+  // ✨ 获取用户详细信息 (核心逻辑)
+  const fetchUserInfo = async () => {
+      if (!token) return;
+      try {
+          const res = await authAxios.get('/users/me');
+          setAccountInfo(res.data); // 包含 { role, is_pro, expire_at }
+      } catch (e) {
+          console.error("Failed to fetch user info", e);
+      }
+  };
+
+  // 初始化加载 Token
   useEffect(() => {
     const storedToken = localStorage.getItem("access_token");
     const storedUser = localStorage.getItem("username");
@@ -118,6 +137,8 @@ export default function App() {
         setToken(storedToken);
         setCurrentUser(storedUser);
     }
+    
+    // 初始化 DDragon 数据
     const initData = async () => {
       try {
         const vRes = await fetch(`${DDRAGON_BASE}/api/versions.json`);
@@ -134,16 +155,16 @@ export default function App() {
     initData();
   }, []);
 
-  const authAxios = useMemo(() => {
-      const instance = axios.create({ baseURL: API_BASE_URL });
-      instance.interceptors.request.use(config => {
-          if (token) config.headers.Authorization = `Bearer ${token}`;
-          return config;
-      });
-      return instance;
+  // ✨ 当 Token 变化时，自动获取用户详情 (例如充值后刷新页面)
+  useEffect(() => {
+      if (token) {
+          fetchUserInfo();
+      } else {
+          setAccountInfo(null);
+      }
   }, [token]);
 
-  // === 4. Bridge 连接 ===
+  // LCU WebSocket 连接
   useEffect(() => {
       let ws;
       let timer;
@@ -167,10 +188,9 @@ export default function App() {
       if (rawLcuData && championList.length > 0) handleLcuUpdate(rawLcuData);
   }, [rawLcuData, championList]);
 
-  // LCU 数据处理
+  // LCU 数据处理 (handleLcuUpdate & guessRoles 省略细节，保持原样)
   const handleLcuUpdate = (session) => {
       if (!session || championList.length === 0) return;
-      
       const mapTeam = (teamArr) => {
           const result = Array(5).fill(null);
           teamArr.forEach(p => {
@@ -182,15 +202,12 @@ export default function App() {
           });
           return result;
       };
-      
       const newBlue = mapTeam(session.myTeam);
       const newRed = mapTeam(session.theirTeam);
-      
       if (newBlue.some(c => c !== null) || newRed.some(c => c !== null)) {
           setBlueTeam(newBlue);
           setRedTeam(newRed);
       }
-
       const roles = Array(5).fill(""); 
       const lcuRoleMap = { "TOP": "TOP", "JUNGLE": "JUG", "MIDDLE": "MID", "BOTTOM": "ADC", "UTILITY": "SUP" };
       session.myTeam.forEach(p => {
@@ -199,7 +216,6 @@ export default function App() {
           if (rawRole && lcuRoleMap[rawRole]) roles[idx] = lcuRoleMap[rawRole];
       });
       if (roles.some(r => r !== "")) setMyTeamRoles(roles);
-
       const localPlayer = session.myTeam.find(p => p.cellId === session.localPlayerCellId);
       if (localPlayer) {
           setUserSlot(localPlayer.cellId % 5);
@@ -208,8 +224,6 @@ export default function App() {
           if (assigned && apiRoleMap[assigned]) setUserRole(apiRoleMap[assigned]);
       }
   };
-
-  // 敌方位置猜测
   const guessRoles = (team) => {
     const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
     const assignedIndices = new Set(); 
@@ -229,7 +243,6 @@ export default function App() {
     roles["JUNGLE"] = findHero(c => true); 
     return roles;
   };
-
   useEffect(() => {
     if (redTeam.some(c => c !== null)) {
         const guesses = guessRoles(redTeam);
@@ -256,6 +269,8 @@ export default function App() {
           localStorage.setItem("access_token", res.data.access_token);
           localStorage.setItem("username", res.data.username);
           setShowLoginModal(false);
+          // 登录后立刻获取详细信息
+          fetchUserInfo();
       } catch (e) { alert("登录失败: " + (e.response?.data?.detail || "检查信息")); }
   };
   const handleRegister = async () => {
@@ -264,12 +279,11 @@ export default function App() {
           alert("注册成功！请登录。");
           setAuthMode("login");
       } catch (e) {
-          // 🔥 修改这里：显示后端返回的具体错误原因
           alert("注册失败: " + (e.response?.data?.detail || "未知错误"));
       }
   };
   const logout = () => {
-      setToken(null); setCurrentUser(null);
+      setToken(null); setCurrentUser(null); setAccountInfo(null);
       localStorage.removeItem("access_token"); localStorage.removeItem("username");
   };
   const fetchTips = async () => {
@@ -348,7 +362,6 @@ export default function App() {
             userRole,
             myLaneAssignments: Object.keys(myLaneAssignments).length > 0 ? myLaneAssignments : null,
             enemyLaneAssignments: Object.keys(validEnemyAssignments).length > 0 ? validEnemyAssignments : null,
-            // 🔥 发送模型参数
             model_type: useThinkingModel ? "reasoner" : "chat" 
         };
 
@@ -388,6 +401,8 @@ export default function App() {
     } finally {
         if (abortControllersRef.current[mode] === newController) {
             setAnalyzingStatus(prev => ({ ...prev, [mode]: false }));
+            // ✨ 如果分析成功，刷新一下用户信息（扣除次数）
+            fetchUserInfo(); 
         }
     }
   };
@@ -405,7 +420,6 @@ export default function App() {
     } catch (e) { alert("提交失败"); }
   };
 
-  // === 7. 渲染 ===
   return (
     <div className="min-h-screen bg-[#050508] text-slate-300 font-sans p-2 md:p-6 flex flex-col items-center">
       
@@ -413,9 +427,10 @@ export default function App() {
         version={version} lcuStatus={lcuStatus} 
         userRole={userRole} setUserRole={setUserRole} 
         currentUser={currentUser} logout={logout} setShowLoginModal={setShowLoginModal}
-        // ✨ 传递模型切换参数
-        useThinkingModel={useThinkingModel}
-        setUseThinkingModel={setUseThinkingModel}
+        useThinkingModel={useThinkingModel} setUseThinkingModel={setUseThinkingModel}
+        setShowPricingModal={setShowPricingModal}
+        // ✨ 将用户详情传给 Header
+        accountInfo={accountInfo}
       />
 
       <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -454,7 +469,6 @@ export default function App() {
             </div>
 
             <div className="relative flex-1 min-h-0 flex flex-col">
-                {/* 重新生成按钮 */}
                 {aiResults[analyzeType] && !isModeAnalyzing(analyzeType) && (
                     <button 
                         onClick={(e) => { e.stopPropagation(); handleAnalyze(analyzeType, true); }}
@@ -512,9 +526,10 @@ export default function App() {
       <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} authMode={authMode} setAuthMode={setAuthMode} authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} handleRegister={handleRegister} />
       <TipModal isOpen={showTipModal} onClose={() => setShowTipModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handlePostTip} />
       <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handleReportError} />
+      <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
       {showAdminPanel && token && <AdminDashboard token={token} onClose={() => setShowAdminPanel(false)} />}
       
-      {currentUser && ["admin", "root", "keonsuyun", "myname"].includes(currentUser) && (
+      {currentUser && ["admin", "root", "keonsuyun"].includes(currentUser) && (
           <button onClick={() => setShowAdminPanel(true)} className="fixed bottom-4 left-4 z-50 bg-red-950/90 hover:bg-red-700 text-red-100 p-3 rounded-full shadow border border-red-500 hover:scale-110 group"><ShieldAlert size={24} className="group-hover:animate-pulse"/></button>
       )}
     </div>
