@@ -215,9 +215,11 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     for hero in remaining_heroes:
         # 安全调用：如果 db 没有 get_champion_info 方法则返回 None
         hero_info = getattr(db, 'get_champion_info', lambda x: None)(hero)
-        pref_role = hero_info.get('role', 'mid').upper() if hero_info else "MID"
-        role_map = {"TOP": "TOP", "JUNGLE": "JUNGLE", "MID": "MID", "ADC": "ADC", "BOTTOM": "ADC", "SUPPORT": "SUPPORT", "SUP": "SUPPORT"}
-        target = role_map.get(pref_role, "MID")
+        # 适配新版数据：role 已经是大写 TOP/MID 等
+        pref_role = hero_info.get('role', 'MID').upper() if hero_info else "MID"
+        
+        target = pref_role
+        if target not in standard_roles: target = "MID"
 
         if final_roles[target] == "Unknown":
             final_roles[target] = hero
@@ -230,7 +232,7 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     return {k: v for k, v in final_roles.items() if v != "Unknown"}
 
 # ==========================================
-# 🧮 核心算法：推荐英雄 (包含分段逻辑)
+# 🧮 核心算法：推荐英雄 (包含分段逻辑 + 分路敏感 + Tier加权)
 # ==========================================
 def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None):
     """
@@ -238,89 +240,145 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
     rank_tier: "Diamond+" 或 "Platinum-"
     """
     recommendations = []
+    current_role = user_role.upper() # 确保是大写 (TOP/MID...)
     
     # 1. 场景 A: 已知敌方 (Counter Pick) -> 查 matchups 表
     if enemy_hero_doc:
+        # 新版: id 是英文名 (如 "Aatrox")
         enemy_id = enemy_hero_doc['id']
         
         # ⚡ 筛选：只看同位置、且场次足够的对局 (前30条热门对局)
-        # 注意：这里直接查 MongoDB 的 matchups 集合
-        # 确保 database.py 初始化连接时允许访问 db.matchups
-        matchups_col = db_instance.db['matchups']
-        
-        cursor = matchups_col.find({
-            "enemy_id": str(enemy_id),
-            "role": user_role.upper()
+        cursor = db_instance.matchups_col.find({
+            "enemy_id": enemy_id, 
+            "role": current_role
         }).sort("total_games", -1).limit(30)
         
-        candidates = list(cursor)
-        
-        for match in candidates:
+        for match in cursor:
             # 获取英雄详情
             hero_info = db_instance.champions_col.find_one({"id": match['hero_id']})
             if not hero_info: continue
 
+            # 读取关键指标
+            win_rate = match.get('win_rate', 0.5)
+            
+            # 🔥 数据自适应逻辑
+            has_lane_stats = 'lane_kill_rate' in match
+            has_tower_stats = 'first_tower' in match
+            
             score = 0
             reason = ""
             
-            # 读取关键指标 (提供默认值防止报错)
-            lane_kill = match.get('lane_kill_rate', 0.5) # 对线击杀率
-            win_rate = match.get('win_rate', 0.5)        # 胜率
-            first_tower = match.get('first_tower', 0.5)  # 首塔率
-            kp = match.get('kill_participation', 0)      # 参团率
-            
-            # === ⚖️ 分段权重算法 ===
-            if rank_tier == "Diamond+":
-                # 💎 钻石以上：
-                # 权重调整为：对线(45%) + 整体胜率(35%) + 参团(20%)
-                score = (lane_kill * 100 * 0.45) + (win_rate * 100 * 0.35) + (kp * 100 * 0.20)
-                reason = f"对线压制力强({lane_kill:.1%})，且胜率可观"
+            if has_lane_stats and has_tower_stats:
+                # ✅ 数据完整：使用完整算法
+                lane_kill = match.get('lane_kill_rate', 0.5)
+                first_tower = match.get('first_tower', 0.5)
+                kp = match.get('kill_participation', 0.5)
+                
+                if rank_tier == "Diamond+":
+                    score = (lane_kill * 0.45) + (win_rate * 0.35) + (kp * 0.20)
+                    reason = f"高分段压制: 对线击杀率 {lane_kill:.1%}"
+                else:
+                    score = (lane_kill * 0.60) + (first_tower * 0.20) + (win_rate * 0.20)
+                    reason = f"鱼塘局杀手: 对线单杀 {lane_kill:.1%}"
+                    
+                lane_kill_str = f"{lane_kill:.1%}"
             else:
-                # 🛡️ 钻石以下：
-                # 权重保持：对线击杀(60%) + 首塔(20%) + 胜率(20%)
-                # 逻辑：低分段只要对线杀穿，就能滚雪球赢
-                score = (lane_kill * 100 * 0.60) + (first_tower * 100 * 0.20) + (win_rate * 100 * 0.20)
-                reason = f"对线单杀率 {lane_kill:.1%}，炸鱼首选"
+                score = win_rate
+                reason = f"对位胜率领先: {win_rate:.1%}"
+                lane_kill_str = "N/A"
+
+            # ✨✨✨ 分路敏感的 Tier 获取 ✨✨✨
+            # 优先获取该英雄在当前分路的 Tier
+            # 结构: positions = { "TOP": {tier: 1}, "MID": {tier: 4} }
+            positions_data = hero_info.get('positions', {})
+            role_stats = positions_data.get(current_role, {})
+            
+            # 如果该英雄压根不打这个位置（比如 盖伦去打ADC），则没有数据 -> 给予惩罚
+            if not role_stats and not positions_data:
+                 # 兼容旧数据 (无 positions 字段)
+                 tier_val = hero_info.get('tier', 5)
+            elif not role_stats:
+                 # 有 positions 但没这个分路 -> 说明是异类玩法 (T5)
+                 tier_val = 5 
+                 score *= 0.8 # 额外惩罚
+            else:
+                 # 命中分路数据
+                 tier_val = role_stats.get('tier', 5)
+
+            # Tier 加权
+            tier_multiplier = 1 + (3 - tier_val) * 0.05
+            score *= tier_multiplier
 
             recommendations.append({
                 "name": hero_info['name'],
                 "score": score,
-                "tier": hero_info.get('tier', 'T2'),
+                "tier": f"T{tier_val}",
                 "data": {
                     "vs_win": f"{win_rate:.1%}",
-                    "lane_kill": f"{lane_kill:.1%}",
+                    "lane_kill": lane_kill_str,
                     "games": match['total_games'],
-                    "first_tower": f"{first_tower:.1%}"
+                    "first_tower": f"{match.get('first_tower', 0):.1%}"
                 },
                 "reason": reason
             })
 
-    # 2. 场景 B: 未知敌方 (Blind Pick) -> 查 champions 表
-    else:
-        # 盲选逻辑：查 T1/T2 英雄
-        cursor = db_instance.champions_col.find({
-            "tier": {"$lte": 2}  # 假设 tier 存储的是数字 1, 2...
-        }).sort("win_rate", -1).limit(20)
+    # 2. 场景 B: 盲选 (Blind Pick) -> 查 champions 表
+    if not recommendations:
+        # 获取所有可能的英雄 (这里我们先全量获取，然后在内存里做分路过滤，因为只有160个英雄，速度很快)
+        cursor = db_instance.champions_col.find({})
         
+        raw_recommendations = []
+
         for hero in cursor:
+            # ✨✨✨ 核心逻辑：精准读取当前分路数据 ✨✨✨
+            positions_data = hero.get('positions', {})
+            
+            # 尝试获取当前分路的数据
+            role_stats = positions_data.get(current_role)
+            
+            # 逻辑分支：
+            if role_stats:
+                # 1. 英雄打这个位置 -> 用精准数据
+                tier = role_stats.get('tier', 5)
+                wr = role_stats.get('win_rate', 0)
+                br = role_stats.get('ban_rate', 0)
+                pr = role_stats.get('pick_rate', 0)
+            elif not positions_data:
+                # 2. 旧数据 (没 positions) -> 用根数据 + 角色匹配检查
+                # 如果英雄原本定位(role)和当前(user_role)不符，惩罚
+                main_role = hero.get('role', 'MID')
+                if main_role != current_role: continue # 跳过不打这个位置的
+                tier = hero.get('tier', 5)
+                wr = hero.get('win_rate', 0)
+                br = hero.get('ban_rate', 0)
+                pr = hero.get('pick_rate', 0)
+            else:
+                # 3. 有 positions 但没当前分路 -> 说明该英雄不打这个位置 -> 跳过
+                continue
+
+            # 过滤掉 T3 以下的 (T4, T5)，除非还没填满 20 个
+            # 这里先计算分，最后统一排序
             score = 0
             if rank_tier == "Diamond+":
-                # 高分段看 BP率 (Pick + Ban)
-                score = hero.get('win_rate', 0) * 0.6 + hero.get('pick_rate', 0) * 0.4
+                score = wr * 0.6 + pr * 0.4
             else:
-                # 低分段看 胜率 + Ban率 (Ban率高代表英雄恶心)
-                score = hero.get('win_rate', 0) * 0.7 + hero.get('ban_rate', 0) * 0.3
-                
-            recommendations.append({
+                score = wr * 0.7 + br * 0.3
+            
+            # Tier 加权
+            tier_multiplier = 1 + (3 - tier) * 0.05
+            score *= tier_multiplier
+            
+            raw_recommendations.append({
                 "name": hero['name'],
                 "score": score,
-                "tier": f"T{hero.get('tier', '?')}",
-                "data": {
-                    "win": f"{hero.get('win_rate',0)*100:.1f}%",
-                    "ban": f"{hero.get('ban_rate',0)*100:.1f}%"
-                },
-                "reason": "版本强势，盲选稳健"
+                "tier": f"T{tier}",
+                "data": { "win": f"{wr:.1%}", "ban": f"{br:.1%}" },
+                "reason": f"版本T{tier}，该分路胜率 {wr:.1%}"
             })
+            
+        # 排序并取前 20 (盲选池) -> 再取 Top 3
+        raw_recommendations.sort(key=lambda x: x['score'], reverse=True)
+        recommendations = raw_recommendations[:3]
 
     # 排序取 Top 3
     recommendations.sort(key=lambda x: x['score'], reverse=True)
@@ -565,6 +623,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # 3. Input Sanitization (输入清洗)
     if data.myHero:
+        # 新版：get_champion_info 支持 alias 数组
         hero_info = db.get_champion_info(data.myHero)
         if not hero_info:
             async def attack_err(): yield json.dumps({"concise": {"title": "输入错误", "content": f"系统未识别英雄 '{data.myHero}'。"}})

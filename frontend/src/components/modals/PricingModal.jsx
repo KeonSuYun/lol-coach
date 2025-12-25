@@ -4,7 +4,7 @@ const PricingModal = ({ isOpen, onClose, username }) => {
   if (!isOpen) return null;
 
   // 🔴 替换成你的爱发电个人主页链接
-  const AFDIAN_URL = "https://afdian.com/a/你的爱发电ID";
+  const AFDIAN_URL = "https://afdian.com/a/lol-couch";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
