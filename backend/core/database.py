@@ -1,14 +1,15 @@
 import os
 import datetime
 import time
+import re
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError, ConfigurationError 
 from bson.objectid import ObjectId
 
 class KnowledgeBase:
     def __init__(self):
-        # 🟢 1. 获取 URI
-        self.uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        # 🟢 1. 获取 URI (修复：兼容 MONGO_URI 和 MONGO_URL)
+        self.uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URL") or "mongodb://localhost:27017"
         
         self._log_connection_attempt()
 
@@ -39,6 +40,8 @@ class KnowledgeBase:
             
             # ✨ 新增：验证码专用集合
             self.otps_col = self.db['otps']
+            # ✨ 新增：订单集合
+            self.orders_col = self.db['orders']
 
             # === 索引初始化 ===
             self._init_indexes()
@@ -76,8 +79,10 @@ class KnowledgeBase:
             self.users_col.create_index("ip")
             
             # ✨ OTP 验证码 5分钟自动过期 (TTL索引)
-            # MongoDB 会自动删除 "expire_at" 时间早于当前时间的文档
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
+
+            # ✨ 订单号唯一索引
+            self.orders_col.create_index("order_no", unique=True)
             
             print("✅ [Database] 索引检查完毕")
         except Exception as e:
@@ -124,64 +129,266 @@ class KnowledgeBase:
         return False
 
     # ==========================
-    # ⏱️ 频控与限流系统 (15秒CD + 分栏目)
+    # 💰 充值与会员系统 (含爱发电)
     # ==========================
-    def check_and_update_usage(self, username, mode):
+    def upgrade_user_role(self, username, days=30):
         """
-        检查并更新用户的使用次数和冷却时间。
-        返回: (allowed: bool, message: str, remaining_seconds: int)
+        充值成功后调用：升级用户为 Pro 并设置过期时间
         """
+        now = datetime.datetime.utcnow()
+        user = self.users_col.find_one({"username": username})
+        if not user: return False
+
+        # 计算新的过期时间
+        current_expire = user.get("membership_expire")
+        
+        if current_expire and current_expire > now:
+            new_expire = current_expire + datetime.timedelta(days=days)
+        else:
+            new_expire = now + datetime.timedelta(days=days)
+
+        self.users_col.update_one(
+            {"username": username},
+            {"$set": {
+                "role": "pro",  # 设置为 pro 角色
+                "membership_expire": new_expire
+            }}
+        )
+        print(f"💰 用户 {username} 已充值，有效期至 {new_expire}")
+        return True
+
+    def process_afdian_order(self, order_no, username, amount, sku_detail):
+        """
+        处理爱发电订单：防重、记录、升级
+        """
+        # 1. 幂等性检查：如果订单号已存在，直接返回成功，防止重复加时间
+        if self.orders_col.find_one({"order_no": order_no}):
+            print(f"⚠️ 订单 {order_no} 已处理过，跳过。")
+            return True
+
+        # 2. 检查用户是否存在
         user = self.users_col.find_one({"username": username})
         if not user:
-            return False, "用户不存在", 0
+            print(f"❌ 充值失败：找不到用户 {username} (订单: {order_no})")
+            return False
 
-        # 1. 获取当前状态
+        # 3. 计算权益时长 (🔴 适配新价格 6.99 和 19.99)
+        days_to_add = 0
+        amount_float = float(amount)
+        
+        # 容错处理：设置比定价稍低的阈值
+        if amount_float >= 19.90:  # 月卡 (定价 19.99)
+            days_to_add = 30
+        elif amount_float >= 6.90: # 周卡 (定价 6.99)
+            days_to_add = 7
+        else:
+            # 小额打赏兜底：假设 1元=0.5天
+            days_to_add = int(amount_float * 0.5)
+
+        if days_to_add < 1:
+            print(f"⚠️ 金额 {amount} 不足以为 {username} 兑换会员")
+            return False
+
+        # 4. 执行升级
+        try:
+            success = self.upgrade_user_role(username, days=days_to_add)
+            if success:
+                # 5. 记录订单 (关键：防止重复处理)
+                self.orders_col.insert_one({
+                    "order_no": order_no,
+                    "username": username,
+                    "amount": amount,
+                    "days_added": days_to_add,
+                    "sku": sku_detail,
+                    "created_at": datetime.datetime.utcnow()
+                })
+                print(f"✅ 爱发电订单处理成功：用户 {username} +{days_to_add}天")
+                return True
+        except Exception as e:
+            print(f"❌ 订单处理异常: {e}")
+            return False
+
+    def check_membership_status(self, username):
+        """
+        检查会员是否过期，如果过期自动降级。
+        此方法会在 check_and_update_usage 中被调用，确保每次使用前状态是最新的。
+        """
+        user = self.users_col.find_one({"username": username})
+        if not user: return "user"
+
+        # 如果是付费角色
+        if user.get("role") in ["pro", "vip", "svip"]:
+            expire_at = user.get("membership_expire")
+            
+            # 如果没有过期时间（可能是永久会员），直接返回角色
+            if not expire_at:
+                return user.get("role")
+                
+            # 检查是否已过期
+            if expire_at < datetime.datetime.utcnow():
+                print(f"📉 用户 {username} 会员已过期，自动降级为普通用户")
+                self.users_col.update_one(
+                    {"username": username},
+                    {"$set": {"role": "user"}}
+                )
+                return "user"
+            
+            # 未过期
+            return user.get("role")
+            
+        # 默认是普通用户或管理员(admin)
+        return user.get("role", "user")
+
+    # ==========================
+    # 📊 状态查询 (新功能)
+    # ==========================
+    def get_user_usage_status(self, username):
+        """
+        获取用户当前的资源使用状态，用于前端显示剩余次数
+        """
+        # 1. 刷新状态
+        current_role = self.check_membership_status(username)
+        user = self.users_col.find_one({"username": username})
+        if not user: return {}
+
+        is_pro = current_role in ["vip", "svip", "admin", "pro"]
+        
+        # 2. 计算使用量
+        now = datetime.datetime.utcnow()
+        today_str = now.strftime("%Y-%m-%d")
+        usage_data = user.get("usage_stats", {})
+        
+        # 如果是新的一天，视为 0
+        if usage_data.get("last_reset_date") != today_str:
+             r1_used = 0
+        else:
+             # 计算所有模式的 R1 使用总和
+             counts_reasoner = usage_data.get("counts_reasoner", {})
+             r1_used = sum(counts_reasoner.values())
+
+        # ✨ 修改：R1 每日上限改为 10 次
+        LIMIT = 10 
+        return {
+            "is_pro": is_pro,
+            "role": current_role,
+            "r1_limit": LIMIT, 
+            "r1_used": r1_used,
+            "r1_remaining": max(0, LIMIT - r1_used) if not is_pro else -1 # -1 代表无限
+        }
+
+    # ==========================
+    # ⏱️ 核心频控系统 (Hard Limit + Tiered)
+    # ==========================
+    def check_and_update_usage(self, username, mode, model_type="chat"):
+        """
+        检查并更新用户的使用次数和冷却时间。
+        model_type: 'chat' (普通/V3) 或 'reasoner' (深度思考/R1)
+        
+        特性：
+        1. 自动处理会员过期
+        2. Pro/Admin 无限次数 (受每小时硬上限限制)
+        3. 普通用户:
+           - reasoner: 10次/天 (所有模式共享)
+           - chat: 无限次 (受每小时硬上限限制)
+        4. 防抖: 普通用户 15s CD，Pro 用户 5s CD
+        5. 防刷: 每小时请求硬上限
+        """
+        # 1. 先检查并更新会员状态
+        current_role = self.check_membership_status(username)
+        user = self.users_col.find_one({"username": username})
+        if not user: return False, "用户不存在", 0
+
+        is_pro = current_role in ["vip", "svip", "admin", "pro"]
+
+        # 2. 获取当前使用统计
         now = datetime.datetime.utcnow()
         today_str = now.strftime("%Y-%m-%d")
         
-        # 数据结构初始化 (兼容旧数据)
         usage_data = user.get("usage_stats", {})
-        last_reset = usage_data.get("last_reset_date", "")
         
-        # 2. 跨天重置逻辑
-        if last_reset != today_str:
-            # 新的一天，重置计数
+        # 3. 每日重置逻辑
+        if usage_data.get("last_reset_date") != today_str:
             usage_data = {
                 "last_reset_date": today_str,
-                "counts": {},      # 各模式今日已用次数
-                "last_access": {}  # 各模式上次使用时间
+                "counts_chat": {},     # 普通模型计数
+                "counts_reasoner": {}, # 思考模型计数
+                "last_access": {},
+                # 保留小时限制相关数据，因为小时窗可能跨天
+                "hourly_start": usage_data.get("hourly_start"),
+                "hourly_count": 0 
             }
         
-        counts = usage_data.get("counts", {})
+        counts_chat = usage_data.get("counts_chat", {})
+        counts_reasoner = usage_data.get("counts_reasoner", {})
         last_access = usage_data.get("last_access", {})
 
-        # 3. 检查冷却时间 (15 秒)
-        COOLDOWN_SECONDS = 15
+        # === 4. 🚨 每小时硬上限 (防刷第一道防线) ===
+        # 逻辑：即使是 Pro，也不允许 1秒请求100次。
+        # 设定：普通用户 20次/小时，Pro 用户 100次/小时
+        HOURLY_LIMIT = 100 if is_pro else 20
+        
+        hourly_start_str = usage_data.get("hourly_start")
+        hourly_count = usage_data.get("hourly_count", 0)
+        
+        if not hourly_start_str:
+            hourly_start = now
+            hourly_count = 0
+        else:
+            hourly_start = datetime.datetime.fromisoformat(hourly_start_str)
+            # 如果窗口超过 1 小时，重置
+            if (now - hourly_start).total_seconds() > 3600:
+                hourly_start = now
+                hourly_count = 0
+        
+        if hourly_count >= HOURLY_LIMIT:
+            wait_min = 60 - int((now - hourly_start).total_seconds() / 60)
+            return False, f"请求过于频繁，请休息一下 ({wait_min}分钟后恢复)", -1
+
+        # === 5. 冷却时间 (防抖) ===
+        # 普通用户 15秒，Pro用户 5秒 (防止脚本刷接口)
+        COOLDOWN_SECONDS = 5 if is_pro else 15
         
         last_time_str = last_access.get(mode)
         if last_time_str:
             last_time = datetime.datetime.fromisoformat(last_time_str)
             delta = (now - last_time).total_seconds()
             if delta < COOLDOWN_SECONDS:
-                return False, f"技能冷却中 ({int(COOLDOWN_SECONDS - delta)}s)", int(COOLDOWN_SECONDS - delta)
+                wait_time = int(COOLDOWN_SECONDS - delta)
+                return False, f"技能冷却中 ({wait_time}s)", wait_time
 
-        # 4. 检查每日上限 (Pro/Admin 无限，普通用户 10次)
-        role = user.get("role", "user")
-        is_pro = role in ["vip", "svip", "admin", "pro"] 
-        
-        current_count = counts.get(mode, 0)
-        max_daily = 10 # 普通用户上限
-        
-        if not is_pro and current_count >= max_daily:
-            return False, f"今日次数已耗尽 (普通用户每日 {max_daily} 次)", -1
+        # === 6. 每日次数限制 (分模型) ===
+        if not is_pro:
+            # 普通用户限制逻辑
+            if model_type == "reasoner":
+                # ✨ 修改：R1 模型统计所有模式的总和
+                total_r1_used = sum(counts_reasoner.values())
+                # ✨ 修改：R1 每日限额改为 10 次
+                limit = 10
+                if total_r1_used >= limit:
+                    return False, f"深度思考(R1) 每日限额已用完 ({limit}次/日)，请升级 Pro 解锁", -1
+            else:
+                # 普通模型：无限次 (其实受限于每小时硬上限，所以不用担心被刷爆)
+                pass 
+        else:
+            # Pro 用户：无限次
+            pass
 
-        # 5. 更新数据库
-        counts[mode] = current_count + 1
+        # === 7. 更新数据库 ===
+        if model_type == "reasoner":
+            counts_reasoner[mode] = counts_reasoner.get(mode, 0) + 1
+        else:
+            counts_chat[mode] = counts_chat.get(mode, 0) + 1
+            
         last_access[mode] = now.isoformat()
         
-        usage_data["counts"] = counts
+        usage_data["counts_chat"] = counts_chat
+        usage_data["counts_reasoner"] = counts_reasoner
         usage_data["last_access"] = last_access
-        usage_data["last_reset_date"] = today_str 
+        usage_data["last_reset_date"] = today_str
+        
+        # 更新小时计数
+        usage_data["hourly_start"] = hourly_start.isoformat()
+        usage_data["hourly_count"] = hourly_count + 1
 
         self.users_col.update_one(
             {"username": username},
@@ -211,7 +418,7 @@ class KnowledgeBase:
             # 🔥 核心防刷 1: 设备锁 (同一个设备 ID 只能注册 3 个号)
             if device_id and device_id != "unknown_client_error":
                 device_count = self.users_col.count_documents({"device_id": device_id})
-                if device_count >= 1:
+                if device_count >= 3:
                     print(f"🚫 注册拦截: 设备 {device_id} 账号过多 ({device_count})")
                     return "DEVICE_LIMIT"
 
@@ -364,8 +571,12 @@ class KnowledgeBase:
 
     def get_champion_info(self, name_or_alias):
         # 模糊匹配英雄名
-        champ = self.champions_col.find_one({"name": {"$regex":f"^{name_or_alias}$", "$options": "i"}})
+        # ✅ 安全修复：先转义特殊字符，防止正则攻击 (ReDoS)
+        safe_name = re.escape(name_or_alias)
+        
+        champ = self.champions_col.find_one({"name": {"$regex":f"^{safe_name}$", "$options": "i"}})
         if champ: return champ
+        
         # 别名匹配
         champ = self.champions_col.find_one({"alias": name_or_alias})
         if champ: return champ

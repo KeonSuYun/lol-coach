@@ -41,7 +41,7 @@ export default function App() {
   const [userRole, setUserRole] = useState(() => loadState('userRole', '')); 
   const [userSlot, setUserSlot] = useState(0); 
   const [lcuStatus, setLcuStatus] = useState("disconnected");
-
+  const [userRank, setUserRank] = useState(() => loadState('userRank', 'Gold'));
   // 敌方分路手动修正
   const [enemyLaneAssignments, setEnemyLaneAssignments] = useState(() => 
       loadState('enemyLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
@@ -87,7 +87,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('aiResults', JSON.stringify(aiResults)); }, [aiResults]);
   useEffect(() => { localStorage.setItem('analyzeType', JSON.stringify(analyzeType)); }, [analyzeType]);
   useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
-
+  useEffect(() => {localStorage.setItem('userRank', userRank);}, [userRank]);
   // 🧹 清空会话
   const handleClearSession = () => {
       if(!confirm("确定要清空当前对局记录吗？\n(这也将清除所有AI分析结果)")) return;
@@ -356,10 +356,11 @@ export default function App() {
     try {
         const payload = {
             mode,
-            myHero: blueTeam[userSlot]?.name || "未知",
+            myHero: blueTeam[userSlot]?.key || blueTeam[userSlot]?.name || "未知",
             myTeam: blueTeam.map(c => c?.name || "未选"),
             enemyTeam: redTeam.map(c => c?.name || "未选"),
             userRole,
+            rank: userRank,
             myLaneAssignments: Object.keys(myLaneAssignments).length > 0 ? myLaneAssignments : null,
             enemyLaneAssignments: Object.keys(validEnemyAssignments).length > 0 ? validEnemyAssignments : null,
             model_type: useThinkingModel ? "reasoner" : "chat" 
@@ -429,8 +430,9 @@ export default function App() {
         currentUser={currentUser} logout={logout} setShowLoginModal={setShowLoginModal}
         useThinkingModel={useThinkingModel} setUseThinkingModel={setUseThinkingModel}
         setShowPricingModal={setShowPricingModal}
-        // ✨ 将用户详情传给 Header
         accountInfo={accountInfo}
+        userRank={userRank}        
+        setUserRank={setUserRank}  
       />
 
       <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6">

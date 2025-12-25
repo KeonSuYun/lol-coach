@@ -1,62 +1,111 @@
-// frontend/src/components/ChampCard.jsx
-
 import React from 'react';
-import { Search } from 'lucide-react';
+import { User, Swords, Shield, Crosshair, Zap, Brain, HelpCircle } from 'lucide-react';
 
-// 接收新的 role 属性
+// 映射分路图标 (可选)
+const RoleIcon = ({ role, className }) => {
+    switch (role) {
+        case 'TOP': return <Shield size={14} className={className} />;
+        case 'JUNGLE': return <Swords size={14} className={className} />; // 或 Trees/Axe
+        case 'MID': return <Zap size={14} className={className} />;
+        case 'ADC': return <Crosshair size={14} className={className} />;
+        case 'SUPPORT': return <Brain size={14} className={className} />; // 或 Heart/HelpingHand
+        default: return <HelpCircle size={14} className={className} />;
+    }
+};
+
 const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
-  const isEmpty = !champ;
-  const isMe = !isEnemy && idx === userSlot;
-
-  // 🗺️ 备用映射：如果没传 role，才用楼层兜底 (Blind Pick 模式可能需要)
-  const ROLE_MAP_FALLBACK = ["TOP", "JUG", "MID", "ADC", "SUP"];
-  
-  // 优先使用传入的准确 role，否则回退到楼层判断
-  const displayRole = role || ROLE_MAP_FALLBACK[idx] || "";
+  // 判断这张卡片是不是“我自己”
+  const isMe = !isEnemy && userSlot === idx;
 
   return (
-    <div className={`relative flex items-center gap-3 p-2.5 mb-2 rounded-lg border transition-all cursor-pointer group select-none backdrop-blur-sm
-      ${isEnemy 
-          ? 'bg-red-950/20 border-red-500/10 hover:border-red-500/40' 
-          : isMe 
-              ? 'bg-gradient-to-r from-amber-900/40 to-yellow-900/20 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
-              : 'bg-slate-900/40 border-slate-800 hover:border-slate-600'}`}>
-      
-      {isMe && <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-amber-500 rounded-r shadow-[0_0_10px_#f59e0b]"></div>}
+    <div 
+      onClick={() => !isEnemy && onSelectMe && onSelectMe(idx)}
+      className={`
+        relative h-20 md:h-24 w-full rounded-xl overflow-hidden border transition-all duration-300 group
+        ${isEnemy 
+            ? 'border-red-900/30 bg-red-950/10' 
+            : 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]'
+        }
+        ${!isEnemy && isMe 
+            ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)] ring-1 ring-blue-400' 
+            : !isEnemy 
+                ? 'border-slate-800 hover:border-slate-600' 
+                : ''
+        }
+      `}
+    >
+      {/* === 背景图区域 === */}
+      {champ ? (
+        <>
+            {/* 背景图片 */}
+            <div className="absolute inset-0">
+                <img 
+                    src={champ.image_url} 
+                    alt={champ.name}
+                    className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                    loading="lazy"
+                />
+                {/* 渐变遮罩 (为了让文字看清楚) */}
+                <div className={`absolute inset-0 bg-gradient-to-r ${isEnemy ? 'from-red-950/80 to-transparent' : 'from-slate-950/90 via-slate-900/40 to-transparent'}`}></div>
+            </div>
 
-      <div className={`w-12 h-12 rounded-lg bg-black overflow-hidden border relative shrink-0 transition-colors
-          ${isEmpty ? 'border-slate-800' : isEnemy ? 'border-red-900/50' : isMe ? 'border-amber-500' : 'border-slate-700'}`}>
-        {!isEmpty ? (
-          <img src={champ.image_url} alt={champ.name} className="w-full h-full object-cover scale-110 group-hover:scale-125 transition-transform duration-500" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-700"><Search size={18} /></div>
-        )}
-      </div>
-      
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
-          <div className={`text-sm font-bold truncate ${isEmpty ? 'text-slate-600 italic' : 'text-slate-200'}`}>
-              {isEmpty ? '等待选择...' : champ.name}
-          </div>
-          {!isEmpty && <div className="text-[10px] text-slate-500 truncate">{champ.title}</div>}
-      </div>
+            {/* === 内容区域 === */}
+            <div className="relative z-10 h-full flex items-center justify-between px-3 md:px-4">
+                
+                {/* 左侧：头像与名字 */}
+                <div className="flex items-center gap-3">
+                    {/* 圆形小头像 (仅修饰) */}
+                    <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 overflow-hidden shadow-md shrink-0 ${isEnemy ? 'border-red-500/50' : (isMe ? 'border-blue-400' : 'border-slate-600')}`}>
+                        <img src={champ.image_url} alt="" className="w-full h-full object-cover scale-110" />
+                    </div>
+                    
+                    {/* 文字信息 */}
+                    <div className="flex flex-col">
+                        <span className={`text-sm md:text-base font-black tracking-wide leading-none ${isEnemy ? 'text-red-200' : (isMe ? 'text-blue-100' : 'text-slate-200')}`}>
+                            {champ.name} {/* 显示中文名 */}
+                        </span>
+                        <span className="text-[10px] md:text-xs text-slate-400 font-mono mt-1 opacity-70 truncate max-w-[80px] md:max-w-[120px]">
+                            {champ.title || champ.key}
+                        </span>
+                    </div>
+                </div>
 
-      <div className="flex flex-col items-end gap-1">
-          {/* ✨ 使用计算后的 displayRole */}
-          <div className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border tracking-wider
-              ${isEnemy 
-                ? 'text-red-400/50 border-red-900/30 bg-red-950/30' 
-                : 'text-slate-500 border-slate-700/50 bg-slate-800/30'}`}>
-              {displayRole}
-          </div>
-
-          {!isEnemy && (
-             <div onClick={(e) => { e.stopPropagation(); onSelectMe(idx); }}
-                  className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wide transition-all border cursor-pointer
-                  ${isMe ? 'bg-amber-600 border-amber-500 text-white shadow-sm' : 'border-transparent text-slate-600 hover:bg-slate-800 hover:text-slate-400'}`}>
-                 {isMe ? 'ME' : 'SET'}
-             </div>
-          )}
-      </div>
+                {/* 右侧：分路与标签 */}
+                <div className="flex flex-col items-end gap-1">
+                    {/* 分路显示 */}
+                    {role && (
+                        <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border
+                            ${isEnemy 
+                                ? 'bg-red-950/50 border-red-800 text-red-400' 
+                                : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                            }
+                        `}>
+                            <RoleIcon role={role} />
+                            <span>{role}</span>
+                        </div>
+                    )}
+                    
+                    {/* "ME" 标记 */}
+                    {isMe && (
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-blue-400 animate-pulse">
+                            <User size={10} className="fill-current"/>
+                            <span>YOU</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </>
+      ) : (
+        /* === 空状态 (未选择英雄) === */
+        <div className={`w-full h-full flex items-center justify-center gap-2 ${isEnemy ? 'bg-red-950/20' : 'bg-slate-900/50'}`}>
+            <div className={`w-10 h-10 rounded-full border-2 border-dashed flex items-center justify-center ${isEnemy ? 'border-red-900/30 text-red-900' : 'border-slate-800 text-slate-700'}`}>
+                <HelpCircle size={18} />
+            </div>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
+                {isEnemy ? 'Waiting...' : 'Select Hero'}
+            </span>
+        </div>
+      )}
     </div>
   );
 };

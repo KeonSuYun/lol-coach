@@ -1,18 +1,31 @@
 import React from 'react';
-import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon } from 'lucide-react';
+import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon, Trophy } from 'lucide-react';
 import { ROLES } from '../config/constants';
+
+// 定义段位列表
+const RANKS = [
+    { id: "Iron", label: "黑铁 Iron", color: "text-gray-500" },
+    { id: "Bronze", label: "青铜 Bronze", color: "text-orange-700" },
+    { id: "Silver", label: "白银 Silver", color: "text-slate-400" },
+    { id: "Gold", label: "黄金 Gold", color: "text-yellow-400" },
+    { id: "Platinum", label: "白金 Platinum", color: "text-cyan-400" },
+    { id: "Emerald", label: "翡翠 Emerald", color: "text-emerald-400" },
+    { id: "Diamond", label: "钻石 Diamond", color: "text-blue-300" },
+    { id: "Master", label: "大师 Master", color: "text-purple-400" },
+    { id: "Grandmaster", label: "宗师 Grandmaster", color: "text-red-400" },
+    { id: "Challenger", label: "王者 Challenger", color: "text-yellow-200" }
+];
 
 const Header = ({ 
     version, lcuStatus, userRole, setUserRole, currentUser, logout, setShowLoginModal,
     useThinkingModel, setUseThinkingModel,
     setShowPricingModal,
-    accountInfo 
+    accountInfo,
+    // ✨ 新增：接收段位状态
+    userRank, setUserRank
 }) => {
   
-  // 1. 判断是否是 VIP
   const isPro = accountInfo?.is_pro === true;
-  
-  // 2. 获取 R1 模型剩余次数
   const r1Remaining = accountInfo?.r1_remaining;
   const r1Limit = accountInfo?.r1_limit || 10;
 
@@ -46,16 +59,33 @@ const Header = ({
       
       {/* 右侧功能区 */}
       <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
+
+          {/* ✨✨✨ 新增：段位选择器 ✨✨✨ */}
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex items-center gap-1 px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg">
+                <Trophy size={12} className="text-yellow-500" />
+                <select 
+                    value={userRank} 
+                    onChange={(e) => setUserRank(e.target.value)}
+                    className="bg-transparent text-xs text-slate-200 outline-none border-none font-bold cursor-pointer"
+                    title="选择你的段位，AI将根据段位调整推荐算法"
+                >
+                    {RANKS.map(r => (
+                        <option key={r.id} value={r.id} className="bg-slate-900 text-slate-300">
+                            {r.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+          </div>
           
-          {/* 身份状态显示区 */}
+          {/* 身份状态 */}
           {isPro ? (
-              // 🏆 VIP 用户显示：金牌标识
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-yellow-500/20 to-amber-600/20 border border-yellow-500/50 text-yellow-400 text-xs font-bold rounded-lg shadow-[0_0_10px_rgba(234,179,8,0.2)]">
                   <Crown size={12} className="fill-current" />
                   <span>PRO MEMBER</span>
               </div>
           ) : (
-              // 🛒 普通用户显示：升级按钮 (仅登录后显示)
               currentUser && (
                   <button 
                       onClick={() => setShowPricingModal(true)}
@@ -67,13 +97,12 @@ const Header = ({
               )
           )}
 
-          {/* 模型切换开关 (带剩余次数显示) */}
+          {/* 模型切换 */}
           <div className="flex p-1 bg-slate-950 rounded-lg border border-slate-800">
               <button 
                   onClick={() => setUseThinkingModel(false)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all
                   ${!useThinkingModel ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-500 hover:text-slate-300'}`}
-                  title="DeepSeek-V3: 极速响应，适合BP环节"
               >
                   <Zap size={12} className={!useThinkingModel ? "fill-current" : ""}/>
                   <span>极速</span>
@@ -83,18 +112,14 @@ const Header = ({
                   onClick={() => setUseThinkingModel(true)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all relative
                   ${useThinkingModel ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' : 'text-slate-500 hover:text-slate-300'}`}
-                  title="DeepSeek-R1: 深度思考，适合复盘和对线细节"
               >
                   <Brain size={12} className={useThinkingModel ? "fill-current" : ""}/>
                   <span>深度</span>
-                  
-                  {/* 显示剩余次数 (仅在非 Pro 且已登录时显示) */}
                   {!isPro && currentUser && r1Remaining !== undefined && (
                       <span className={`ml-1 px-1.5 py-0.5 rounded text-[10px] ${r1Remaining > 0 ? 'bg-purple-800 text-purple-200' : 'bg-red-900 text-red-200'}`}>
                           {r1Remaining}/{r1Limit}
                       </span>
                   )}
-                  {/* Pro 用户显示无限符号 */}
                   {isPro && (
                       <span className="ml-1 text-purple-200"><InfinityIcon size={10} /></span>
                   )}
