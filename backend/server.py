@@ -78,9 +78,9 @@ if os.path.exists("frontend/dist/assets"):
 
 # 🟢 3. 严格 CORS 配置 (生产环境)
 ORIGINS = [
-    "https://kozzbluxklwn.sealosbja.site",
-     "https://www.haxcoach.com",
-        "https://haxcoach.com", 
+    "https://psmcmulapyqb.cloud.sealos.io",
+    "https://www.haxcoach.com",
+    "https://haxcoach.com", 
 ]
 
 # ✨ 新增：如果是开发模式，自动把 localhost 加回去
