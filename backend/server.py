@@ -223,12 +223,19 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
 
 # ================= 🚀 API 接口 =================
 
-@app.get("/")
+@app.get("/api/health")
 def health_check():
-    # 生产环境仅返回简单状态，隐藏具体版本号
     return {"status": "ok"}
 
 # --- 1. 邮箱验证码发送 (生产环境: 真实 SMTP + 数据库存储) ---
+@app.get("/")
+async def serve_spa():
+    # 检查前端文件是否存在
+    index_path = Path("frontend/dist/index.html")
+    if not index_path.exists():
+        # 如果找不到文件，说明构建镜像时没把前端打包进去
+        return {"error": "前端文件未找到，请检查 Docker 构建流程"}
+    return FileResponse(index_path)
 
 @app.post("/send-email")
 def send_email_code(req: EmailRequest):
