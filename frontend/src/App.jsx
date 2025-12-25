@@ -259,7 +259,14 @@ export default function App() {
       } catch (e) { alert("登录失败: " + (e.response?.data?.detail || "检查信息")); }
   };
   const handleRegister = async () => {
-      try { await axios.post(`${API_BASE_URL}/register`, authForm); alert("注册成功！请登录。"); setAuthMode("login"); } catch (e) { alert("注册失败"); }
+      try {
+          await axios.post(`${API_BASE_URL}/register`, authForm);
+          alert("注册成功！请登录。");
+          setAuthMode("login");
+      } catch (e) {
+          // 🔥 修改这里：显示后端返回的具体错误原因
+          alert("注册失败: " + (e.response?.data?.detail || "未知错误"));
+      }
   };
   const logout = () => {
       setToken(null); setCurrentUser(null);

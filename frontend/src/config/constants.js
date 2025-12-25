@@ -1,11 +1,10 @@
 // src/config/constants.js
 
 // 🟢 环境配置
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 export const SEALOS_API_URL = "https://<你的APPID>.laf.run/analyze"; 
 export const BRIDGE_WS_URL = "ws://127.0.0.1:29150";
 export const DDRAGON_BASE = "https://ddragon.leagueoflegends.com";
-
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://kozzbluxklwn.sealosbja.site";
 // 🟢 角色配置列表
 export const ROLES = [
   { id: 'TOP', label: '上单', icon: '🛡️', color: 'text-gray-400', bg: 'from-gray-500/20 to-gray-600/5' },

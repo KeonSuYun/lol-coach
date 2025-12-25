@@ -1,5 +1,3 @@
-# backend/core/database.py
-
 import os
 import datetime
 import time
@@ -38,6 +36,9 @@ class KnowledgeBase:
             self.users_col = self.db['users']
             self.prompt_templates_col = self.db['prompt_templates']
             self.champions_col = self.db['champions'] 
+            
+            # ✨ 新增：验证码专用集合
+            self.otps_col = self.db['otps']
 
             # === 索引初始化 ===
             self._init_indexes()
@@ -69,12 +70,61 @@ class KnowledgeBase:
             self.users_col.create_index("username", unique=True)
             # Prompt 模式唯一索引
             self.prompt_templates_col.create_index("mode", unique=True)
+            
+            # 🛡️ 安全相关索引
+            self.users_col.create_index("device_id")
+            self.users_col.create_index("ip")
+            
+            # ✨ OTP 验证码 5分钟自动过期 (TTL索引)
+            # MongoDB 会自动删除 "expire_at" 时间早于当前时间的文档
+            self.otps_col.create_index("expire_at", expireAfterSeconds=0)
+            
             print("✅ [Database] 索引检查完毕")
         except Exception as e:
             print(f"⚠️ [Database] 索引创建警告: {e}")
 
     # ==========================
-    # ⏱️ 频控与限流系统 (核心升级：15秒CD + 分栏目)
+    # ✨ 验证码管理 (持久化版)
+    # ==========================
+    def save_otp(self, contact, code):
+        """
+        保存验证码到数据库，5分钟后自动过期。
+        contact: 邮箱或手机号
+        code: 验证码字符串
+        """
+        # 设置过期时间为当前UTC时间 + 5分钟
+        expire_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+        
+        self.otps_col.update_one(
+            {"contact": contact}, # 查找条件
+            {"$set": {
+                "code": code, 
+                "expire_at": expire_time
+            }}, 
+            upsert=True # 如果不存在就插入，存在就更新
+        )
+
+    def validate_otp(self, contact, code):
+        """
+        校验验证码。
+        如果校验成功，立即删除该记录防止重放攻击。
+        """
+        record = self.otps_col.find_one({"contact": contact})
+        
+        # 1. 没找到记录 (可能是从未发送，或已过期被TTL删除了)
+        if not record:
+            return False 
+        
+        # 2. 校验代码是否匹配
+        if record['code'] == code:
+            # 验证成功，删除验证码 (一次性使用)
+            self.otps_col.delete_one({"contact": contact})
+            return True
+            
+        return False
+
+    # ==========================
+    # ⏱️ 频控与限流系统 (15秒CD + 分栏目)
     # ==========================
     def check_and_update_usage(self, username, mode):
         """
@@ -98,14 +148,14 @@ class KnowledgeBase:
             # 新的一天，重置计数
             usage_data = {
                 "last_reset_date": today_str,
-                "counts": {},      # 各模式今日已用次数 { "bp": 2, "personal": 0 }
+                "counts": {},      # 各模式今日已用次数
                 "last_access": {}  # 各模式上次使用时间
             }
         
         counts = usage_data.get("counts", {})
         last_access = usage_data.get("last_access", {})
 
-        # 3. 检查冷却时间 (此处修改为 15 秒)
+        # 3. 检查冷却时间 (15 秒)
         COOLDOWN_SECONDS = 15
         
         last_time_str = last_access.get(mode)
@@ -125,13 +175,13 @@ class KnowledgeBase:
         if not is_pro and current_count >= max_daily:
             return False, f"今日次数已耗尽 (普通用户每日 {max_daily} 次)", -1
 
-        # 5. 更新数据库 (通行)
+        # 5. 更新数据库
         counts[mode] = current_count + 1
         last_access[mode] = now.isoformat()
         
         usage_data["counts"] = counts
         usage_data["last_access"] = last_access
-        usage_data["last_reset_date"] = today_str # 确保更新日期
+        usage_data["last_reset_date"] = today_str 
 
         self.users_col.update_one(
             {"username": username},
@@ -141,21 +191,54 @@ class KnowledgeBase:
         return True, "允许分析", 0
 
     # ==========================
-    # 👤 用户系统
+    # 👤 用户系统 (含防刷逻辑)
     # ==========================
-    def create_user(self, username, hashed_password, role="user"):
+    def create_user(self, username, hashed_password, role="user", email=None, device_id=None, ip=None):
+        """
+        创建新用户，包含设备指纹和IP限制逻辑。
+        返回: True (成功) | "USERNAME_TAKEN" | "EMAIL_TAKEN" | "DEVICE_LIMIT" | "IP_LIMIT" | False
+        """
         try:
+            # 1. 检查用户名是否存在
             if self.users_col.find_one({"username": username}):
-                return False
-                
+                return "USERNAME_TAKEN"
+            
+            # 2. 检查邮箱是否重复 (如果提供了邮箱)
+            if email and self.users_col.find_one({"email": email}):
+                print(f"❌ 注册失败: 邮箱 {email} 已存在")
+                return "EMAIL_TAKEN"
+
+            # 🔥 核心防刷 1: 设备锁 (同一个设备 ID 只能注册 3 个号)
+            if device_id and device_id != "unknown_client_error":
+                device_count = self.users_col.count_documents({"device_id": device_id})
+                if device_count >= 3:
+                    print(f"🚫 注册拦截: 设备 {device_id} 账号过多 ({device_count})")
+                    return "DEVICE_LIMIT"
+
+            # 🔥 核心防刷 2: IP锁 (同一个 IP 24小时内只能注册 5 个号)
+            if ip:
+                yesterday = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+                ip_count = self.users_col.count_documents({
+                    "ip": ip, 
+                    "created_at": {"$gte": yesterday}
+                })
+                if ip_count >= 5:
+                    print(f"🚫 注册拦截: IP {ip} 注册频繁 ({ip_count}/24h)")
+                    return "IP_LIMIT"
+
+            # 3. 插入用户
             self.users_col.insert_one({
                 "username": username,
                 "password": hashed_password,
                 "role": role,
+                "email": email,
+                "device_id": device_id, 
+                "ip": ip,               
                 "created_at": datetime.datetime.utcnow()
             })
             return True
-        except:
+        except Exception as e:
+            print(f"❌ Create User Error: {e}")
             return False 
 
     def get_user(self, username):
