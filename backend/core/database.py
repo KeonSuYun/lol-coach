@@ -569,15 +569,16 @@ class KnowledgeBase:
         feedback_data['status'] = 'pending' 
         self.feedback_col.insert_one(feedback_data)
 
-    def get_champion_info(self, name_or_alias):
-        # 模糊匹配英雄名
-        # ✅ 安全修复：先转义特殊字符，防止正则攻击 (ReDoS)
-        safe_name = re.escape(name_or_alias)
-        
-        champ = self.champions_col.find_one({"name": {"$regex":f"^{safe_name}$", "$options": "i"}})
-        if champ: return champ
-        
-        # 别名匹配
-        champ = self.champions_col.find_one({"alias": name_or_alias})
-        if champ: return champ
-        return None
+    def get_champion_info(self, name_or_id):
+        if not name_or_id: return None
+        # ⚡⚡⚡ 核心修改：同时查 id, alias(英文), name(中文), title(称号) ⚡⚡⚡
+        # 使用正则表达式进行不区分大小写的精确匹配或模糊匹配
+        query = {
+            "$or": [
+                {"alias": {"$regex": f"^{name_or_id}$", "$options": "i"}}, # 英文名精确匹配 (Aatrox)
+                {"id": str(name_or_id)},                                   # ID 匹配 (266)
+                {"name": name_or_id},                                      # 中文名精确匹配 (亚托克斯)
+                {"keywords": name_or_id}                                   # 外号匹配 (石头人)
+            ]
+        }
+        return self.champions_col.find_one(query)
