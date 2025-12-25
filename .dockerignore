@@ -1,0 +1,28 @@
+# === 核心忽略 ===
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+
+# === 后端垃圾文件 ===
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+.pytest_cache/
+
+# === 🔥 前端核心忽略 (最关键的部分) ===
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/coverage
+frontend/.env.local
+frontend/.env.development
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
