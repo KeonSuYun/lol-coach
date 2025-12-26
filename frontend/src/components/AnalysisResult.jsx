@@ -3,6 +3,7 @@ import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'react-hot-toast'; // 引入 toast 提示
+import { createPortal } from 'react-dom';
 
 // 🛠️ 智能解析器：同时兼容 JSON 和 纯文本
 const parseHybridContent = (rawString) => {
