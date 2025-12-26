@@ -2,10 +2,10 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ "master" ] # 当推送到 master 分支时触发
+    branches: [ "master" ] # 当推送到 main 分支时触发
 
 env:
-  # 镜像名称: ghcr.io/你的github用户名/仓库名
+  # 镜像名称: ghcr.io/你的github用户名/仓库名:latest
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -25,7 +25,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }} # GitHub 自动生成的 Token
+          password: ${{ secrets.GITHUB_TOKEN }} # GitHub 自动生成的 Token，无需手动设置
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -43,6 +43,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 👇👇👇 关键修改在这里 👇👇
-          no-cache: true 
-          # 👆👆👆 这将强制 Docker 不使用缓存，重新安装依赖

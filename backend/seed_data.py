@@ -30,9 +30,10 @@ def _patched_hashpw(password, salt):
         # 如果是其他错误，照常抛出
         raise e
 bcrypt.hashpw = _patched_hashpw
+from pymongo import MongoClient
 from passlib.context import CryptContext
 from dotenv import load_dotenv
-
+import openai
 # 加载环境变量
 load_dotenv()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
