@@ -21,6 +21,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 
 # ✨ 关键修改：引入异步客户端，解决排队问题
 from openai import AsyncOpenAI, APIError
@@ -33,6 +35,7 @@ from jose import JWTError, jwt
 from core.database import KnowledgeBase
 
 # ================= 🔧 强制加载根目录 .env =================
+RATE_LIMIT_STORE = {}
 current_dir = Path(__file__).resolve().parent
 root_dir = current_dir.parent
 env_path = root_dir / '.env'
@@ -41,11 +44,15 @@ load_dotenv(dotenv_path=env_path)
 # ================= 🛡️ 生产环境安全配置 =================
 
 # 1. 密钥配置 (生产环境强制检查)
+APP_ENV = os.getenv("APP_ENV", "development") # 获取当前环境
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    # 开发环境下给一个默认值，防止启动报错，但在生产环境应报错
-    print("⚠️ [警告] 未配置 SECRET_KEY，使用开发默认值 (仅限本地测试)")
-    SECRET_KEY = "dev_secret_key_please_change_in_production"
+    if APP_ENV == "production":
+        # 🛑 生产环境强制报错，禁止启动
+        raise ValueError("❌ 严重安全错误：生产环境未配置 SECRET_KEY！服务拒绝启动。")
+    else:
+        print("⚠️ [警告] 开发模式使用默认密钥，请勿用于生产环境")
+        SECRET_KEY = "dev_secret_key_please_change_in_production"
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token 7天过期
@@ -312,7 +319,35 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+# 🟢 新增：获取英雄分路映射接口
+@app.get("/api/champions/roles")
+def get_champion_roles():
+    try:
+        # 直接读取 secure_data/champions.json 确保数据源唯一
+        json_path = current_dir / "secure_data" / "champions.json"
+        
+        if not json_path.exists():
+            return {}
 
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        # 转换为前端好用的格式: { "Annie": ["MID", "SUPPORT"], "Malphite": ["TOP", "JUNGLE"] }
+        mapping = {}
+        for item in data:
+            name = item.get("name") # 英文名，如 "Annie"
+            role = item.get("role", "").upper() # 转大写 "MID"
+            
+            if name and role:
+                if name not in mapping:
+                    mapping[name] = []
+                if role not in mapping[name]:
+                    mapping[name].append(role)
+                    
+        return mapping
+    except Exception as e:
+        print(f"❌ Role Load Error: {e}")
+        return {}
 @app.get("/")
 async def serve_spa():
     # 检查前端文件是否存在
@@ -322,7 +357,16 @@ async def serve_spa():
     return FileResponse(index_path)
 
 @app.post("/send-email")
-def send_email_code(req: EmailRequest):
+def send_email_code(req: EmailRequest, request: Request): # 添加 request 参数获取 IP
+    client_ip = request.client.host
+    now = time.time()
+    
+    last_time = RATE_LIMIT_STORE.get(client_ip, 0)
+    if now - last_time < 60:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请1分钟后再试")
+    
+    RATE_LIMIT_STORE[client_ip] = now # 更新时间
+
     if not re.match(r"[^@]+@[^@]+\.[^@]+", req.email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
 
@@ -557,10 +601,22 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             async def attack_err(): yield json.dumps({"concise": {"title": "输入错误", "content": f"系统未识别英雄 '{data.enemyHero}'。"}})
             return StreamingResponse(attack_err(), media_type="application/json")
 
-    # 4. 数据准备
-    game_constants = db.get_game_constants()
-    s15_context = f"S15数据: 巢虫{game_constants.get('void_grubs_spawn')}, {game_constants.get('patch_notes')}"
-
+    # 4. 数据准备 (修复版：正确读取 JSON 结构)
+    game_constants = await run_in_threadpool(db.get_game_constants)
+    
+    # 提取核心机制数据 (防止 None)
+    modules = game_constants.get('data_modules', {})
+    mechanics_list = []
+    
+    # 遍历所有模块提取规则 (game_flow, items, user_feedback 等)
+    for cat_key, cat_val in modules.items():
+        if isinstance(cat_val, dict) and 'items' in cat_val:
+            for item in cat_val['items']:
+                mechanics_list.append(f"{item.get('name')}: {item.get('rule')} ({item.get('note')})")
+    
+    s15_details = "; ".join(mechanics_list)
+    s15_context = f"【S15/峡谷常识库】: {s15_details if s15_details else '暂无特殊机制数据'}"
+    
     # 5. 分路计算
     my_roles_map = infer_team_roles(data.myTeam, data.myLaneAssignments)
     enemy_roles_map = infer_team_roles(data.enemyTeam, data.enemyLaneAssignments)
@@ -585,8 +641,11 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     if not manual_role_set and data.myHero:
         hero_info_doc = db.get_champion_info(data.myHero)
         if hero_info_doc and hero_info_doc.get('role') == 'jungle':
-            # 如果英雄主定位是打野，且当前被推断为单人路，强制修正为打野
-            if user_role_key in ["TOP", "MID"]:
+            # 检查队友里有没有更像打野的人
+            teammate_roles = [db.get_champion_info(h).get('role') for h in data.myTeam if db.get_champion_info(h)]
+            
+            # 如果我是单人路，且队友里没人是主玩打野的，那大概率系统判错了，我才是打野
+            if user_role_key in ["TOP", "MID"] and 'jungle' not in teammate_roles:
                 user_role_key = "JUNGLE"
 
     # ---------------------------------------------------------
@@ -654,7 +713,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             if primary_enemy != real_enemy_jg:
                 rag_enemy = "general"
 
-        knowledge = db.get_top_knowledge_for_ai(data.myHero, rag_enemy)
+        knowledge = await run_in_threadpool(db.get_top_knowledge_for_ai, data.myHero, rag_enemy)
         if rag_enemy == "general":
             top_tips = knowledge.get("general", [])
         else:
@@ -662,7 +721,16 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             
         corrections = db.get_corrections(data.myHero, rag_enemy)
 
-    tips_text = "\n".join([f"- 社区心得: {t}" for t in top_tips]) if top_tips else "(暂无)"
+# 🛡️ 安全修改：使用 XML 标签隔离不可信内容
+    if top_tips:
+        safe_tips = []
+        for t in top_tips:
+            # 简单过滤：移除可能导致注入的关键词
+            clean_t = t.replace("System:", "").replace("User:", "").replace("Instruction:", "")
+            safe_tips.append(f"<tip>{clean_t}</tip>")
+        tips_text = "<community_knowledge>\n" + "\n".join(safe_tips) + "\n</community_knowledge>"
+    else:
+        tips_text = "(暂无社区数据)"
     correction_prompt = f"修正: {'; '.join(corrections)}" if corrections else ""
 
     # 8. Prompt 构建
