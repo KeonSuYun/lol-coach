@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon, Trophy } from 'lucide-react';
-// ROLES 引用如果不再使用也可以删除，或者保留不动
+// 引入新设计的海克斯核心图标
+import HexCoreIcon from './HexCoreIcon';
 import { ROLES } from '../config/constants';
 
 // 定义段位列表
@@ -30,14 +31,26 @@ const Header = ({
   const r1Limit = accountInfo?.r1_limit || 10;
 
   return (
-    // 🟢 修改点：删除了 max-w-7xl，改为 w-full 让它自适应父容器宽度
     <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-slate-800/60 pb-6">
       {/* 左侧 Logo 区域 */}
-      <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-black italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 tracking-tighter flex items-center gap-2">
-              HEX<span className="text-amber-500">COACH</span>
+      <div className="flex flex-col gap-3">
+          {/* 🟢 修改点：使用 HexCoreIcon 替换纯文字标题 */}
+          <h1 className="text-3xl font-black italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 tracking-tighter flex items-center gap-4">
+              {/* 图标尺寸设为 w-14 h-14，确保细节清晰 */}
+              <HexCoreIcon className="w-14 h-14 shrink-0" />
+              
+              <div className="flex flex-col justify-center">
+                  <span className="leading-none text-white drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
+                      HEX<span className="text-amber-500">COACH</span>
+                  </span>
+                  {/* 副标题：增加排版层次感 */}
+                  <span className="text-[10px] tracking-[0.3em] text-slate-500 font-normal not-italic -mt-1 pl-1 opacity-60 hidden md:block">
+                      ARCANE EVOLUTION
+                  </span>
+              </div>
           </h1>
-          <div className="flex items-center gap-3 text-xs font-mono text-slate-500">
+
+          <div className="flex items-center gap-3 text-xs font-mono text-slate-500 pl-2">
                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border ${lcuStatus==='connected' ? 'border-green-500/30 bg-green-900/20 text-green-400' : 'border-red-500/30 bg-red-900/20 text-red-400'}`}>
                   {lcuStatus==='connected' ? <Link size={10}/> : <Unplug size={10}/>}
                   <span>{lcuStatus==='connected' ? "CLIENT CONNECTED" : "WAITING..."}</span>

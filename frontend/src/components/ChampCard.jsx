@@ -29,10 +29,10 @@ const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
 
   return (
     <div 
-    onClick={() => !isEnemy && onSelectMe && onSelectMe(idx)}
+    // 🟢 修改点：移除了最外层的 onClick，点击事件交由父组件（App.jsx）处理以打开选人模态框
+    // 这样点击卡片的空白处或文字区域，事件会冒泡到 App.jsx 中的 div，从而触发 handleSlotClick
     className={`
-        // 🟢 修改点：把 py-2 改为 py-3 (甚至 py-3.5)，让卡片高一点，看起来就不扁了
-        group relative flex items-center justify-between w-full px-4 py-4 cursor-pointer transition-all duration-300
+        group relative flex items-center justify-between w-full px-4 py-4 transition-all duration-300
         ${!isEnemy && !isMe ? 'hover:bg-hex-blue/5' : ''}
         ${isMe ? 'bg-gradient-to-r from-hex-gold/10 to-transparent' : ''}
     `}
@@ -40,13 +40,26 @@ const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
       {champ ? (
         <>
             <div className="flex items-center gap-3 overflow-hidden z-10">
-                {/* 头像容器 - 稍微加大到 w-10 h-10 */}
-                <div className={`relative w-9 h-9 md:w-10 md:h-10 shrink-0 transition-all duration-300 rounded-sm border-2 ${borderClass}`}>
+                {/* 🟢 核心修改：头像容器
+                   添加 onClick 并使用 stopPropagation。
+                   作用：点击头像只执行 onSelectMe (切换当前玩家视角)，阻止事件冒泡到外层，防止弹出选人框。
+                */}
+                <div 
+                    onClick={(e) => {
+                        if (!isEnemy && onSelectMe) {
+                            e.stopPropagation(); // 阻止冒泡
+                            onSelectMe(idx);
+                        }
+                    }}
+                    className={`relative w-9 h-9 md:w-10 md:h-10 shrink-0 transition-all duration-300 rounded-sm border-2 ${borderClass} ${!isEnemy ? 'cursor-pointer hover:scale-105 hover:shadow-[0_0_10px_rgba(200,170,110,0.4)]' : ''}`}
+                    title={!isEnemy ? "Click to set as ME" : ""}
+                >
                     <img src={champ.image_url} alt={champ.name} className="w-full h-full object-cover" loading="lazy" />
                     {!isMe && <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-all"></div>}
                 </div>
                 
-                <div className="flex flex-col min-w-0">
+                {/* 文字区域 - pointer-events-none 让鼠标事件穿透，或者不加也行，反正冒泡会触发外层点击 */}
+                <div className="flex flex-col min-w-0 pointer-events-none">
                     <span className={`text-xs md:text-sm font-bold truncate transition-colors ${textClass}`}>
                         {champ.name}
                     </span>
@@ -56,7 +69,7 @@ const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
                 </div>
             </div>
 
-            <div className="flex flex-col items-end gap-1 pl-2 z-10">
+            <div className="flex flex-col items-end gap-1 pl-2 z-10 pointer-events-none">
                 {role && (
                     <div className={`flex items-center gap-1 px-1.5 py-[2px] rounded-[2px] text-[9px] font-bold uppercase tracking-wider border
                         ${isEnemy 
@@ -72,11 +85,12 @@ const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
             </div>
         </>
       ) : (
+        // 空状态 - 点击这里会冒泡到 App.jsx，打开选人框
         <div className="flex items-center gap-3 w-full opacity-30 group-hover:opacity-60 transition-opacity">
              <div className={`w-9 h-9 rounded-sm border border-dashed flex items-center justify-center shrink-0 ${isEnemy ? 'border-red-800' : 'border-slate-600'}`}>
                 <HelpCircle size={14} />
             </div>
-            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Empty</span>
+            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Select Champion</span>
         </div>
       )}
     </div>

@@ -14,6 +14,8 @@ import LoginModal from './components/modals/LoginModal';
 import TipModal from './components/modals/TipModal';
 import FeedbackModal from './components/modals/FeedbackModal';
 import PricingModal from './components/modals/PricingModal'; 
+// 引入英雄选择模态框
+import ChampSelectModal from './components/modals/ChampSelectModal';
 
 const loadState = (key, defaultVal) => {
     try {
@@ -26,7 +28,7 @@ export default function App() {
   const [version, setVersion] = useState("V15.2"); 
   const [championList, setChampionList] = useState([]);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  
+  const [roleMapping, setRoleMapping] = useState({});
   const [blueTeam, setBlueTeam] = useState(() => loadState('blueTeam', Array(5).fill(null)));
   const [redTeam, setRedTeam] = useState(() => loadState('redTeam', Array(5).fill(null)));
   
@@ -63,6 +65,10 @@ export default function App() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
+
+  // 🟢 新增：选人模态框状态
+  const [showChampSelect, setShowChampSelect] = useState(false);
+  const [selectingSlot, setSelectingSlot] = useState(null); // { isEnemy: boolean, index: number }
 
   const [currentUser, setCurrentUser] = useState(null);
   const [accountInfo, setAccountInfo] = useState(null);
@@ -114,25 +120,30 @@ export default function App() {
       } catch (e) {}
   };
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem("access_token");
-    const storedUser = localStorage.getItem("username");
-    if (storedToken && storedUser) { setToken(storedToken); setCurrentUser(storedUser); }
-    const initData = async () => {
-      try {
-        const vRes = await fetch(`${DDRAGON_BASE}/api/versions.json`);
-        const versions = await vRes.json();
-        setVersion(versions[0]);
-        const cRes = await fetch(`${DDRAGON_BASE}/cdn/${versions[0]}/data/zh_CN/championFull.json`);
-        const cData = await cRes.json();
-        setChampionList(Object.values(cData.data).map(c => ({
-             id: c.key, key: c.id, name: c.name, title: c.title, tags: c.tags,
-             image_url: `${DDRAGON_BASE}/cdn/${versions[0]}/img/champion/${c.id}.png`,
-        })));
-      } catch (e) {}
-    };
-    initData();
-  }, []);
+    useEffect(() => {
+        const initData = async () => {
+        try {
+            // 1. 获取 DDragon 数据 (保持不变)
+            const vRes = await fetch(`${DDRAGON_BASE}/api/versions.json`);
+            const versions = await vRes.json();
+            setVersion(versions[0]);
+            const cRes = await fetch(`${DDRAGON_BASE}/cdn/${versions[0]}/data/zh_CN/championFull.json`);
+            const cData = await cRes.json();
+            setChampionList(Object.values(cData.data).map(c => ({
+                id: c.key, key: c.id, name: c.name, title: c.title, tags: c.tags,
+                image_url: `${DDRAGON_BASE}/cdn/${versions[0]}/img/champion/${c.id}.png`,
+            })));
+
+            // 2. 获取后端精准分路数据
+            const roleRes = await axios.get(`${API_BASE_URL}/champions/roles`);
+            if (roleRes.data) {
+                setRoleMapping(roleRes.data);
+            }
+
+        } catch (e) { console.error(e); }
+        };
+        initData();
+    }, []);
 
   useEffect(() => { if (token) fetchUserInfo(); else setAccountInfo(null); }, [token]);
 
@@ -374,6 +385,47 @@ export default function App() {
     try { await authAxios.post(`/feedback`, { match_context: { myHero: blueTeam[userSlot]?.name, mode: analyzeType }, description: inputContent }); alert("反馈已提交"); setShowFeedbackModal(false); setInputContent(""); } catch (e) {}
   };
 
+  // 🟢 核心交互逻辑：打开选择框
+  const handleSlotClick = (isEnemy, index) => {
+      setSelectingSlot({ isEnemy, index });
+      setShowChampSelect(true);
+  };
+
+  // 🟢 核心交互逻辑：处理英雄选择
+  const handleModalSelect = (hero) => {
+      if (!selectingSlot) return;
+      const { isEnemy, index } = selectingSlot;
+      const roles = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
+      const roleName = roles[index];
+
+      if (!isEnemy) {
+          // 更新我方阵容
+          const newTeam = [...blueTeam];
+          newTeam[index] = hero;
+          setBlueTeam(newTeam);
+          
+          // 如果该位置对应了 My Lane，同步更新分路指派
+          if (roleName) {
+              setMyLaneAssignments(prev => ({ ...prev, [roleName]: hero ? hero.name : "" }));
+              // 更新位置标记
+              const newRoles = [...myTeamRoles];
+              newRoles[index] = roleName;
+              setMyTeamRoles(newRoles);
+          }
+      } else {
+          // 更新敌方阵容
+          const newTeam = [...redTeam];
+          newTeam[index] = hero;
+          setRedTeam(newTeam);
+
+          // 如果该位置对应了 Enemy Targets，同步更新分路指派
+          if (roleName) {
+              setEnemyLaneAssignments(prev => ({ ...prev, [roleName]: hero ? hero.name : "" }));
+          }
+      }
+      setShowChampSelect(false);
+  };
+
   return (
     <div className="min-h-screen">
       
@@ -413,7 +465,12 @@ export default function App() {
                     
                     <div className="p-1 space-y-1 bg-hex-black/30">
                         {blueTeam.map((c, i) => (
-                            <div key={i} className={`transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-hex-blue/20 to-transparent border-l-2 border-hex-blue' : 'hover:bg-white/5 border-l-2 border-transparent'}`}>
+                            <div 
+                                key={i} 
+                                // 🟢 修改：点击卡片区域打开选人框
+                                onClick={() => handleSlotClick(false, i)}
+                                className={`relative transition-all duration-300 cursor-pointer ${userSlot === i ? 'bg-gradient-to-r from-hex-blue/20 to-transparent border-l-2 border-hex-blue' : 'hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
                                 <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={myTeamRoles[i]} />
                             </div>
                         ))}
@@ -528,7 +585,12 @@ export default function App() {
                     </div>
                     <div className="p-1 space-y-1 bg-black/20">
                         {redTeam.map((c, i) => (
-                            <div key={i} className="hover:bg-red-900/10 rounded transition-colors border-l-2 border-transparent hover:border-red-800">
+                            <div 
+                                key={i} 
+                                // 🟢 修改：点击卡片区域打开选人框
+                                onClick={() => handleSlotClick(true, i)}
+                                className="relative hover:bg-red-900/10 rounded transition-colors border-l-2 border-transparent hover:border-red-800 cursor-pointer"
+                            >
                                 <ChampCard champ={c} idx={i} isEnemy={true} userSlot={userSlot} role={Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === c?.name)?.substring(0,3) || ""} />
                             </div>
                         ))}
@@ -581,6 +643,14 @@ export default function App() {
         <TipModal isOpen={showTipModal} onClose={() => setShowTipModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handlePostTip} />
         <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handleReportError} />
         <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
+        <ChampSelectModal 
+            isOpen={showChampSelect}
+            onClose={() => setShowChampSelect(false)}
+            championList={championList}
+            onSelect={handleModalSelect}
+            initialRoleIndex={selectingSlot?.index}
+            roleMapping={roleMapping} // <--- 关键修改：传递映射数据
+        />
         {showAdminPanel && token && <AdminDashboard token={token} onClose={() => setShowAdminPanel(false)} />}
         
         {currentUser && ["admin", "root"].includes(currentUser) && (
