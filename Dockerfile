@@ -40,11 +40,8 @@ COPY backend/ ./backend/
 # 4. 复制编译好的前端文件
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-
-
 # 5. 暴露端口
 EXPOSE 8000
-
 
 # 6. 启动命令
 CMD ["python", "backend/server.py"]
