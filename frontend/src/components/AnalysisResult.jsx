@@ -1,239 +1,238 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, FileText, Layout } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm'; // 🟢 必须引入这个插件才能解析表格
+import { Bot, Terminal, Copy, Check, Cpu, Sparkles, AlertTriangle, Activity } from 'lucide-react';
 
-// 🛠️ 智能解析器：同时兼容 JSON 和 纯文本
-const parseHybridContent = (rawString) => {
-    if (!rawString || typeof rawString !== 'string') return { mode: 'loading', data: null };
-    
-    // 1. 🧹 清洗数据 (去除 <think> 和 markdown 代码块标记)
-    let cleanStr = rawString.replace(/<think>[\s\S]*?<\/think>/g, ""); // 去除思考过程
-    cleanStr = cleanStr.replace(/```json/g, "").replace(/```/g, "").trim();
+export default function AnalysisResult({ aiResult, isAnalyzing, viewMode, setViewMode, activeTab, setActiveTab, setShowFeedbackModal }) {
+    const [copied, setCopied] = useState(false);
 
-    // 2. 🕵️‍♀️ 尝试提取 JSON 结构
-    // 先找找有没有 "detailed_tabs" 这个关键字段
-    const hasJsonStructure = cleanStr.includes('"detailed_tabs"') || cleanStr.includes('"concise"');
-
-    if (hasJsonStructure) {
-        // --- 进入 JSON 解析模式 ---
-        
-        // 尝试提取 JSON 范围 (从第一个 { 到最后一个 })
-        const firstOpen = cleanStr.indexOf('{');
-        const lastClose = cleanStr.lastIndexOf('}');
-        let jsonCandidate = cleanStr;
-        if (firstOpen !== -1 && lastClose > firstOpen) {
-            jsonCandidate = cleanStr.substring(firstOpen, lastClose + 1);
-        } else if (firstOpen !== -1) {
-            jsonCandidate = cleanStr.substring(firstOpen);
-        }
-
-        // 尝试 JSON.parse
-        try {
-            const parsed = JSON.parse(jsonCandidate);
-            return { mode: 'json', data: parsed };
-        } catch (e) {
-            // JSON 不完整，尝试正则提取 (流式兼容)
-        }
-
-        // 正则提取逻辑
-        const extractField = (source, key) => {
-            const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, 's'); 
-            const match = source.match(regex);
-            return match ? match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') : "";
-        };
-
-        const tabs = [];
-        try {
-            const tabsStart = cleanStr.indexOf('"detailed_tabs"');
-            if (tabsStart !== -1) {
-                const tabsStr = cleanStr.substring(tabsStart);
-                const tabRegex = /{\s*"title"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"\s*,\s*"content"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"/g;
-                let match;
-                while ((match = tabRegex.exec(tabsStr)) !== null) {
-                    tabs.push({
-                        title: match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n'),
-                        content: match[2].replace(/\\"/g, '"').replace(/\\n/g, '\n')
-                    });
-                }
-            }
-        } catch (e) {}
-
-        // 只要提取到了 Tabs，或者看起来像是 JSON，就认定为 JSON 模式
-        if (tabs.length > 0 || cleanStr.trim().startsWith('{')) {
-            return {
-                mode: 'json',
-                data: {
-                    concise: {
-                        title: extractField(cleanStr, "title") || "战术生成中...",
-                        content: extractField(cleanStr, "content")
-                    },
-                    detailed_tabs: tabs
-                }
-            };
-        }
-    }
-
-    // 3. 📝 降级处理：如果找不到 JSON 结构，且内容不为空，则视为纯 Markdown
-    if (cleanStr.length > 0) {
-        return { mode: 'markdown', data: cleanStr };
-    }
-
-    return { mode: 'loading', data: null };
-};
-
-const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
-    const [showDebug, setShowDebug] = useState(false);
-    const [activeTab, setActiveTab] = useState(0);
-    const scrollRef = useRef(null);
-
-    // 🧠 实时解析内容
-    const { mode, data } = useMemo(() => parseHybridContent(aiResult), [aiResult]);
-
-    // 自动滚动
+    // 自动滚动到底部
+    const messagesEndRef = useRef(null);
     useEffect(() => {
-        if (isAnalyzing && scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        if (isAnalyzing) {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         }
-    }, [aiResult, isAnalyzing, activeTab, mode]);
+    }, [aiResult, isAnalyzing]);
 
-    // 空状态
-    if (mode === 'loading' && !isAnalyzing) {
+    const handleCopy = () => {
+        if (!aiResult) return;
+        const text = typeof aiResult === 'string' ? aiResult : JSON.stringify(aiResult, null, 2);
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    // 解析 JSON 结果
+    let parsedContent = null;
+    let isJson = false;
+    try {
+        if (aiResult && typeof aiResult === 'string') {
+            const trimmed = aiResult.trim();
+            // 尝试提取 JSON 部分（防止 AI 在 JSON 前后加废话）
+            const jsonStart = trimmed.indexOf('{');
+            const jsonEnd = trimmed.lastIndexOf('}');
+            if (jsonStart !== -1 && jsonEnd !== -1) {
+                const jsonStr = trimmed.substring(jsonStart, jsonEnd + 1);
+                parsedContent = JSON.parse(jsonStr);
+                isJson = true;
+            }
+        }
+    } catch (e) { isJson = false; }
+
+    // === 海克斯科技 Markdown 组件样式 ===
+    const HexMarkdownComponents = {
+        // 🟢 修复表格：自定义渲染 Table 组件
+        table: ({node, ...props}) => (
+            <div className="overflow-x-auto my-4 rounded-sm border border-hex-gold/20 shadow-lg">
+                <table className="w-full text-left border-collapse bg-hex-black/50" {...props} />
+            </div>
+        ),
+        thead: ({node, ...props}) => (
+            <thead className="bg-gradient-to-r from-hex-dark to-hex-black border-b border-hex-gold/30" {...props} />
+        ),
+        tbody: ({node, ...props}) => (
+            <tbody className="divide-y divide-hex-gold/5" {...props} />
+        ),
+        tr: ({node, ...props}) => (
+            <tr className="hover:bg-hex-blue/5 transition-colors duration-200" {...props} />
+        ),
+        th: ({node, ...props}) => (
+            <th className="px-4 py-3 text-xs font-bold text-hex-gold uppercase tracking-wider whitespace-nowrap" {...props} />
+        ),
+        td: ({node, ...props}) => (
+            <td className="px-4 py-3 text-sm text-slate-300 leading-relaxed" {...props} />
+        ),
+        // 其他样式优化
+        strong: ({node, ...props}) => <span className="text-hex-gold-light font-bold bg-hex-gold/10 px-1 rounded shadow-[0_0_5px_rgba(200,170,110,0.2)]" {...props} />,
+        a: ({node, ...props}) => <a className="text-hex-blue hover:underline hover:text-hex-blue/80 transition-colors" target="_blank" rel="noopener noreferrer" {...props} />,
+        h1: ({node, ...props}) => <h1 className="text-xl font-bold text-hex-gold border-b border-hex-gold/20 pb-2 mb-4 mt-6 flex items-center gap-2" {...props} />,
+        h2: ({node, ...props}) => <h2 className="text-lg font-bold text-hex-blue mb-3 mt-5 flex items-center gap-2 before:content-[''] before:w-1 before:h-4 before:bg-hex-blue before:rounded-full before:mr-1" {...props} />,
+        h3: ({node, ...props}) => <h3 className="text-base font-bold text-slate-200 mb-2 mt-4" {...props} />,
+        ul: ({node, ...props}) => <ul className="list-disc pl-5 space-y-1 mb-4 marker:text-hex-gold" {...props} />,
+        ol: ({node, ...props}) => <ol className="list-decimal pl-5 space-y-1 mb-4 marker:text-hex-blue" {...props} />,
+        blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-hex-gold/50 pl-4 py-1 my-4 bg-hex-gold/5 italic text-slate-400 rounded-r" {...props} />,
+        code: ({node, inline, className, children, ...props}) => {
+             return inline ? 
+                <code className="bg-hex-black border border-hex-gold/20 px-1.5 py-0.5 rounded text-xs font-mono text-hex-blue" {...props}>{children}</code> :
+                <pre className="bg-[#050508] border border-hex-gold/10 p-3 rounded-lg overflow-x-auto my-3 text-xs font-mono text-slate-300 scrollbar-thin" {...props}><code>{children}</code></pre>
+        }
+    };
+
+    // 渲染加载态
+    if (isAnalyzing) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-slate-500 opacity-50">
-                <Brain size={48} className="mb-4 text-slate-700" />
-                <div className="text-sm">点击左侧按钮开始分析</div>
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center relative overflow-hidden group">
+                {/* 动态扫描线 */}
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-hex-blue to-transparent animate-scan z-10"></div>
+                <div className="absolute inset-0 bg-magic-pattern opacity-5 animate-pulse-slow"></div>
+                
+                <div className="relative z-10 flex flex-col items-center gap-6">
+                    <div className="relative">
+                        <div className="absolute inset-0 bg-hex-blue blur-2xl opacity-20 animate-pulse"></div>
+                        <Cpu size={64} className="text-hex-blue animate-spin-slow duration-[3s]" />
+                        <Sparkles size={24} className="absolute -top-2 -right-2 text-hex-gold animate-bounce" />
+                    </div>
+                    <div className="text-center space-y-2">
+                        <h3 className="text-2xl font-bold text-hex-gold-light tracking-[0.2em] font-serif uppercase">
+                            Tactical Analysis
+                        </h3>
+                        <p className="text-hex-blue/60 text-xs font-mono uppercase tracking-widest flex items-center gap-2 justify-center">
+                            <Activity size={12} className="animate-pulse"/>
+                            DeepSeek R1 Processing
+                        </p>
+                    </div>
+                    <div className="w-72 h-32 overflow-hidden text-[10px] font-mono text-hex-blue/50 text-left bg-black/40 p-3 rounded border border-hex-blue/10 backdrop-blur-sm">
+                        <TypewriterLogs />
+                    </div>
+                </div>
             </div>
         );
     }
 
-    // =========================================================
-    // 🎨 模式 A: 纯 Markdown 渲染 (当 AI 输出纯文本时)
-    // =========================================================
-    if (mode === 'markdown') {
+    if (!aiResult) {
         return (
-            <div className="flex flex-col h-full bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-2xl overflow-hidden relative">
-                {/* 顶部栏 */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-[#2c2c33]/50">
-                    <div className="flex items-center gap-2">
-                        <FileText size={16} className={isAnalyzing ? "text-amber-400 animate-pulse" : "text-blue-400"} />
-                        <span className="text-xs font-bold tracking-wider text-slate-300">
-                            {isAnalyzing ? "AI 正在撰写分析..." : "全文本报告"}
-                        </span>
-                    </div>
-                    <div className="flex gap-2">
-                        <button onClick={() => setShowDebug(!showDebug)} className="text-slate-500 hover:text-white"><Eye size={14}/></button>
-                        <button onClick={() => setShowFeedbackModal(true)} className="text-slate-500 hover:text-white flex items-center gap-1 text-[10px]"><ShieldAlert size={12}/> 反馈</button>
-                    </div>
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-600">
+                <div className="w-20 h-20 rounded-full bg-hex-black border border-hex-gold/10 flex items-center justify-center mb-4 group hover:border-hex-gold/30 transition-all">
+                    <Bot size={40} className="opacity-50 group-hover:text-hex-gold group-hover:opacity-100 transition-all" />
                 </div>
-                {/* 内容区 */}
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                    <div className="prose prose-invert max-w-none prose-headings:text-amber-400 prose-headings:font-bold prose-h2:text-xl prose-h2:border-b prose-h2:border-white/10 prose-h2:pb-2 prose-strong:text-white prose-blockquote:border-l-4 prose-blockquote:border-amber-500/50 prose-blockquote:bg-[#282830] prose-blockquote:py-2 prose-blockquote:px-4">
-                        <ReactMarkdown>{data}</ReactMarkdown>
-                        {isAnalyzing && <span className="inline-block w-2 h-5 bg-amber-500 ml-1 align-middle animate-pulse"></span>}
-                    </div>
-                </div>
-                {showDebug && <DebugLayer content={aiResult} onClose={() => setShowDebug(false)} />}
+                <p className="text-sm font-bold tracking-widest uppercase opacity-50">Awaiting Battle Data</p>
             </div>
         );
     }
 
-    // =========================================================
-    // 🎨 模式 B: 结构化 JSON 渲染 (当 AI 输出 Tab 结构时)
-    // =========================================================
-    const concise = data?.concise || {};
-    const tabs = data?.detailed_tabs || [];
-
-    return (
-        <div className="flex flex-col h-full gap-4 overflow-hidden relative">
-            
-            {/* 1. 顶部简述卡片 */}
-            <div className="bg-[#232329]/90 backdrop-blur rounded-xl p-4 border border-white/10 shadow-lg shrink-0 transition-all group">
-                <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-600/20 text-amber-400 border border-amber-500/30 shrink-0 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-                        <Lightbulb size={24} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-start">
-                            <h2 className="text-lg font-bold text-slate-100 mb-1 leading-tight tracking-wide">
-                                {concise.title || "生成中..."}
-                            </h2>
-                            <button onClick={() => setShowDebug(!showDebug)} className="text-slate-600 hover:text-amber-500 transition-colors">
-                                {showDebug ? <EyeOff size={14}/> : <Eye size={14}/>}
+    // 渲染 JSON 结构化数据
+    if (isJson && parsedContent) {
+        return (
+            <div className="flex flex-col h-full">
+                {/* 1. 核心简报 Banner */}
+                <div className="mb-6 p-[1px] bg-gradient-to-r from-hex-gold/0 via-hex-gold/40 to-hex-gold/0">
+                    <div className="bg-gradient-to-r from-hex-dark/90 via-hex-black/90 to-hex-dark/90 p-5 flex items-start gap-5 backdrop-blur-md">
+                        <div className="mt-1 p-3 bg-hex-gold/10 rounded-full border border-hex-gold/30 shadow-[0_0_15px_rgba(200,170,110,0.15)] shrink-0">
+                            <Sparkles className="text-hex-gold" size={24} />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-hex-gold font-bold text-lg mb-2 tracking-wide uppercase flex items-center gap-2">
+                                {parsedContent.concise?.title || "Strategic Priority"}
+                            </h3>
+                            <p className="text-hex-gold-light text-base leading-relaxed font-medium">
+                                {parsedContent.concise?.content}
+                            </p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={handleCopy} className="p-2 hover:bg-white/5 rounded text-slate-400 hover:text-hex-gold transition-colors">
+                                {copied ? <Check size={16}/> : <Copy size={16}/>}
                             </button>
                         </div>
-                        <div className="text-sm text-slate-300 leading-relaxed font-sans whitespace-pre-wrap break-words mt-2 opacity-90">
-                             {concise.content}
-                             {isAnalyzing && <span className="inline-block w-2 h-4 bg-amber-500 ml-1 animate-pulse align-middle"/>}
-                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* 2. 详细 Tabs 区域 */}
-            <div className="flex-1 bg-[#232329]/80 backdrop-blur rounded-xl border border-white/5 flex flex-col min-h-0 relative shadow-inner">
-                {/* Tab 标题栏 */}
-                <div className="flex border-b border-white/5 overflow-x-auto scrollbar-hide bg-[#2c2c33]/40">
-                    <div className="flex items-center px-3 border-r border-white/5 text-slate-500">
-                        <Layout size={14} />
+                {/* 2. 详情 Tab 切换 */}
+                {parsedContent.detailed_tabs && (
+                    <div className="flex-1 flex flex-col min-h-0">
+                        {/* Tab 导航 */}
+                        <div className="flex gap-1 border-b border-hex-gold/20 mb-4 px-2">
+                            {parsedContent.detailed_tabs.map((tab, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => setActiveTab(idx)}
+                                    className={`px-5 py-3 text-sm font-bold tracking-wider transition-all relative top-[1px]
+                                        ${activeTab === idx 
+                                            ? 'text-hex-blue border-b-2 border-hex-blue bg-hex-blue/5 shadow-[0_-5px_10px_rgba(10,200,185,0.05)]' 
+                                            : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border-b-2 border-transparent'
+                                        }`}
+                                >
+                                    {tab.title}
+                                </button>
+                            ))}
+                        </div>
+                        
+                        {/* Tab 内容 */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar px-2 pb-4">
+                            <div className="prose prose-invert max-w-none">
+                                <ReactMarkdown 
+                                    remarkPlugins={[remarkGfm]} // 🟢 关键：启用表格支持
+                                    components={HexMarkdownComponents}
+                                >
+                                    {parsedContent.detailed_tabs[activeTab]?.content}
+                                </ReactMarkdown>
+                            </div>
+                        </div>
                     </div>
-                    {tabs.length > 0 ? tabs.map((tab, idx) => (
-                        <button key={idx} onClick={() => setActiveTab(idx)}
-                            className={`px-5 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap flex items-center gap-2
-                                ${activeTab === idx 
-                                    ? 'border-amber-500 text-amber-400 bg-amber-500/5' 
-                                    : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'
-                                }`}>
-                            {idx === 0 && <Target size={14}/>}
-                            {idx === 1 && <Swords size={14}/>}
-                            {tab.title}
-                        </button>
-                    )) : (
-                        <div className="px-5 py-3 text-xs text-slate-500 italic flex items-center gap-2">
-                             {isAnalyzing && <RefreshCw size={12} className="animate-spin"/>}
-                             {isAnalyzing ? "战术推演中..." : "等待数据..."}
-                        </div>
-                    )}
-                </div>
-
-                {/* Tab 内容区 */}
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-transparent">
-                    {tabs[activeTab] ? (
-                        <div className="prose prose-invert prose-sm max-w-none 
-                            prose-headings:text-amber-400 prose-headings:font-bold prose-h3:text-lg prose-h3:border-l-4 prose-h3:border-amber-500 prose-h3:pl-3
-                            prose-p:text-slate-300 prose-p:leading-7
-                            prose-strong:text-white prose-strong:font-black prose-strong:bg-white/5 prose-strong:px-1 prose-strong:rounded
-                            prose-li:text-slate-300 prose-ul:pl-5
-                            prose-blockquote:border-l-4 prose-blockquote:border-blue-500/50 prose-blockquote:bg-[#282830] prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r prose-blockquote:text-slate-400
-                        ">
-                             <ReactMarkdown>{tabs[activeTab].content}</ReactMarkdown>
-                        </div>
-                    ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-600 text-sm gap-2 opacity-50">
-                           {!isAnalyzing && "暂无详细数据"}
-                        </div>
-                    )}
-                </div>
+                )}
                 
-                {/* 反馈功能栏 */}
-                <div className="p-2 border-t border-white/5 flex justify-end bg-[#2c2c33]/40 rounded-b-xl">
-                    <button onClick={() => setShowFeedbackModal(true)} className="text-[10px] text-slate-500 hover:text-red-300 flex items-center gap-1.5 px-2 py-1 transition-colors">
-                        <ShieldAlert size={12}/> <span>内容有误？点击反馈</span>
-                    </button>
+                {/* 底部反馈 */}
+                <div className="mt-4 pt-4 border-t border-hex-gold/10 flex justify-end">
+                     <button 
+                        onClick={() => setShowFeedbackModal(true)}
+                        className="text-[10px] text-slate-600 hover:text-hex-gold flex items-center gap-1 transition-colors"
+                     >
+                        <AlertTriangle size={10} /> Report Analysis Issue
+                     </button>
                 </div>
             </div>
+        );
+    }
 
-            {showDebug && <DebugLayer content={aiResult} onClose={() => setShowDebug(false)} />}
+    // 兜底渲染 (流式文本)
+    return (
+        <div className="h-full p-4 overflow-y-auto custom-scrollbar font-sans text-sm leading-relaxed text-slate-300">
+            <ReactMarkdown 
+                remarkPlugins={[remarkGfm]} // 🟢 关键：启用表格支持
+                components={HexMarkdownComponents}
+            >
+                {aiResult}
+            </ReactMarkdown>
+            <div ref={messagesEndRef} />
         </div>
     );
+}
+
+// 模拟终端日志组件
+const TypewriterLogs = () => {
+    const [logs, setLogs] = useState([]);
+    const lines = [
+        "Initializing Neural Link...",
+        "Connecting to LCU Gateway...",
+        "Fetching Matchup Data [S15 Patch]...",
+        "Analyzing Team Composition...",
+        "Calculating Win Conditions...",
+        "Simulating Jungle Pathing...",
+        "Optimizing Rune Vectors...",
+        "Drafting Tactical Report..."
+    ];
+
+    useEffect(() => {
+        let i = 0;
+        const interval = setInterval(() => {
+            if (i < lines.length) {
+                setLogs(prev => [...prev, lines[i]]);
+                i++;
+            } else {
+                clearInterval(interval);
+            }
+        }, 600);
+        return () => clearInterval(interval);
+    }, []);
+
+    return <div className="flex flex-col gap-1">{logs.map((l, i) => <div key={i} className="truncate">&gt; {l}</div>)}</div>;
 };
-
-// 简单的 Debug 浮层组件
-const DebugLayer = ({ content, onClose }) => (
-    <div className="absolute inset-0 bg-black/95 z-50 p-4 overflow-auto animate-in fade-in">
-        <button onClick={onClose} className="absolute top-4 right-4 text-white hover:text-red-400"><EyeOff/></button>
-        <div className="text-xs text-slate-500 mb-2 font-bold">RAW DATA STREAM:</div>
-        <pre className="text-[10px] text-green-400 font-mono whitespace-pre-wrap break-all border border-green-900/30 p-2 rounded bg-black/50">{content}</pre>
-    </div>
-);
-
-export default AnalysisResult;

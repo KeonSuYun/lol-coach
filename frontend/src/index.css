@@ -2,23 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 这是一个自定义滚动条样式，你的 App.jsx 里用到了它 */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #0f172a; 
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #334155; 
-  border-radius: 3px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #475569; 
+/* 全局背景：深邃的虚空蓝 */
+body {
+  background-color: #010A13;
+  background-image: 
+    radial-gradient(circle at 50% 0%, #1a2c4e 0%, transparent 60%),
+    radial-gradient(circle at 50% 100%, #091428 0%, transparent 60%);
+  background-attachment: fixed; /* 背景固定，不随滚动条动 */
+  color: #A09B8C;
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow-y: scroll; /* 总是显示右侧滚动条，防止抖动 */
 }
 
-body {
-  background-color: #050508; /* 防止加载时出现白屏闪烁 */
-  margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+/* 隐藏所有局部滚动条，但保留滚动功能 (针对 Chrome/Safari) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* 只有当你想看滚动条时（比如整个页面），才显示一个精致的金色滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  background: #010A13;
+}
+::-webkit-scrollbar-thumb {
+  background: #3C3C41;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C8AA6E; /* 悬停变金 */
+}
+
+/* 下拉框居中 */
+select {
+  text-align-last: center;
 }

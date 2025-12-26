@@ -30,7 +30,8 @@ const Header = ({
   const r1Limit = accountInfo?.r1_limit || 10;
 
   return (
-    <div className="w-full max-w-7xl flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-slate-800/60 pb-6">
+    // 🟢 修改点：删除了 max-w-7xl，改为 w-full 让它自适应父容器宽度
+    <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-slate-800/60 pb-6">
       {/* 左侧 Logo 区域 */}
       <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-black italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 tracking-tighter flex items-center gap-2">
@@ -125,8 +126,6 @@ const Header = ({
                   )}
               </button>
           </div>
-
-          {/* ❌ 已删除位置选择 ❌ */}
 
           {/* 用户信息 */}
           {currentUser ? (

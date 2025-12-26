@@ -375,13 +375,13 @@ export default function App() {
   };
 
   return (
-    // ✨ 美化点：径向渐变深色背景
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#2a2a30] via-[#1a1a20] to-[#121214] text-slate-300 font-sans selection:bg-blue-500/30 selection:text-blue-200">
+    <div className="min-h-screen">
       
-      {/* 顶部微弱光效 */}
-      <div className="fixed top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-blue-500/30 to-transparent z-50"></div>
+      {/* 顶部金线 */}
+      <div className="fixed top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-hex-gold/50 to-transparent z-50"></div>
 
-      <div className="relative z-10 flex flex-col items-center p-2 md:p-6">
+      {/* 外层容器 */}
+      <div className="relative z-10 flex flex-col items-center p-4 md:p-8 max-w-[1800px] mx-auto">
         
         <Header 
             version={version} lcuStatus={lcuStatus} 
@@ -392,172 +392,191 @@ export default function App() {
             userRank={userRank} setUserRank={setUserRank}  
         />
 
-        <div className="w-full max-w-[1480px] mt-2 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        {/* 🟢 主布局修正：水平对齐，宽度增加 */}
+        <div className="w-full mt-6 flex flex-col lg:flex-row gap-6 items-start justify-center">
             
-            {/* --- 左侧：我方阵容 (Ally) --- */}
-            <div className="lg:col-span-3 flex flex-col gap-4">
-                {/* 容器美化：半透明 + 边框 */}
-                <div className="bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-xl overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-[#2c2c33]/50">
-                        <div className="flex items-center gap-2">
-                            <Shield size={16} className="text-blue-500" />
-                            <span className="text-sm font-bold tracking-wider text-slate-200">ALLY TEAM</span>
+            {/* === 左侧：宽度增加到 380px === */}
+            <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-5 sticky top-8">
+                {/* 阵容面板 */}
+                <div className="bg-hex-dark border border-hex-gold/30 rounded shadow-hex relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-hex-blue to-transparent opacity-50"></div>
+                    
+                    <div className="flex items-center justify-between px-3 py-2 bg-[#010A13]/80 border-b border-hex-gold/10">
+                        <div className="flex items-center gap-2 text-hex-blue">
+                            <Shield size={14} />
+                            <span className="text-xs font-bold tracking-[0.15em] text-hex-gold-light uppercase">Ally Team</span>
                         </div>
-                        <button onClick={handleClearSession} className="text-slate-500 hover:text-red-400 transition-colors" title="清空对局">
-                            <Trash2 size={15}/>
+                        <button onClick={handleClearSession} className="text-slate-500 hover:text-red-400 transition-colors opacity-50 hover:opacity-100">
+                            <Trash2 size={12}/>
                         </button>
                     </div>
                     
-                    <div className="p-3 space-y-2">
+                    <div className="p-1 space-y-1 bg-hex-black/30">
                         {blueTeam.map((c, i) => (
-                            <div key={i} className={`relative rounded-lg overflow-hidden transition-all ${userSlot === i ? 'bg-[#32323a] ring-1 ring-blue-500/50' : ''}`}>
+                            <div key={i} className={`transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-hex-blue/20 to-transparent border-l-2 border-hex-blue' : 'hover:bg-white/5 border-l-2 border-transparent'}`}>
                                 <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={myTeamRoles[i]} />
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* 己方分路面板 */}
-                <div className="p-4 bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-lg">
+                {/* 分路面板 (My Lane) - 美化版 */}
+                <div className="p-3 bg-hex-dark border border-hex-gold/20 rounded shadow-lg relative">
+                    <div className="absolute -top-[1px] left-1/2 -translate-x-1/2 w-1/3 h-[1px] bg-hex-gold/50"></div>
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <Activity size={14} className="text-blue-400"/>
-                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">MY LANE</span>
+                            <div className="w-1 h-3 bg-hex-blue rounded-full"></div>
+                            <span className="text-[10px] font-bold text-hex-gold-light tracking-widest uppercase">My Lane</span>
                         </div>
-                        <button onClick={() => setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-500 hover:text-white transition-colors">
-                            <RefreshCcw size={12} />
+                        <button onClick={() => setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-600 hover:text-hex-gold transition-colors">
+                            <RefreshCcw size={10} />
                         </button>
                     </div>
-                    <div className="grid grid-cols-5 gap-1.5">
+                    
+                    <div className="flex flex-col gap-3">
                         {["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].map(role => {
-                            const lcuDefaultHero = blueTeam.find((_, i) => myTeamRoles[i] === role)?.name || "";
-                            return (
-                                <div key={role} className="flex flex-col gap-1">
-                                    <label className="text-[9px] uppercase text-slate-500 text-center font-bold">{role.substring(0,3)}</label>
-                                    <select 
-                                        className={`w-full text-[10px] py-1.5 rounded-md bg-[#1a1a20] outline-none appearance-none text-center cursor-pointer transition-all hover:bg-[#25252b]
-                                            ${myLaneAssignments[role] 
-                                                ? 'text-blue-400 font-bold border border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.1)]' 
-                                                : 'text-slate-500 border border-white/5 hover:border-white/10'}
-                                        `}
-                                        value={myLaneAssignments[role] || lcuDefaultHero}
-                                        onChange={(e) => setMyLaneAssignments({...myLaneAssignments, [role]: e.target.value})}
-                                    >
-                                        <option value="">-</option>
-                                        {blueTeam.map((c, i) => c?.name ? <option key={i} value={c.name}>{c.name}</option> : null)}
-                                    </select>
+                             const lcuDefaultHero = blueTeam.find((_, i) => myTeamRoles[i] === role)?.name || "";
+                             const isAssigned = !!myLaneAssignments[role];
+                             return (
+                                <div key={role} className="flex items-center justify-between gap-3 group">
+                                    <label className="text-[10px] md:text-xs uppercase text-slate-500 font-bold w-8 text-right group-hover:text-hex-blue transition-colors">{role.substring(0,3)}</label>
+                                    <div className={`flex-1 relative h-9 rounded bg-slate-900/80 border transition-all duration-300 ${isAssigned ? 'border-hex-blue shadow-[0_0_8px_rgba(10,200,185,0.15)] bg-hex-blue/5' : 'border-hex-gold/10 hover:border-hex-gold/30 hover:bg-white/5'}`}>
+                                        <select 
+                                            className="w-full h-full bg-transparent text-xs font-bold text-slate-300 outline-none appearance-none cursor-pointer absolute inset-0 z-10 px-2 text-center hover:text-white transition-colors"
+                                            value={myLaneAssignments[role] || lcuDefaultHero}
+                                            onChange={(e) => setMyLaneAssignments({...myLaneAssignments, [role]: e.target.value})}
+                                        >
+                                            <option value="" className="bg-slate-900 text-slate-500">- Select -</option>
+                                            {blueTeam.map((c, i) => c?.name ? <option key={i} value={c.name} className="bg-slate-900">{c.name}</option> : null)}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-30">
+                                            <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor" className="text-hex-gold"><path d="M5 6L0 0H10L5 6Z"/></svg>
+                                        </div>
+                                    </div>
                                 </div>
-                            );
+                             )
                         })}
                     </div>
                 </div>
-                
-                <div className="lg:hidden grid grid-cols-3 gap-3">
-                    {['bp', 'personal', 'team'].map(m => (
-                        <AnalysisButton 
-                            key={m} mode={m} activeColor={m==='bp'?'purple':m==='personal'?'amber':'cyan'} 
-                            icon={m==='bp'?<Users size={18}/>:m==='personal'?<Zap size={18}/>:<Brain size={18}/>} 
-                            label={m==='bp'?"BP":m==='personal'?"私教":"运营"} 
-                            onClick={() => handleTabClick(m)} 
-                            analyzeType={analyzeType} isAnalyzing={isModeAnalyzing(m)}
-                        />
-                    ))}
-                </div>
             </div>
             
-            {/* --- 中间：核心分析台 --- */}
-            <div className="lg:col-span-6 flex flex-col gap-4 h-[calc(100vh-140px)] lg:h-[820px]">
-                
-                {/* Tab Bar */}
-                <div className="hidden lg:grid grid-cols-3 gap-3 p-1 bg-[#232329]/90 backdrop-blur rounded-xl border border-white/5 shadow-lg">
-                    <AnalysisButton mode="bp" activeColor="purple" icon={<Users size={18}/>} label="BP 推荐" desc="阵容优劣分析" onClick={() => handleTabClick('bp')} analyzeType={analyzeType} isAnalyzing={isModeAnalyzing('bp')}/>
-                    <AnalysisButton mode="personal" activeColor="amber" icon={<Zap size={18}/>} label="王者私教" desc="绝活对线指导" onClick={() => handleTabClick('personal')} analyzeType={analyzeType} isAnalyzing={isModeAnalyzing('personal')}/>
-                    <AnalysisButton mode="team" activeColor="cyan" icon={<Brain size={18}/>} label="运营教练" desc="大局观与决策" onClick={() => handleTabClick('team')} analyzeType={analyzeType} isAnalyzing={isModeAnalyzing('team')}/>
+            {/* === 中间：限制最大宽度 780px === */}
+            <div className="flex-1 min-w-0 max-w-[780px] flex flex-col gap-0 min-h-[600px]">
+                {/* 顶部 Tab 栏 */}
+                <div className="grid grid-cols-3 gap-0 bg-hex-black border border-hex-gold/30 rounded-t-lg overflow-hidden sticky top-[80px] z-30 shadow-2xl">
+                    {[
+                        { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
+                        { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线细节' },
+                        { id: 'team', label: '运营指挥', icon: <Brain size={18}/>, desc: '大局决策' },
+                    ].map(tab => {
+                        const isActive = analyzeType === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => handleTabClick(tab.id)}
+                                className={`relative group flex flex-col items-center justify-center py-4 transition-all duration-300 border-r border-hex-gold/10 last:border-r-0
+                                    ${isActive ? 'bg-gradient-to-b from-hex-dark to-[#050C18]' : 'bg-hex-black hover:bg-hex-dark/40'}
+                                `}
+                            >
+                                <div className={`flex items-center gap-2 mb-0.5 ${isActive ? 'text-hex-gold-light drop-shadow-[0_0_5px_rgba(200,170,110,0.5)]' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                                    {tab.icon}
+                                    <span className="font-bold tracking-widest text-sm md:text-base">{tab.label}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-600 font-mono tracking-wider">{tab.desc}</span>
+                                {isActive && <div className="absolute bottom-0 left-0 w-full h-[2px] bg-hex-gold shadow-[0_0_15px_#C8AA6E]"></div>}
+                            </button>
+                        )
+                    })}
                 </div>
 
-                {/* 结果展示 */}
-                <div className="relative flex-1 min-h-0 flex flex-col bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-2xl overflow-hidden group">
-                    <div className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-${analyzeType==='bp'?'purple':analyzeType==='personal'?'amber':'cyan'}-500/50 to-transparent`}></div>
-                    
+                {/* 分析结果展示区 */}
+                <div className="relative flex-1 flex flex-col bg-hex-dark border-x border-b border-hex-gold/30 rounded-b-lg shadow-hex p-1">
+                    <div className="absolute inset-0 bg-magic-pattern opacity-5 pointer-events-none z-0"></div>
                     {aiResults[analyzeType] && !isModeAnalyzing(analyzeType) && (
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); handleAnalyze(analyzeType, true); }}
-                            className="absolute top-4 right-14 z-20 p-2 bg-[#1a1a20]/80 hover:bg-[#32323a] rounded-lg text-slate-400 hover:text-white transition-all border border-white/5 backdrop-blur"
-                            title="重新生成"
-                        >
-                            <RotateCcw size={16} />
-                        </button>
+                        <div className="absolute top-4 right-6 z-20">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleAnalyze(analyzeType, true); }}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-hex-black/80 hover:bg-hex-blue/20 rounded border border-hex-gold/20 text-hex-gold hover:text-white transition-all backdrop-blur group"
+                            >
+                                <RotateCcw size={14} className="group-hover:rotate-180 transition-transform duration-500" />
+                                <span className="text-xs font-bold">REGENERATE</span>
+                            </button>
+                        </div>
                     )}
-
-                    <AnalysisResult 
-                        aiResult={aiResults[analyzeType]} 
-                        isAnalyzing={isModeAnalyzing(analyzeType)} 
-                        viewMode={viewMode} setViewMode={setViewMode} 
-                        activeTab={activeTab} setActiveTab={setActiveTab} 
-                        setShowFeedbackModal={setShowFeedbackModal}
-                    />
+                    <div className="relative z-10 min-h-[500px] h-auto">
+                        <AnalysisResult 
+                            aiResult={aiResults[analyzeType]} 
+                            isAnalyzing={isModeAnalyzing(analyzeType)} 
+                            viewMode={viewMode} setViewMode={setViewMode} 
+                            activeTab={activeTab} setActiveTab={setActiveTab} 
+                            setShowFeedbackModal={setShowFeedbackModal}
+                        />
+                    </div>
                 </div>
             </div>
             
-            {/* --- 右侧：敌方与社区 --- */}
-            <div className="lg:col-span-3 flex flex-col gap-4">
+            {/* === 右侧：宽度 380px，移除 h-screen 强制高度 === */}
+            <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-5 sticky top-8">
                 
                 {/* 敌方阵容 */}
-                <div className="bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-xl overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-[#2c2c33]/50">
-                        <div className="flex items-center gap-2">
-                            <Crosshair size={16} className="text-red-500" />
-                            <span className="text-sm font-bold tracking-wider text-slate-200">ENEMY TEAM</span>
+                <div className="bg-[#1a0505] border border-red-900/30 rounded shadow-lg relative overflow-hidden shrink-0">
+                    <div className="flex items-center justify-between px-3 py-2 bg-[#2a0a0a]/50 border-b border-red-900/20">
+                        <div className="flex items-center gap-2 text-red-500">
+                            <Crosshair size={14} />
+                            <span className="text-xs font-bold tracking-[0.15em] text-red-200 uppercase">Enemy Team</span>
                         </div>
                     </div>
-                    <div className="p-3 space-y-2">
+                    <div className="p-1 space-y-1 bg-black/20">
                         {redTeam.map((c, i) => (
-                            <div key={i} className="relative rounded-lg overflow-hidden">
+                            <div key={i} className="hover:bg-red-900/10 rounded transition-colors border-l-2 border-transparent hover:border-red-800">
                                 <ChampCard champ={c} idx={i} isEnemy={true} userSlot={userSlot} role={Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === c?.name)?.substring(0,3) || ""} />
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* 敌方分路 */}
-                <div className="p-4 bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-lg">
+                {/* 敌方分路 (Targets) - 美化版 */}
+                <div className="p-3 bg-[#1a0505] border border-red-900/20 rounded shadow-lg relative shrink-0">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <Activity size={14} className="text-red-400"/>
-                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">ENEMY LANE</span>
+                            <div className="w-1 h-3 bg-red-600 rounded-full"></div>
+                            <span className="text-[10px] font-bold text-red-200 tracking-widest uppercase">Targets</span>
                         </div>
-                        <button onClick={() => setEnemyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-600 hover:text-white transition-colors">
-                            <RefreshCcw size={12} />
+                        <button onClick={() => setEnemyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-600 hover:text-red-400 transition-colors">
+                            <RefreshCcw size={10} />
                         </button>
                     </div>
-                    <div className="grid grid-cols-5 gap-1.5">
+                    
+                    <div className="flex flex-col gap-3">
                         {["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].map(role => (
-                            <div key={role} className="flex flex-col gap-1">
-                                <label className="text-[9px] uppercase text-slate-600 text-center font-bold">{role.substring(0,3)}</label>
-                                <select 
-                                    className={`w-full text-[10px] py-1.5 rounded-md bg-[#1a1a20] outline-none appearance-none text-center cursor-pointer transition-all hover:bg-[#25252b]
-                                        ${enemyLaneAssignments[role] 
-                                            ? 'text-amber-500 font-bold border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.1)]' 
-                                            : 'text-slate-500 border border-white/5 hover:border-white/10'}
-                                    `}
-                                    value={enemyLaneAssignments[role]}
-                                    onChange={(e) => setEnemyLaneAssignments({...enemyLaneAssignments, [role]: e.target.value})}
-                                >
-                                    <option value="">-</option>
-                                    {redTeam.map((c, i) => c?.name ? <option key={i} value={c.name}>{c.name}</option> : null)}
-                                </select>
+                            <div key={role} className="flex items-center justify-between gap-3 group">
+                                <label className="text-[10px] md:text-xs uppercase text-slate-600 font-bold w-8 text-right group-hover:text-red-400 transition-colors">{role.substring(0,3)}</label>
+                                <div className={`flex-1 relative h-9 rounded bg-[#0f0404] border transition-all duration-300 ${enemyLaneAssignments[role] ? 'border-red-600/50 shadow-[0_0_8px_rgba(220,38,38,0.15)] bg-red-900/10' : 'border-red-900/20 hover:border-red-900/40 hover:bg-red-900/5'}`}>
+                                    <select 
+                                        className="w-full h-full bg-transparent text-xs font-bold text-slate-300 outline-none appearance-none cursor-pointer absolute inset-0 z-10 px-2 text-center hover:text-red-200 transition-colors"
+                                        value={enemyLaneAssignments[role]}
+                                        onChange={(e) => setEnemyLaneAssignments({...enemyLaneAssignments, [role]: e.target.value})}
+                                    >
+                                        <option value="" className="bg-[#1a0505] text-slate-500">- Target -</option>
+                                        {redTeam.map((c, i) => c?.name ? <option key={i} value={c.name} className="bg-[#1a0505] text-red-200">{c.name}</option> : null)}
+                                    </select>
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-30">
+                                         <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor" className="text-red-600"><path d="M5 6L0 0H10L5 6Z"/></svg>
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>
                 </div>
                 
-                {/* 社区 Tips */}
-                <div className="flex-1 min-h-[300px] bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-xl overflow-hidden flex flex-col">
+                {/* 社区 Tips：设置固定高度，防止自动撑开 */}
+                <div className="h-[320px] bg-hex-dark border border-hex-gold/20 rounded shadow-xl overflow-hidden flex flex-col shrink-0">
                     <CommunityTips tips={tips} currentUser={currentUser} onOpenPostModal={() => { if(!currentUser) setShowLoginModal(true); else setShowTipModal(true); }} onLike={handleLike} onDelete={handleDeleteTip} />
                 </div>
             </div>
         </div>
 
+        {/* 模态框组件 */}
         <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} authMode={authMode} setAuthMode={setAuthMode} authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} handleRegister={handleRegister} />
         <TipModal isOpen={showTipModal} onClose={() => setShowTipModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handlePostTip} />
         <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handleReportError} />
