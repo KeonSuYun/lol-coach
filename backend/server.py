@@ -547,8 +547,19 @@ def verify_afdian_order(order_no, amount_str):
 # --- 绝活社区 ---
 
 @app.get("/tips")
-def get_tips(hero: str, enemy: str = "None", is_general: bool = False):
-    return db.get_tips_for_ui(hero, enemy, is_general)
+def get_tips(hero: str, enemy: str = "None"):
+    # 1. 获取通用绝活 (General)
+    gen_tips = db.get_tips_for_ui(hero, "general", True)
+    
+    # 2. 获取对位技巧 (Matchup)CommunityTips.jsx
+    match_tips = []
+    if enemy and enemy != "None" and enemy != "":
+        match_tips = db.get_tips_for_ui(hero, enemy, False)
+        
+    return {
+        "general": gen_tips,
+        "matchup": match_tips
+    }
 
 @app.post("/tips")
 def add_tip(data: TipInput, current_user: dict = Depends(get_current_user)):
@@ -706,7 +717,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
     rank_type = "Diamond+" if data.rank in ["Diamond", "Master", "Challenger"] else "Platinum-"
-    algo_recommendations = recommend_heroes_algo(db, user_role_key, rank_type, None)
+    algo_recommendations = await run_in_threadpool(recommend_heroes_algo, db, user_role_key, rank_type, None)
     
     rec_str = ""
     for idx, rec in enumerate(algo_recommendations):

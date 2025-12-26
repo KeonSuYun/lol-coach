@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@fingerprintjs/fingerprintjs": "^5.0.1"
+    "@fingerprintjs/fingerprintjs": "^5.0.1",
+    "react-hot-toast": "^2.6.0"
   }
 }

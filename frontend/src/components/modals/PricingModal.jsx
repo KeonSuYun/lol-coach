@@ -1,82 +1,143 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { X, Crown, Zap, CheckCircle2, Gem, MessageCircle, AlertTriangle, Copy, Check } from 'lucide-react';
 
 const PricingModal = ({ isOpen, onClose, username }) => {
+  const [copied, setCopied] = useState(false);
+  
   if (!isOpen) return null;
 
   // 🔴 替换成你的爱发电个人主页链接
   const AFDIAN_URL = "https://afdian.com/a/lol-couch";
+  // 🔴 替换成你的 QQ 群号
+  const QQ_GROUP_ID = "857733055"; 
+
+  const handleCopyQQ = () => {
+    navigator.clipboard.writeText(QQ_GROUP_ID);
+    setCopied(true);
+    // 如果没有安装 toast 组件，可以用简单的 alert 或者仅依赖图标变化的视觉反馈
+    // alert("群号已复制，请前往QQ添加"); 
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-[#1a1c23] border border-gray-700 w-full max-w-lg rounded-xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="w-full max-w-3xl bg-[#091428] border border-[#C8AA6E] rounded-xl shadow-[0_0_60px_rgba(200,170,110,0.15)] relative overflow-hidden flex flex-col md:flex-row max-h-[90vh] overflow-y-auto custom-scrollbar">
         
-        {/* 标题 */}
-        <div className="bg-gradient-to-r from-yellow-600/20 to-orange-600/20 p-6 border-b border-gray-700">
-          <h2 className="text-2xl font-bold text-yellow-400 flex items-center gap-2">
-            💎 升级 Pro 会员
-          </h2>
-          <p className="text-gray-400 text-sm mt-1">解锁 DeepSeek R1 深度思考模型，无限次 AI 分析。</p>
+        {/* === 左侧：权益展示 === */}
+        <div className="p-8 md:w-5/12 bg-gradient-to-br from-[#010A13] to-[#091428] relative flex flex-col">
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#C8AA6E] to-transparent opacity-50"></div>
+            
+            <div className="flex-1">
+                <h2 className="text-2xl font-bold text-[#F0E6D2] font-serif mb-6 flex items-center gap-2">
+                    <Crown className="text-[#C8AA6E]" fill="currentColor"/> HEX PRO
+                </h2>
+                
+                <ul className="space-y-5">
+                    {[
+                        "DeepSeek R1 深度思考模型",
+                        "无限次 AI 战术分析",
+                        "解锁全部对位数据库",
+                        "尊贵 PRO 身份标识"
+                    ].map((item, i) => (
+                        <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
+                            <CheckCircle2 size={18} className="text-[#0AC8B9] shrink-0 mt-0.5"/> 
+                            <span className="leading-snug">{item}</span>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-[#C8AA6E]/20">
+                <div className="text-xs text-slate-500 mb-1">当前账号</div>
+                <div className="font-mono text-[#0AC8B9] font-bold text-lg truncate">
+                    {username || "未登录"}
+                </div>
+            </div>
         </div>
 
-        {/* 内容区 */}
-        <div className="p-6 space-y-6">
-          
-          {/* 套餐选择 (这里只是展示，点击都是跳到同一个爱发电页面) */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="border border-gray-600 bg-gray-800/50 p-4 rounded-lg text-center hover:border-yellow-500 transition cursor-pointer"
-                 onClick={() => window.open(AFDIAN_URL, '_blank')}>
-              <div className="text-gray-300">周卡畅玩</div>
-              <div className="text-2xl font-bold text-yellow-400 my-1">¥6.9</div>
-              <div className="text-xs text-gray-500">适合周末冲分</div>
+        {/* === 右侧：价格与支付 === */}
+        <div className="p-6 md:p-8 md:w-7/12 bg-[#0C1118] flex flex-col relative">
+            <button onClick={onClose} className="absolute top-4 right-4 text-slate-600 hover:text-white transition-colors"><X size={20}/></button>
+            
+            {/* 1. 套餐选择 */}
+            <div className="mb-6">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Select Plan</div>
+                <div className="space-y-3">
+                    <div 
+                        onClick={() => window.open(AFDIAN_URL, '_blank')}
+                        className="group border border-slate-700 bg-slate-800/50 p-3 rounded-lg cursor-pointer hover:border-[#0AC8B9] hover:bg-[#0AC8B9]/5 transition-all relative overflow-hidden flex justify-between items-center"
+                    >
+                        <div>
+                            <div className="text-slate-300 font-bold text-sm">周卡 Pass</div>
+                            <div className="text-[10px] text-slate-500">短期冲分首选</div>
+                        </div>
+                        <div className="text-lg font-bold text-[#F0E6D2] font-mono">¥6.9</div>
+                    </div>
+
+                    <div 
+                        onClick={() => window.open(AFDIAN_URL, '_blank')}
+                        className="group border-2 border-[#C8AA6E] bg-gradient-to-r from-[#C8AA6E]/10 to-transparent p-3 rounded-lg cursor-pointer hover:shadow-[0_0_20px_rgba(200,170,110,0.2)] transition-all relative flex justify-between items-center"
+                    >
+                        <div className="absolute -top-2 left-2 bg-[#C8AA6E] text-[#010A13] text-[9px] font-bold px-1.5 py-0.5 rounded-b">
+                            RECOMMENDED
+                        </div>
+                        <div className="mt-1">
+                            <div className="text-[#C8AA6E] font-bold flex items-center gap-2 text-sm">
+                                <Gem size={14}/> 月卡 Elite
+                            </div>
+                            <div className="text-[10px] text-[#C8AA6E]/70">日均仅需 0.6 元</div>
+                        </div>
+                        <div className="text-2xl font-black text-[#F0E6D2] font-mono">¥19.9</div>
+                    </div>
+                </div>
             </div>
-            <div className="border border-yellow-500 bg-yellow-500/10 p-4 rounded-lg text-center relative cursor-pointer"
-                 onClick={() => window.open(AFDIAN_URL, '_blank')}>
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-xs px-2 py-0.5 rounded-full font-bold">
-                超值推荐
-              </div>
-              <div className="text-yellow-100">月卡尊享</div>
-              <div className="text-2xl font-bold text-yellow-400 my-1">¥19.9</div>
-              <div className="text-xs text-yellow-200/60">平均每天</div>
+
+            {/* 2. 支付必读 (红框) */}
+            <div className="bg-red-950/30 border border-red-500/30 p-3 rounded mb-4">
+                <h3 className="text-red-400 font-bold mb-2 flex items-center text-xs gap-1">
+                    <AlertTriangle size={12}/> 支付必读 (自动到账)
+                </h3>
+                <div className="text-[10px] text-slate-400 space-y-1">
+                    <p>请在支付页面的 <span className="font-bold text-white">“留言”</span> 处填写用户名：</p>
+                    <div className="bg-black/40 p-1.5 rounded text-center border border-red-500/20 mt-1">
+                        <span className="font-mono text-[#F0E6D2] font-bold select-all cursor-text">{username || "..."}</span>
+                    </div>
+                </div>
             </div>
-          </div>
 
-          {/* 🔴 核心提示区 */}
-          <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
-            <h3 className="text-red-400 font-bold mb-2 flex items-center">
-              ⚠️ 支付必读 (非常重要)
-            </h3>
-            <ol className="list-decimal list-inside text-gray-300 space-y-2 text-sm">
-              <li>点击上方卡片跳转至爱发电。</li>
-              <li>选择方案并支付。</li>
-              <li>
-                <span className="text-white font-bold bg-red-600/80 px-1 rounded">
-                  关键：
-                </span>
-                在支付页面的 <span className="font-bold">“留言”</span> 处，必须填写您的用户名：
-              </li>
-              <div className="bg-black/50 p-3 rounded text-center font-mono text-lg text-green-400 mt-1 select-all border border-gray-700">
-                {username || "请先登录"}
-              </div>
-              <li className="text-xs text-gray-500 pt-1">如果忘记填写，请联系客服人工补单。</li>
-            </ol>
-          </div>
+            {/* 3. 支付按钮 */}
+            <button 
+                onClick={() => window.open(AFDIAN_URL, '_blank')}
+                className="w-full py-3 bg-[#C8AA6E] hover:bg-[#b39556] text-[#010A13] font-bold text-sm rounded shadow-lg shadow-amber-900/30 transition-all flex items-center justify-center gap-2 active:scale-[0.98] mb-6"
+            >
+                <Zap size={16} fill="currentColor"/> 立即解锁
+            </button>
 
-        </div>
+            {/* 4. 人工兜底通道 (Scheme A) */}
+            <div className="mt-auto pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between text-xs">
+                    <div className="text-slate-500 flex flex-col">
+                        <span className="font-bold text-slate-400 flex items-center gap-1">
+                            <MessageCircle size={12}/> 忘记填用户名？
+                        </span>
+                        <span className="text-[10px] scale-90 origin-left mt-0.5">联系人工客服补单</span>
+                    </div>
+                    
+                    <button 
+                        onClick={handleCopyQQ}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded border transition-all active:scale-95
+                            ${copied 
+                                ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                : 'bg-slate-800 border-slate-700 text-blue-400 hover:border-blue-500/50 hover:bg-slate-700'}
+                        `}
+                        title="点击复制群号"
+                    >
+                        <span className="font-mono font-bold">{QQ_GROUP_ID}</span>
+                        {copied ? <Check size={12}/> : <Copy size={12}/>}
+                    </button>
+                </div>
+            </div>
 
-        {/* 底部按钮 */}
-        <div className="p-4 border-t border-gray-700 flex justify-end">
-          <button 
-            onClick={onClose}
-            className="px-6 py-2 text-gray-400 hover:text-white transition"
-          >
-            暂不升级
-          </button>
-          <button 
-            onClick={() => window.open(AFDIAN_URL, '_blank')}
-            className="ml-3 px-6 py-2 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded shadow-lg shadow-yellow-900/20 transition"
-          >
-            前往支付
-          </button>
         </div>
       </div>
     </div>
