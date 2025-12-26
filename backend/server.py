@@ -320,7 +320,7 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
 def health_check():
     return {"status": "ok"}
 # 🟢 新增：获取英雄分路映射接口
-@app.get("/api/champions/roles")
+@app.get("/champions/roles")
 def get_champion_roles():
     try:
         # 直接读取 secure_data/champions.json 确保数据源唯一
@@ -356,9 +356,20 @@ async def serve_spa():
         return {"error": "前端文件未找到，请检查构建流程 (npm run build)"}
     return FileResponse(index_path)
 
+def get_real_ip(request: Request):
+    # 尝试从 X-Forwarded-For 获取真实 IP (通常是列表第一个)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host
+
 @app.post("/send-email")
 def send_email_code(req: EmailRequest, request: Request): # 添加 request 参数获取 IP
-    client_ip = request.client.host
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host
     now = time.time()
     
     last_time = RATE_LIMIT_STORE.get(client_ip, 0)

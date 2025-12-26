@@ -1,8 +1,8 @@
 // src/config/constants.js
 
 // 🟢 环境配置
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "http://localhost:8000" : "https://kozzbluxklwn.sealosbja.site");
-export const SEALOS_API_URL = `${API_BASE_URL}/analyze`;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+export const SEALOS_API_URL = `${API_BASE_URL === '/' ? '' : API_BASE_URL}/analyze`;
 export const BRIDGE_WS_URL = "ws://127.0.0.1:29150";
 export const DDRAGON_BASE = "https://ddragon.leagueoflegends.com";
 // 🟢 角色配置列表
