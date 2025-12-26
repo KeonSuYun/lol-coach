@@ -117,4 +117,4 @@ function connectToLCU(port, password) {
 }
 
 // 启动循环扫描
-setInterval(findLCUAndConnect, 2000);
+setInterval(findLCUAndConnect, 8000);
