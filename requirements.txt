@@ -9,6 +9,6 @@ openai
 python-multipart
 pydantic
 python-dotenv
-react-hot-toast
+
 
 
