@@ -840,10 +840,41 @@ def get_admin_feedbacks(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="权限不足")
     return db.get_all_feedbacks()
 
+# ==========================================
+# 🌟 静态文件与路由修复 
+# ==========================================
+
+# 定义前端构建目录的路径 (根据你的 Dockerfile 结构)
+DIST_DIR = Path("frontend/dist") 
+
+# 1. 专门处理 favicon.png (解决图标不显示的问题)
+@app.get("/favicon.png")
+async def favicon():
+    # 尝试在 dist 根目录找
+    file_path = DIST_DIR / "favicon.png"
+    # 或者尝试在 public 目录找 (视构建情况而定)
+    if not file_path.exists():
+        file_path = DIST_DIR / "public" / "favicon.png"
+        
+    if file_path.exists():
+        # 🌟 关键：返回 image/png 类型，而不是 html
+        return FileResponse(file_path, media_type="image/png")
+    
+    # 如果真的找不到，返回 404，不要返回 index.html 误导浏览器
+    raise HTTPException(status_code=404, detail="Favicon not found on server")
+
+# 2. 捕获所有其他路径 -> 返回 index.html (SPA 路由)
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    if os.path.exists("frontend/dist/index.html"): return FileResponse("frontend/dist/index.html")
-    return {"error": "Frontend build not found"}
+    # 如果请求的是 API 或静态资源但没找到，返回 404
+    if full_path.startswith("api/") or full_path.startswith("assets/"):
+        raise HTTPException(status_code=404)
+        
+    # 其他页面路径返回 index.html
+    index_path = DIST_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"error": "Frontend build not found. Did you run 'npm run build'?"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
