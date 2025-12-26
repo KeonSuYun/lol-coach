@@ -2,6 +2,10 @@ import json
 import os
 import datetime
 import re
+import sys
+import bcrypt
+if not hasattr(bcrypt, '__about__'):
+    bcrypt.__about__ = type("about", (object,), {"__version__": bcrypt.__version__})
 from pymongo import MongoClient
 from passlib.context import CryptContext
 from dotenv import load_dotenv
