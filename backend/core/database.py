@@ -355,3 +355,48 @@ class KnowledgeBase:
     def get_corrections(self, hero, enemy):
         query = {"hero": hero, "$or": [{"enemy": enemy}, {"enemy": "general"}]}
         return [c['content'] for c in self.corrections_col.find(query)]
+
+    # ==========================
+    # 👮 管理员功能 (新增)
+    # ==========================
+    def get_all_users(self, limit=20, search=""):
+        """获取用户列表，支持按用户名搜索"""
+        query = {}
+        if search:
+            query = {"username": {"$regex": search, "$options": "i"}}
+        
+        # 为了安全，不要返回密码 hash
+        projection = {"password": 0, "usage_stats": 0} 
+        
+        users = list(self.users_col.find(query, projection).sort("created_at", -1).limit(limit))
+        
+        # 处理 ObjectId 和 datetime 转字符串
+        results = []
+        for u in users:
+            u["_id"] = str(u["_id"])
+            if u.get("created_at"):
+                u["created_at"] = u["created_at"].isoformat()
+            if u.get("membership_expire"):
+                u["membership_expire"] = u["membership_expire"].isoformat()
+            results.append(u)
+        return results
+
+    def admin_update_user(self, username, action, value):
+        """管理员手动修改用户"""
+        user = self.users_col.find_one({"username": username})
+        if not user: return False, "用户不存在"
+
+        if action == "add_days":
+            # 补单/加时长
+            try:
+                days = int(value)
+                return self.upgrade_user_role(username, days), "充值成功"
+            except:
+                return False, "天数格式错误"
+        
+        elif action == "set_role":
+            # 修改角色 (比如设为 admin, banned, vip)
+            self.users_col.update_one({"username": username}, {"$set": {"role": value}})
+            return True, f"角色已更新为 {value}"
+            
+        return False, "未知操作"

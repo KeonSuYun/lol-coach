@@ -176,6 +176,12 @@ class AnalyzeRequest(BaseModel):
     enemyLaneAssignments: Optional[Dict[str, str]] = None
     model_type: str = "chat" # 'chat' or 'reasoner'
 
+# 🟢 新增：管理员修改用户请求模型
+class AdminUserUpdate(BaseModel):
+    username: str
+    action: str  # "add_days" 或 "set_role"
+    value: str   # 天数 "30" 或 角色名 "admin"
+
 # ================= 🔐 核心权限逻辑 =================
 
 def verify_password(plain_password, hashed_password):
@@ -595,10 +601,62 @@ def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_curren
     db.submit_feedback({"user_id": current_user['username'], "match_context": data.match_context, "description": data.description})
     return {"status": "success"}
 
+@app.get("/admin/feedbacks")
+def get_admin_feedbacks(current_user: dict = Depends(get_current_user)):
+    # 权限检查
+    allowed_roles = ["admin", "root", "vip_admin"] 
+    if current_user.get("role") not in allowed_roles:
+        raise HTTPException(status_code=403, detail="权限不足")
+    return db.get_all_feedbacks()
+
+# 🟢 新增：获取用户列表接口
+@app.get("/admin/users")
+def get_admin_users(search: str = "", current_user: dict = Depends(get_current_user)):
+    # 1. 权限检查 (安全核心)
+    allowed_roles = ["admin", "root", "vip_admin"]
+    if current_user.get("role") not in allowed_roles:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    
+    # 2. 查询数据
+    return db.get_all_users(limit=50, search=search)
+
+# 🟢 新增：管理员更新用户信息接口
+@app.post("/admin/user/update")
+def update_user_admin(data: AdminUserUpdate, current_user: dict = Depends(get_current_user)):
+    # 1. 权限检查
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    # 2. 执行操作
+    success, msg = db.admin_update_user(data.username, data.action, data.value)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    
+    return {"status": "success", "msg": msg}
+
+
 # --- 4. AI 分析 (集成推荐算法) ---
 
 @app.post("/analyze")
 async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_current_user)): 
+    # 🟢 [新增] 3秒冷却防刷机制
+    username = current_user['username']
+    now = time.time()
+    last_request_time = ANALYZE_LIMIT_STORE.get(username, 0)
+    
+    # 如果距离上次请求不足 3 秒，直接拒绝
+    if now - last_request_time < 3:
+        async def fast_err(): 
+            yield json.dumps({
+                "concise": {
+                    "title": "操作太快了", 
+                    "content": "请等待 AI 思考完毕后再试 (冷却中...)"
+                }
+            })
+        return StreamingResponse(fast_err(), media_type="application/json")
+    
+    # 更新最后请求时间
+    ANALYZE_LIMIT_STORE[username] = now
     # 1. API Key 检查
     if not DEEPSEEK_API_KEY:
          async def err(): yield json.dumps({"concise": {"title":"维护中", "content":"服务暂时不可用 (Configuration Error)"}})
@@ -934,13 +992,6 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 
-@app.get("/admin/feedbacks")
-def get_admin_feedbacks(current_user: dict = Depends(get_current_user)):
-    # 权限检查
-    allowed_roles = ["admin", "root", "vip_admin"] 
-    if current_user.get("role") not in allowed_roles:
-        raise HTTPException(status_code=403, detail="权限不足")
-    return db.get_all_feedbacks()
 
 # ==========================================
 # 🌟 静态文件与路由修复 

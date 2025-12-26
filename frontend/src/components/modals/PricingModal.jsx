@@ -1,147 +1,226 @@
 import React, { useState } from 'react';
-import { X, Crown, Zap, CheckCircle2, Gem, MessageCircle, AlertTriangle, Copy, Check } from 'lucide-react';
+import { X, Crown, Zap, CheckCircle2, Gem, MessageCircle, AlertTriangle, Copy, Check, ExternalLink, Star } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+
+// 🟢 你的海报图片路径 (如果没有，代码会自动显示深蓝渐变兜底)
+const POSTER_IMG = "/assets/hex-poster.jpg"; 
 
 const PricingModal = ({ isOpen, onClose, username }) => {
   const [copied, setCopied] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState('monthly'); // 默认选中月卡
   
   if (!isOpen) return null;
 
-  // 🔴 替换成你的爱发电个人主页链接
+  // 🔴 你的爱发电主页链接
   const AFDIAN_URL = "https://afdian.com/a/lol-couch";
-  // 🔴 替换成你的 QQ 群号
   const QQ_GROUP_ID = "857733055"; 
 
   const handleCopyQQ = () => {
     navigator.clipboard.writeText(QQ_GROUP_ID);
     setCopied(true);
-    // 如果没有安装 toast 组件，可以用简单的 alert 或者仅依赖图标变化的视觉反馈
-    // alert("群号已复制，请前往QQ添加"); 
+    toast.success("群号已复制");
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="w-full max-w-3xl bg-[#091428] border border-[#C8AA6E] rounded-xl shadow-[0_0_60px_rgba(200,170,110,0.15)] relative overflow-hidden flex flex-col md:flex-row max-h-[90vh] overflow-y-auto custom-scrollbar">
-        
-        {/* === 左侧：权益展示 === */}
-        <div className="p-8 md:w-5/12 bg-gradient-to-br from-[#010A13] to-[#091428] relative flex flex-col">
-            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#C8AA6E] to-transparent opacity-50"></div>
-            
-            <div className="flex-1">
-                <h2 className="text-2xl font-bold text-[#F0E6D2] font-serif mb-6 flex items-center gap-2">
-                    <Crown className="text-[#C8AA6E]" fill="currentColor"/> HEX PRO
-                </h2>
-                
-                <ul className="space-y-5">
-                    {[
-                        "DeepSeek R1 深度思考模型",
-                        "无限次 AI 战术分析",
-                        "解锁全部对位数据库",
-                        "尊贵 PRO 身份标识"
-                    ].map((item, i) => (
-                        <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
-                            <CheckCircle2 size={18} className="text-[#0AC8B9] shrink-0 mt-0.5"/> 
-                            <span className="leading-snug">{item}</span>
-                        </li>
-                    ))}
-                </ul>
-            </div>
+  const handlePay = () => {
+      window.open(AFDIAN_URL, '_blank');
+  };
 
-            <div className="mt-8 pt-6 border-t border-[#C8AA6E]/20">
-                <div className="text-xs text-slate-500 mb-1">当前账号</div>
-                <div className="font-mono text-[#0AC8B9] font-bold text-lg truncate">
-                    {username || "未登录"}
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-300" onClick={onClose}>
+      <div 
+        className="w-full max-w-5xl bg-[#091428] border border-[#C8AA6E]/40 rounded-2xl shadow-2xl relative overflow-hidden flex flex-col md:flex-row max-h-[90vh] md:h-[600px]"
+        onClick={e => e.stopPropagation()}
+      >
+        
+        {/* =================================================================
+           🖼️ 左侧：视觉海报 (视觉中心)
+        ================================================================= */}
+        <div className="relative p-8 md:w-5/12 bg-gradient-to-br from-[#010A13] to-[#050C16] overflow-hidden flex flex-col justify-center border-r border-[#C8AA6E]/10 group">
+            {/* 背景图 (带微缩放动画) */}
+            <div 
+                className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105 opacity-40 mix-blend-luminosity"
+                style={{ 
+                    backgroundImage: `url(${POSTER_IMG})`,
+                    backgroundColor: '#010A13' 
+                }}
+            />
+            {/* 装饰背景 */}
+            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-t from-[#010A13] via-[#010A13]/80 to-transparent"></div>
+            <div className="absolute -bottom-20 -left-20 w-60 h-60 bg-[#C8AA6E]/10 rounded-full blur-3xl pointer-events-none"></div>
+            
+            <div className="relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C8AA6E]/10 border border-[#C8AA6E]/30 text-[#C8AA6E] text-xs font-bold tracking-wider mb-6 shadow-[0_0_15px_rgba(200,170,110,0.2)]">
+                    <Crown size={12} fill="currentColor"/> HEX COACH PRO
                 </div>
+                
+                <h2 className="text-3xl font-black text-[#F0E6D2] italic tracking-wide leading-tight mb-2 drop-shadow-md">
+                    解锁<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2]">全知全能</span><br/>战术视角
+                </h2>
+                <p className="text-slate-400 text-sm mb-8 leading-relaxed max-w-xs">
+                    基于 DeepSeek R1 深度思考模型，为您提供职业级 BP 建议与对位博弈指引。
+                </p>
+                
+                <ul className="space-y-4">
+                    <FeatureItem icon={<Zap/>} text="R1 深度思考模型 (无删减)" />
+                    <FeatureItem icon={<Gem/>} text="解锁 100+ 英雄绝活对位库" />
+                    <FeatureItem icon={<CheckCircle2/>} text="无限次 AI 分析 (排位/匹配)" />
+                    <FeatureItem icon={<Star/>} text="尊贵 PRO 身份标识" />
+                </ul>
             </div>
         </div>
 
-        {/* === 右侧：价格与支付 === */}
-        <div className="p-6 md:p-8 md:w-7/12 bg-[#0C1118] flex flex-col relative">
-            <button onClick={onClose} className="absolute top-4 right-4 text-slate-600 hover:text-white transition-colors"><X size={20}/></button>
+        {/* =================================================================
+           💰 右侧：支付操作 (宽敞布局)
+        ================================================================= */}
+        <div className="flex-1 bg-[#0C1118] flex flex-col relative">
             
-            {/* 1. 套餐选择 */}
-            <div className="mb-6">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Select Plan</div>
-                <div className="space-y-3">
-                    <div 
-                        onClick={() => window.open(AFDIAN_URL, '_blank')}
-                        className="group border border-slate-700 bg-slate-800/50 p-3 rounded-lg cursor-pointer hover:border-[#0AC8B9] hover:bg-[#0AC8B9]/5 transition-all relative overflow-hidden flex justify-between items-center"
-                    >
-                        <div>
-                            <div className="text-slate-300 font-bold text-sm">周卡 Pass</div>
-                            <div className="text-[10px] text-slate-500">短期冲分首选</div>
-                        </div>
-                        <div className="text-lg font-bold text-[#F0E6D2] font-mono">¥6.9</div>
-                    </div>
-
-                    <div 
-                        onClick={() => window.open(AFDIAN_URL, '_blank')}
-                        className="group border-2 border-[#C8AA6E] bg-gradient-to-r from-[#C8AA6E]/10 to-transparent p-3 rounded-lg cursor-pointer hover:shadow-[0_0_20px_rgba(200,170,110,0.2)] transition-all relative flex justify-between items-center"
-                    >
-                        <div className="absolute -top-2 left-2 bg-[#C8AA6E] text-[#010A13] text-[9px] font-bold px-1.5 py-0.5 rounded-b">
-                            RECOMMENDED
-                        </div>
-                        <div className="mt-1">
-                            <div className="text-[#C8AA6E] font-bold flex items-center gap-2 text-sm">
-                                <Gem size={14}/> 月卡 Elite
-                            </div>
-                            <div className="text-[10px] text-[#C8AA6E]/70">日均仅需 0.6 元</div>
-                        </div>
-                        <div className="text-2xl font-black text-[#F0E6D2] font-mono">¥19.9</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 2. 支付必读 (红框) */}
-            <div className="bg-red-950/30 border border-red-500/30 p-3 rounded mb-4">
-                <h3 className="text-red-400 font-bold mb-2 flex items-center text-xs gap-1">
-                    <AlertTriangle size={12}/> 支付必读 (自动到账)
-                </h3>
-                <div className="text-[10px] text-slate-400 space-y-1">
-                    <p>请在支付页面的 <span className="font-bold text-white">“留言”</span> 处填写用户名：</p>
-                    <div className="bg-black/40 p-1.5 rounded text-center border border-red-500/20 mt-1">
-                        <span className="font-mono text-[#F0E6D2] font-bold select-all cursor-text">{username || "..."}</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* 3. 支付按钮 */}
-            <button 
-                onClick={() => window.open(AFDIAN_URL, '_blank')}
-                className="w-full py-3 bg-[#C8AA6E] hover:bg-[#b39556] text-[#010A13] font-bold text-sm rounded shadow-lg shadow-amber-900/30 transition-all flex items-center justify-center gap-2 active:scale-[0.98] mb-6"
-            >
-                <Zap size={16} fill="currentColor"/> 立即解锁
-            </button>
-
-            {/* 4. 人工兜底通道 (Scheme A) */}
-            <div className="mt-auto pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between text-xs">
-                    <div className="text-slate-500 flex flex-col">
-                        <span className="font-bold text-slate-400 flex items-center gap-1">
-                            <MessageCircle size={12}/> 忘记填用户名？
-                        </span>
-                        <span className="text-[10px] scale-90 origin-left mt-0.5">联系人工客服补单</span>
+            {/* 顶部：用户信息 & 身份标识 & 关闭 */}
+            <div className="flex items-center justify-between p-6 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                    {/* 头像 */}
+                    <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-700 shadow-inner relative">
+                        <span className="font-mono font-bold text-sm">{username?.[0]?.toUpperCase() || "U"}</span>
+                        {/* 在线状态点 */}
+                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-[#0C1118] rounded-full"></div>
                     </div>
                     
-                    <button 
-                        onClick={handleCopyQQ}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded border transition-all active:scale-95
-                            ${copied 
-                                ? 'bg-green-500/10 border-green-500/30 text-green-400' 
-                                : 'bg-slate-800 border-slate-700 text-blue-400 hover:border-blue-500/50 hover:bg-slate-700'}
-                        `}
-                        title="点击复制群号"
-                    >
-                        <span className="font-mono font-bold">{QQ_GROUP_ID}</span>
-                        {copied ? <Check size={12}/> : <Copy size={12}/>}
-                    </button>
+                    <div>
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-0.5">Current Account</div>
+                        <div className="flex items-center gap-2">
+                            <div className="text-[#F0E6D2] font-bold text-sm font-mono truncate max-w-[120px]">
+                                {username || "未登录用户"}
+                            </div>
+                            
+                            {/* 💎 身份标识 */}
+                            <div className="px-1.5 py-0.5 rounded-[4px] bg-[#C8AA6E]/20 border border-[#C8AA6E]/30 text-[#C8AA6E] text-[9px] font-bold tracking-wide uppercase flex items-center gap-1">
+                                <Crown size={8} fill="currentColor" />
+                                <span>PRO</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+                
+                <button onClick={onClose} className="p-2 text-slate-500 hover:text-white hover:bg-white/10 rounded-full transition-all">
+                    <X size={20}/>
+                </button>
             </div>
 
+            {/* 中间：套餐选择 */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 flex flex-col">
+                
+                {/* 1. 套餐卡片 (横向并排) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <PlanCard 
+                        title="周卡 Pass" 
+                        price="6.9" 
+                        period="/ 7天"
+                        desc="短期冲分体验"
+                        active={selectedPlan === 'weekly'}
+                        onClick={() => setSelectedPlan('weekly')}
+                    />
+                    <PlanCard 
+                        title="月卡 Elite" 
+                        price="19.9" 
+                        period="/ 30天"
+                        desc="日均 0.6 元 · 推荐" 
+                        isRecommended 
+                        active={selectedPlan === 'monthly'}
+                        onClick={() => setSelectedPlan('monthly')}
+                    />
+                </div>
+
+                {/* 2. 支付提示 (紧凑版) */}
+                <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-4 mb-6 flex gap-3 items-start">
+                    <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5"/>
+                    <div className="text-xs space-y-1.5 flex-1">
+                        <p className="text-red-200/80 font-medium">自动到账必读：</p>
+                        <p className="text-slate-400 leading-relaxed">
+                            跳转爱发电支付时，请务必在 <span className="text-white font-bold bg-white/10 px-1 rounded">“留言”</span> 处填写您的用户名：
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                            <code className="bg-black/40 px-2 py-1 rounded text-[#C8AA6E] font-mono font-bold border border-[#C8AA6E]/20 select-all cursor-copy">
+                                {username || "您的用户名"}
+                            </code>
+                            <span className="text-[10px] text-slate-600">(点击复制)</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. 底部操作栏 */}
+                <div className="mt-auto">
+                    <button 
+                        onClick={handlePay}
+                        className="group w-full py-3.5 bg-[#C8AA6E] hover:bg-[#b39556] text-[#091428] font-black text-sm rounded shadow-lg shadow-amber-900/20 transition-all flex items-center justify-center gap-2 active:scale-[0.99] overflow-hidden relative"
+                    >
+                        <span className="relative z-10 flex items-center gap-2">
+                            前往爱发电解锁 {selectedPlan === 'monthly' ? '月卡' : '周卡'}
+                            <ExternalLink size={16} className="opacity-60 group-hover:translate-x-0.5 transition-transform"/>
+                        </span>
+                        {/* 扫光动画 */}
+                        <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 group-hover:animate-[shimmer_1s_infinite]"></div>
+                    </button>
+
+                    {/* 客服兜底 */}
+                    <div className="flex items-center justify-center gap-2 mt-4 text-[10px] text-slate-500">
+                        <span>支付未到账？</span>
+                        <button 
+                            onClick={handleCopyQQ}
+                            className="flex items-center gap-1 hover:text-[#0AC8B9] transition-colors"
+                        >
+                            <MessageCircle size={12}/>
+                            <span className="underline decoration-slate-700 underline-offset-2">联系人工客服补单 ({QQ_GROUP_ID})</span>
+                            {copied && <Check size={10} className="text-green-400"/>}
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
       </div>
     </div>
   );
 };
+
+// === 子组件 ===
+
+const FeatureItem = ({ icon, text }) => (
+    <li className="flex items-center gap-3 text-sm text-slate-300/90">
+        <div className="text-[#0AC8B9]">{icon}</div>
+        <span>{text}</span>
+    </li>
+);
+
+const PlanCard = ({ title, price, period, desc, isRecommended, active, onClick }) => (
+    <div 
+        onClick={onClick}
+        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col justify-between h-28 group
+        ${active 
+            ? 'bg-[#C8AA6E]/10 border-[#C8AA6E] shadow-lg shadow-[#C8AA6E]/5' 
+            : 'bg-slate-800/20 border-slate-800 hover:border-slate-600 hover:bg-slate-800/40'}
+        `}
+    >
+        {isRecommended && (
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#C8AA6E] text-[#091428] text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap z-10">
+                超值推荐
+            </div>
+        )}
+        
+        <div className="flex justify-between items-start">
+            <span className={`font-bold text-sm ${active ? 'text-[#C8AA6E]' : 'text-slate-300'}`}>{title}</span>
+            <div className={`transition-all ${active ? 'text-[#C8AA6E]' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                {active ? <CheckCircle2 size={18} fill="currentColor" className="text-[#091428]"/> : <div className="w-4 h-4 rounded-full border-2 border-current"></div>}
+            </div>
+        </div>
+        
+        <div>
+            <div className="flex items-baseline gap-1">
+                <span className="text-xs text-slate-500">¥</span>
+                <span className={`text-2xl font-black font-mono ${active ? 'text-[#F0E6D2]' : 'text-slate-200'}`}>{price}</span>
+                <span className="text-[10px] text-slate-500">{period}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">{desc}</div>
+        </div>
+    </div>
+);
 
 export default PricingModal;
