@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom'; // 👈 关键：引入 Portal 解决框选菜单被遮挡问题
 import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, FileText, Layout, MessageSquarePlus, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { toast } from 'react-hot-toast'; // 引入 toast 提示
-import { createPortal } from 'react-dom';
+import { toast } from 'react-hot-toast';
 
 // 🛠️ 智能解析器：同时兼容 JSON 和 纯文本
 const parseHybridContent = (rawString) => {
@@ -76,7 +76,8 @@ const parseHybridContent = (rawString) => {
     return { mode: 'loading', data: null };
 };
 
-const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
+// 👇 注意这里：加入了 handleRegenerate 参数
+const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleRegenerate }) => {
     const [showDebug, setShowDebug] = useState(false);
     const [activeTab, setActiveTab] = useState(0);
     const [teamCopied, setTeamCopied] = useState(false); // 战术复制状态
@@ -146,24 +147,14 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
         // 🛡️ 核心修复：针对国服审查的“防封清洗”逻辑
         const cleanText = content
             // 1. 🛑 必须去掉 Emoji：这是国服判定“代练广告”的首要特征
-            // 扩充范围：
-            // 1F300-1FAFF: 通用Emoji (笑脸, 手势, 运动等)
-            // 2600-27BF: 杂项符号 (天平, 骷髅, ⚠️)
-            // 2300-23FF: 技术符号 (⏰闹钟, ⌚手表, ⌨️键盘)
-            // 2B00-2BFF: 杂项图形 (⭐星星, ⭕圆圈)
-            // FE00-FE0F: 变异选择符 (用于让符号变Emoji)
             .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, '')
-            
             // 2. 去除 Markdown 加粗 (**重点**) -> 重点
             .replace(/\*\*(.*?)\*\*/g, '$1')
-            
             // 3. 去除标题符号 (##)
             .replace(/#{1,6}\s/g, '')
-            
             // 4. 处理换行：不再转为竖线，而是保留换行但压缩连续空行
             .replace(/\n{2,}/g, '\n')
-            
-            // 5. 去除行内多余空格 (注意使用 [ \t] 而不是 \s，避免把换行符也吞了)
+            // 5. 去除行内多余空格
             .replace(/[ \t]+/g, ' ')
             .trim();
 
@@ -180,6 +171,32 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
         });
     };
 
+    // 🔥 修复版：悬浮反馈按钮 (使用 Portal 强制置顶)
+    const SelectionFloatingButton = () => {
+        if (!selectionMenu) return null;
+        
+        // 使用 Portal 将按钮直接挂载到 body 上，避免被父容器 overflow:hidden 截断
+        return createPortal(
+            <div 
+                className="fixed z-[9999] transform -translate-x-1/2 -translate-y-full pb-2 animate-in fade-in zoom-in duration-200 pointer-events-auto"
+                style={{ top: selectionMenu.y, left: selectionMenu.x }}
+            >
+                <div className="relative group">
+                    <button
+                        onMouseDown={handleSelectionFeedback}
+                        className="flex items-center gap-2 bg-slate-900 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xl border border-amber-500/50 hover:bg-amber-500 hover:text-slate-900 transition-all cursor-pointer whitespace-nowrap backdrop-blur-md"
+                    >
+                        <MessageSquarePlus size={14} />
+                        <span>反馈选中内容</span>
+                    </button>
+                    {/* 下方的小三角箭头 */}
+                    <div className="w-2 h-2 bg-slate-900 border-r border-b border-amber-500/50 transform rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1 group-hover:bg-amber-500 transition-colors"></div>
+                </div>
+            </div>,
+            document.body // 👈 挂载目标
+        );
+    };
+
     if (mode === 'loading' && !isAnalyzing) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 opacity-50">
@@ -188,24 +205,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
             </div>
         );
     }
-
-    const SelectionFloatingButton = () => (
-        selectionMenu && (
-            <div 
-                className="fixed z-50 transform -translate-x-1/2 -translate-y-full pb-2 animate-in fade-in zoom-in duration-200"
-                style={{ top: selectionMenu.y, left: selectionMenu.x }}
-            >
-                <button
-                    onMouseDown={handleSelectionFeedback}
-                    className="flex items-center gap-2 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-1.5 rounded shadow-xl border border-slate-600 hover:bg-hex-blue hover:text-white hover:border-hex-blue transition-all cursor-pointer"
-                >
-                    <MessageSquarePlus size={14} />
-                    <span>反馈选中内容</span>
-                </button>
-                <div className="w-2 h-2 bg-slate-800 border-r border-b border-slate-600 transform rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1"></div>
-            </div>
-        )
-    );
 
     if (mode === 'markdown') {
         return (
@@ -270,26 +269,38 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
         <div className="flex flex-col h-full gap-4 overflow-hidden relative">
             
             {/* 1. 顶部简述卡片 (包含复制按钮) */}
-            <div className="bg-[#232329]/90 backdrop-blur rounded-xl p-4 border border-white/10 shadow-lg shrink-0 transition-all group">
+            <div className="bg-[#232329]/90 backdrop-blur rounded-xl p-4 border border-white/10 shadow-lg shrink-0 transition-all group relative">
+                
+                {/* 🔄 重新分析按钮 (右上角 - 绝对定位) */}
+                {handleRegenerate && (
+                    <button 
+                        onClick={handleRegenerate}
+                        disabled={isAnalyzing}
+                        className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold border border-slate-600 bg-slate-800 text-slate-300 hover:text-white hover:border-amber-500 hover:bg-amber-500/10 transition-all z-10"
+                        title="重新分析战局"
+                    >
+                        <RefreshCw size={12} className={isAnalyzing ? "animate-spin" : ""} />
+                        <span>{isAnalyzing ? "分析中..." : "重新分析"}</span>
+                    </button>
+                )}
+
                 <div className="flex items-start gap-4">
                     <div className="p-3 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-600/20 text-amber-400 border border-amber-500/30 shrink-0 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
                         <Lightbulb size={24} />
                     </div>
                     <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex justify-between items-center mb-2">
-                            <h2 className="text-lg font-bold text-slate-100 leading-tight tracking-wide">
+                            <h2 className="text-lg font-bold text-slate-100 leading-tight tracking-wide pr-24">
                                 {concise.title || "生成中..."}
                             </h2>
-                            {/* 按钮区域已移到底部 */}
                         </div>
                         <div className="text-sm text-slate-300 leading-relaxed font-sans whitespace-pre-wrap break-words opacity-90">
                              {concise.content}
                              {isAnalyzing && <span className="inline-block w-2 h-4 bg-amber-500 ml-1 animate-pulse align-middle"/>}
                         </div>
 
-                        {/* ⬇️⬇️⬇️ 按钮区域 (右下角) ⬇️⬇️⬇️ */}
+                        {/* ⬇️⬇️⬇️ 按钮区域 (右下角 - 复制与Debug) ⬇️⬇️⬇️ */}
                         <div className="flex justify-end gap-2 mt-3 pt-2 border-t border-white/5">
-                            {/* 🟢 复制按钮：防封版 */}
                             <button 
                                 onClick={handleCopyToTeam}
                                 className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold border transition-all cursor-pointer select-none
