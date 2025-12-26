@@ -11,8 +11,8 @@ RUN npm install
 
 # 3. 复制前端源代码
 COPY frontend/ ./
-# ⚠️ 关键设置：将 API 地址设为相对路径，这样前端就会自动请求当前域名的接口
-RUN VITE_API_BASE_URL=/ npm run build
+RUN VITE_API_BASE_URL="" npm run build
+
 # ========== 第二阶段：构建后端运行环境 ==========
 FROM python:3.9-slim
 
