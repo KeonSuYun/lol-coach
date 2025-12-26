@@ -186,19 +186,26 @@ def seed_data():
     # =====================================================
     # 4. 管理员账号
     # =====================================================
-    print("\n🚀 [4/4] 检查管理员账号...")
+    print("\n🚀 [4/4] 强制更新管理员账号...")
     admin_pass = os.getenv("ADMIN_PASSWORD")
     if admin_pass:
         admin_user = os.getenv("ADMIN_USERNAME", "admin")
-        if not db.users.find_one({"username": admin_user}):
-            hashed = pwd_context.hash(admin_pass)
-            db.users.insert_one({
-                "username": admin_user, "password": hashed, "role": "admin", 
-                "is_pro": True, "created_at": get_utc_now()
-            })
-            print(f"✅ 管理员 {admin_user} 创建成功")
-
-    print("\n🎉 全部数据更新完毕！现在支持多位置胜率了。")
+        hashed = pwd_context.hash(admin_pass)
+        
+        # 👇 新逻辑：不管有没有，强制把密码和权限刷进去
+        db.users.update_one(
+            {"username": admin_user},
+            {
+                "$set": {
+                    "password": hashed, 
+                    "role": "admin", 
+                    "is_pro": True
+                },
+                "$setOnInsert": {"created_at": get_utc_now()} # 只有新建时才写入创建时间
+            },
+            upsert=True # 如果不存在就创建，存在就更新
+        )
+        print(f"✅ 管理员 {admin_user} 密码已强制重置！")
 
 if __name__ == "__main__":
     seed_data()
