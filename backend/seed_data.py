@@ -4,9 +4,32 @@ import datetime
 import re
 import sys
 import bcrypt
-if not hasattr(bcrypt, '__about__'):
+# 1. 修复 AttributeError: module 'bcrypt' has no attribute '__about__'
+# bcrypt 4.0+ 移除了这个属性，但 passlib 依赖它来检测版本。
+try:
+    bcrypt.__about__
+except AttributeError:
+    # 手动注入一个伪造的 __about__ 属性
     bcrypt.__about__ = type("about", (object,), {"__version__": bcrypt.__version__})
-from pymongo import MongoClient
+
+
+# 2. 修复 ValueError: password cannot be longer than 72 bytes
+# passlib 启动时会故意传入一个超长密码给 bcrypt 跑测试，旧版会自动截断，新版会报错。
+# 我们劫持 bcrypt.hashpw 方法，当遇到这个特定错误时，模仿旧版行为（自动截断）。
+_orig_hashpw = bcrypt.hashpw
+
+def _patched_hashpw(password, salt):
+    try:
+        return _orig_hashpw(password, salt)
+    except ValueError as e:
+        # 只有当错误信息明确是关于 72 字节长度限制时，才进行拦截处理
+        if "72 bytes" in str(e):
+            # 将密码截断到 72 字节，骗过 passlib 的启动检测
+            # 注意：这不会影响你正常的管理员密码，除非你的管理员密码真有 72 位长
+            return _orig_hashpw(password[:72], salt)
+        # 如果是其他错误，照常抛出
+        raise e
+bcrypt.hashpw = _patched_hashpw
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
