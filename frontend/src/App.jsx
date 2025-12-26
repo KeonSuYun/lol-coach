@@ -571,6 +571,7 @@ export default function App() {
                             viewMode={viewMode} setViewMode={setViewMode} 
                             activeTab={activeTab} setActiveTab={setActiveTab} 
                             setShowFeedbackModal={setShowFeedbackModal}
+                            setFeedbackContent={setInputContent} // 🟢✨ 新增：将 inputContent 的 setter 传入子组件
                         />
                     </div>
                 </div>

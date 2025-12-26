@@ -34,8 +34,15 @@ from jose import JWTError, jwt
 # 引入数据库逻辑
 from core.database import KnowledgeBase
 
+# 引入数据同步脚本 (用于启动时自动更新 Prompt)
+try:
+    from seed_data import seed_data
+except ImportError:
+    seed_data = None
+
 # ================= 🔧 强制加载根目录 .env =================
 RATE_LIMIT_STORE = {}
+CHAMPION_CACHE = {} # 🟢 全局英雄缓存
 current_dir = Path(__file__).resolve().parent
 root_dir = current_dir.parent
 env_path = root_dir / '.env'
@@ -92,7 +99,6 @@ if os.path.exists("frontend/dist/assets"):
 ORIGINS = [
     "https://www.haxcoach.com",
     "https://haxcoach.com",
-    # 👇👇👇 强制允许本地开发地址，不再依赖 ENV 变量 👇👇👇
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
@@ -113,6 +119,17 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"], 
     allow_headers=["*"],
 )
+
+# 🚀 启动时自动同步 Prompts
+@app.on_event("startup")
+async def startup_event():
+    if seed_data:
+        print("🔄 [Startup] 检测到 seed_data 模块，正在尝试同步数据库...")
+        try:
+            seed_data()
+            print("✅ [Startup] 数据库同步完成！")
+        except Exception as e:
+            print(f"⚠️ [Startup] 数据库同步失败 (非致命): {e}")
 
 # ================= 模型定义 =================
 
@@ -296,7 +313,7 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
         # ⚠️ 已移除所有克制微调逻辑
 
         candidates.append({
-            "name": hero['name'],
+            "name": hero['name'], # 存英文ID
             "score": score,
             "tier": f"T{tier}",
             "data": {
@@ -547,19 +564,8 @@ def verify_afdian_order(order_no, amount_str):
 # --- 绝活社区 ---
 
 @app.get("/tips")
-def get_tips(hero: str, enemy: str = "None"):
-    # 1. 获取通用绝活 (General)
-    gen_tips = db.get_tips_for_ui(hero, "general", True)
-    
-    # 2. 获取对位技巧 (Matchup)CommunityTips.jsx
-    match_tips = []
-    if enemy and enemy != "None" and enemy != "":
-        match_tips = db.get_tips_for_ui(hero, enemy, False)
-        
-    return {
-        "general": gen_tips,
-        "matchup": match_tips
-    }
+def get_tips(hero: str, enemy: str = "None", is_general: bool = False):
+    return db.get_tips_for_ui(hero, enemy, is_general)
 
 @app.post("/tips")
 def add_tip(data: TipInput, current_user: dict = Depends(get_current_user)):
@@ -639,6 +645,49 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     s15_details = "; ".join(mechanics_list)
     s15_context = f"【S15/峡谷常识库】: {s15_details if s15_details else '暂无特殊机制数据'}"
     
+    # =========================================================
+    # 🛠️ 【关键位置调整】辅助函数定义提前到这里！ (解决 NameError)
+    # =========================================================
+    def get_hero_cn_name(hero_id):
+        """优先提取中文名 (Alias > Name)"""
+        if not hero_id or hero_id == "Unknown": return hero_id
+        
+        info = CHAMPION_CACHE.get(hero_id) or db.get_champion_info(hero_id)
+        if not info: return hero_id
+        
+        # 1. 尝试从 alias 列表取第一个 (通常是中文名，如 "赏金猎人")
+        if info.get("alias") and isinstance(info["alias"], list) and len(info["alias"]) > 0:
+            return info["alias"][0]
+            
+        # 2. 尝试 title (如 "赏金猎人")，如果有这个字段的话
+        if info.get("title"):
+            return info["title"]
+            
+        # 3. 兜底使用 name (Miss Fortune)
+        return info.get("name", hero_id)
+
+    def get_champ_meta(name):
+        """获取英雄战术标签 (应用中文名)"""
+        info = CHAMPION_CACHE.get(name) or db.get_champion_info(name)
+        if info: CHAMPION_CACHE[name] = info
+            
+        if not info:
+            return name, "常规英雄", "全期"
+        
+        # 🟢 修正点：使用 get_hero_cn_name 翻译名字
+        c_name = get_hero_cn_name(name)
+        
+        # 1. 尝试获取自定义标签 (mechanic_type)
+        c_type = info.get('mechanic_type')
+        # 2. 如果没有，使用官方 tags 并简单汉化
+        if not c_type:
+            tags = info.get('tags', [])
+            tag_map = {"Fighter":"战士", "Mage":"法师", "Assassin":"刺客", "Tank":"坦克", "Marksman":"射手", "Support":"辅助"}
+            c_type = tag_map.get(tags[0], tags[0]) if tags else "常规英雄"
+            
+        c_power = info.get('power_spike', '全期') 
+        return c_name, c_type, c_power
+
     # 5. 分路计算
     my_roles_map = infer_team_roles(data.myTeam, data.myLaneAssignments)
     enemy_roles_map = infer_team_roles(data.enemyTeam, data.enemyLaneAssignments)
@@ -671,45 +720,96 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 user_role_key = "JUNGLE"
 
     # ---------------------------------------------------------
-    # ⚡ 核心逻辑：对位判定与生态构建 (Matchup Logic)
+    # ⚡ 核心逻辑：智能生态构建 (Smart Context Logic)
     # ---------------------------------------------------------
     primary_enemy = "Unknown"
-    bot_lane_context = "" 
     
-    # A. 打野逻辑
-    if user_role_key == "JUNGLE":
-        # 优先找对面打野
-        primary_enemy = enemy_roles_map.get("JUNGLE", "Unknown")
-        if primary_enemy == "Unknown": primary_enemy = "Unknown Jungle"
-        
-        # 如果主要敌人不是对面打野（说明用户在针对线上），需要标记
-        # (后续在 prompt 里处理 display name)
+    # 🌟 统一变量：无论哪路，分析结果都存入这里，传给 Prompt 的 {compInfo} 插槽
+    lane_matchup_context = "" 
 
-    # B. 下路双人组逻辑
-    elif user_role_key in ["ADC", "SUPPORT"]:
+    # === A. 下路 (ADC/SUPPORT) 生态 ===
+    if user_role_key in ["ADC", "SUPPORT"]:
         primary_enemy = enemy_roles_map.get(user_role_key, "Unknown")
-        # 构建 2v2 上下文
+        
         my_ad = my_roles_map.get("ADC", "Unknown")
         my_sup = my_roles_map.get("SUPPORT", "Unknown")
         en_ad = enemy_roles_map.get("ADC", "Unknown")
         en_sup = enemy_roles_map.get("SUPPORT", "Unknown")
+
+        my_ad_n, my_ad_t, _ = get_champ_meta(my_ad)
+        my_sup_n, my_sup_t, _ = get_champ_meta(my_sup)
+        en_ad_n, en_ad_t, _ = get_champ_meta(en_ad)
+        en_sup_n, en_sup_t, _ = get_champ_meta(en_sup)
+
+        lane_matchup_context = f"""
+        \n--------- ⚔️ 下路2v2生态系统 (Bot Lane Ecosystem) ⚔️ ---------
+        【我方体系】：{my_ad_n} ({my_ad_t}) + {my_sup_n} ({my_sup_t})
+        - 化学反应：这是一组由“{my_ad_t}”配合“{my_sup_t}”构建的防线。
         
-        # 简单查库翻译一下名字，方便阅读
-        def get_cn(name):
-            i = db.get_champion_info(name)
-            return i['name'] if i else name
-            
-        bot_lane_context = f"""
-        \n--------- ⚔️ 下路2v2生态分析 ⚔️ ---------
-        【我方组合】: {get_cn(my_ad)} (AD) + {get_cn(my_sup)} (辅助)
-        【敌方组合】: {get_cn(en_ad)} (AD) + {get_cn(en_sup)} (辅助)
-        请注意：必须结合双方辅助的开团/保护能力，以及AD的爆发/消耗能力进行综合分析。
-        ------------------------------------------
+        【敌方体系】：{en_ad_n} ({en_ad_t}) + {en_sup_n} ({en_sup_t})
+        - 威胁来源：面对“{en_sup_t}”类型的辅助，请重点分析其开团手段或消耗能力。
+        
+        【博弈定性】：
+        这是一场 [{my_ad_t}+{my_sup_t}] 对抗 [{en_ad_t}+{en_sup_t}] 的对局。
+        请在【对线期博弈】中直接回答：
+        1. 谁拥有线权？
+        2. 谁拥有击杀压力？
+        3. 2v2 打到底谁赢面大？
+        -------------------------------------------------------------
         """
+
+    # === B. 中单 (MID) ===
+    # 🟢 修正：只针对中单生成“中野联动”Prompt，不包含打野
+    elif user_role_key == "MID":
+        primary_enemy = enemy_roles_map.get("MID", "Unknown")
+
+        my_mid = my_roles_map.get("MID", "Unknown")
+        my_jg = my_roles_map.get("JUNGLE", "Unknown")
+        en_mid = enemy_roles_map.get("MID", "Unknown")
+        en_jg = enemy_roles_map.get("JUNGLE", "Unknown")
+
+        my_mid_n, my_mid_t, _ = get_champ_meta(my_mid)
+        my_jg_n,  my_jg_t,  my_jg_p  = get_champ_meta(my_jg)
+        en_mid_n, en_mid_t, _ = get_champ_meta(en_mid)
+        en_jg_n,  en_jg_t,  _  = get_champ_meta(en_jg)
+
+        lane_matchup_context = f"""
+        \n--------- 🌪️ 中野2v2节奏引擎 (Mid-Jungle Engine) 🌪️ ---------
+        【我方中野】：{my_mid_n} ({my_mid_t}) ➕ {my_jg_n} ({my_jg_t})
+        - 联动逻辑：基于我方打野是“{my_jg_t}”，中单应扮演什么角色？
+        - 强势期：注意 {my_jg_n} 的强势期在【{my_jg_p}】，请据此规划前15分钟节奏。
         
-    # C. 单人路
+        【敌方中野】：{en_mid_n} ({en_mid_t}) ➕ {en_jg_n} ({en_jg_t})
+        - 警报：敌方是“{en_mid_t}”+“{en_jg_t}”的组合。请计算他们在中路或河道的 2v2 爆发能力。
+        
+        【博弈定性】：
+        这是一场 [{my_mid_t}+{my_jg_t}] VS [{en_mid_t}+{en_jg_t}] 的节奏对抗。
+        请在【前期博弈】中明确回答：
+        1. 河道主权：3分15秒河蟹刷新时，哪边中野更强？
+        2. 先手权：谁拥有推线游走的主动权？
+        -------------------------------------------------------------
+        """
+
+    # === C. 打野 (JUNGLE) ===
+    # 🟢 修正：打野使用专属的 Prompts 模板，不生成额外的 Python Context 指令
+    elif user_role_key == "JUNGLE":
+        primary_enemy = enemy_roles_map.get("JUNGLE", "Unknown")
+        # 如果打野针对的是线上英雄
+        if primary_enemy == "Unknown" and data.enemyHero:
+            primary_enemy = data.enemyHero
+            
+        # ⚠️ 关键点：留空 Context，让 JSON 里的 personal_jungle 模板完全接管
+        lane_matchup_context = "" 
+
+    # === D. 上路 (TOP) / 其他 ===
     else:
-        primary_enemy = enemy_roles_map.get(user_role_key, "Unknown")
+        primary_enemy = enemy_roles_map.get("TOP", "Unknown")
+        # 兜底
+        if primary_enemy == "Unknown" and data.enemyHero: 
+            primary_enemy = data.enemyHero
+            
+        # 简单的上路 Context
+        lane_matchup_context = "(上路是孤岛，请专注于 1v1 兵线与换血细节分析)"
 
     # 兜底：如果没找到对位，尝试使用前端传来的 enemyHero
     if primary_enemy == "Unknown" and data.enemyHero: 
@@ -717,11 +817,13 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
     rank_type = "Diamond+" if data.rank in ["Diamond", "Master", "Challenger"] else "Platinum-"
-    algo_recommendations = await run_in_threadpool(recommend_heroes_algo, db, user_role_key, rank_type, None)
+    algo_recommendations = recommend_heroes_algo(db, user_role_key, rank_type, None)
     
     rec_str = ""
     for idx, rec in enumerate(algo_recommendations):
-        rec_str += f"{idx+1}. {rec['name']} ({rec['tier']}) - {rec['reason']}\n"
+        # ✅ 使用定义好的 get_hero_cn_name 翻译，推荐列表也变中文了
+        rec_name_cn = get_hero_cn_name(rec['name'])
+        rec_str += f"{idx+1}. {rec_name_cn} ({rec['tier']}) - {rec['reason']}\n"
     if not rec_str: rec_str = "(暂无数据)"
 
     # 7. RAG 检索 (防止打野被线上Tips误导)
@@ -770,49 +872,38 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     def translate_roles(role_map):
         translated_map = {}
         for role, hero_id in role_map.items():
-            if not hero_id or hero_id == "Unknown":
-                translated_map[role] = "未知"
-                continue
-            info = db.get_champion_info(hero_id)
-            if info and 'name' in info:
-                translated_map[role] = info['name'] 
-            else:
-                translated_map[role] = hero_id
+            translated_map[role] = get_hero_cn_name(hero_id) or "未知"
         return translated_map
 
     my_roles_cn = translate_roles(my_roles_map)
     enemy_roles_cn = translate_roles(enemy_roles_map)
     
     # 翻译核心英雄
-    my_hero_cn = data.myHero
-    info = db.get_champion_info(data.myHero)
-    if info: my_hero_cn = info['name']
-
-    enemy_hero_cn = primary_enemy
+    my_hero_cn = get_hero_cn_name(data.myHero)
+    
+    enemy_hero_cn = "未知"
     if primary_enemy != "Unknown":
-        info = db.get_champion_info(primary_enemy)
-        if info: 
-            enemy_hero_cn = info['name']
-            # 如果打野针对非对位，加备注
-            real_jg = enemy_roles_map.get("JUNGLE")
-            if user_role_key == "JUNGLE" and primary_enemy != real_jg:
-                enemy_hero_cn += " (Gank目标)"
+        enemy_hero_cn = get_hero_cn_name(primary_enemy)
+        # 如果打野针对非对位，加备注
+        real_jg = enemy_roles_map.get("JUNGLE")
+        if user_role_key == "JUNGLE" and primary_enemy != real_jg:
+            enemy_hero_cn += " (Gank目标)"
 
     def format_roles_str(role_map):
         return " | ".join([f"{k}: {v}" for k, v in role_map.items()])
 
-    # 填充 User Prompt
+    # 填充 User Prompt (包含 compInfo 修复)
     user_content = tpl['user_template'].format(
         mode=data.mode,
         user_rank=data.rank,        
         db_suggestions=rec_str,     
-        myTeam=format_roles_str(my_roles_cn),       # ✅ 中文阵容
-        enemyTeam=format_roles_str(enemy_roles_cn), # ✅ 中文阵容
-        myHero=my_hero_cn,          # ✅ 中文名
-        enemyHero=enemy_hero_cn,    # ✅ 中文名
+        myTeam=format_roles_str(my_roles_cn),       # ✅ 中文阵容 (别名)
+        enemyTeam=format_roles_str(enemy_roles_cn), # ✅ 中文阵容 (别名)
+        myHero=my_hero_cn,          # ✅ 中文名 (别名)
+        enemyHero=enemy_hero_cn,    # ✅ 中文名 (别名)
         userRole=user_role_key,    
         s15_context=s15_context,
-        bot_lane_context=bot_lane_context,
+        compInfo=lane_matchup_context,  # ✅ 智能生态 (含别名)
         tips_text=tips_text,
         correction_prompt=correction_prompt
     )

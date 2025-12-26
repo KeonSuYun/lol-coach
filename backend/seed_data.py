@@ -82,8 +82,6 @@ def sync_roles_from_json(db):
     total_updates = 0
     
     for role_name, champions in role_config.items():
-        # print(f"   ↳ 正在处理 {role_name}...")
-        
         for hero in champions:
             # 模糊匹配逻辑 (兼容 ID, Name, Alias, 无空格ID)
             res = collection.update_many(
@@ -104,7 +102,7 @@ def sync_roles_from_json(db):
 
 
 def seed_data():
-    print("🌱 [Seeding] 启动全量更新程序 (含分路修正版)...")
+    print("🌱 [Seeding] 启动全量更新程序 (文件读取版)...")
     
     try:
         client = MongoClient(MONGO_URI)
@@ -117,7 +115,7 @@ def seed_data():
     db = client["lol_community"]
 
     # =====================================================
-    # 1. 同步英雄数据 (Champions) - 核心升级逻辑
+    # 1. 同步英雄数据 (Champions)
     # =====================================================
     print("\n🚀 [1/5] 更新英雄基础数据 (支持多位置合并)...")
     
@@ -132,14 +130,11 @@ def seed_data():
 
         for hero in champs_data:
             try:
-                # 确定英文 ID
                 hero_id = hero.get("name") 
                 if not hero_id: continue
                 
-                # 当前这条数据的分路 (标准化为大写)
                 role = hero.get("role", "MID").upper()
                 
-                # 准备这条数据的 详细Stats
                 stats_block = {
                     "role": role,
                     "tier": parse_tier(hero.get("tier")),
@@ -148,9 +143,7 @@ def seed_data():
                     "ban_rate": parse_percent(hero.get("ban_rate"))
                 }
 
-                # 如果是第一次遇到这个英雄，初始化基础信息
                 if hero_id not in hero_map:
-                    # 智能提取中文名
                     display_name = hero_id
                     alias_list = hero.get("alias", [])
                     chinese_aliases = [a for a in alias_list if has_chinese(a)]
@@ -165,52 +158,45 @@ def seed_data():
                         "alias": alias_list,
                         "tags": [t.capitalize() for t in hero.get("tags", [])],
                         "updated_at": get_utc_now(),
-                        
-                        # ✨ 核心：初始化 positions 字典
                         "positions": {},
-                        
-                        # 初始化 roles 数组 (后续由步骤 5 覆盖，这里先给空)
                         "roles": [],
-
-                        # 保留一份“主数据”在根目录
                         "tier": stats_block["tier"],
                         "win_rate": stats_block["win_rate"],
                         "role": role 
                     }
                 
-                # 将当前分路数据 存入 positions
                 hero_map[hero_id]["positions"][role] = stats_block
                 
-                # (可选) 更新主数据：如果当前分路的 Pick 率更高，就把它作为主显示数据
                 current_main_pick = hero_map[hero_id].get("pick_rate", 0)
                 if stats_block["pick_rate"] > current_main_pick:
                      hero_map[hero_id]["tier"] = stats_block["tier"]
                      hero_map[hero_id]["win_rate"] = stats_block["win_rate"]
                      hero_map[hero_id]["pick_rate"] = stats_block["pick_rate"]
                      hero_map[hero_id]["ban_rate"] = stats_block["ban_rate"]
-                     hero_map[hero_id]["role"] = role # 更新为主位置
+                     hero_map[hero_id]["role"] = role 
 
             except Exception as e:
                 print(f"⚠️ 数据格式错误: {hero.get('name')} - {e}")
 
-        # 3. 将字典转为列表并写入
         batch_docs = list(hero_map.values())
 
         if batch_docs:
             try:
                 db.champions.insert_many(batch_docs)
-                print(f"✅ 成功写入 {len(batch_docs)} 个英雄 (已合并 {len(champs_data)} 条分路数据)")
+                print(f"✅ 成功写入 {len(batch_docs)} 个英雄")
             except Exception as e:
                 print(f"❌ 写入失败: {e}")
     else:
         print("⚠️ 未找到 champions.json，跳过更新")
 
     # =====================================================
-    # 2. 同步 Prompts
+    # 2. 同步 Prompts (严格从文件读取)
     # =====================================================
     print("\n🚀 [2/5] 更新 Prompt 模板...")
     prompts_data = load_json("prompts.json")
+    
     if prompts_data:
+        # 清空旧模板
         db.prompt_templates.delete_many({}) 
         items = prompts_data if isinstance(prompts_data, list) else list(prompts_data.values())
         for item in items:
@@ -218,7 +204,9 @@ def seed_data():
             if p_id:
                 item["_id"] = p_id
                 db.prompt_templates.replace_one({"_id": p_id}, item, upsert=True)
-        print("✅ Prompts 已更新")
+        print("✅ Prompts 已根据文件更新")
+    else:
+        print("❌ 严重警告：未找到 prompts.json 文件！数据库 Prompt 未更新，可能导致报错。")
 
     # =====================================================
     # 3. 同步 S15 机制
@@ -256,7 +244,6 @@ def seed_data():
     # =====================================================
     # 5. 调用分路修正 (roles.json)
     # =====================================================
-    # 这一步会根据配置文件，给英雄打上正确的 ['top', 'mid'] 等标签
     sync_roles_from_json(db)
 
     print("\n🎉 所有数据同步完成！")
