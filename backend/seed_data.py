@@ -12,12 +12,19 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 MONGO_URI = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
 
 def load_json(filename):
-    """尝试从 secure_data 文件夹读取 JSON"""
+    """尝试从当前目录或 secure_data 文件夹读取 JSON"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(base_dir, "secure_data", filename)
+    
+    # 优先找当前目录 (兼容 roles.json)
+    file_path = os.path.join(base_dir, filename)
+    if not os.path.exists(file_path):
+        # 找不到再去 secure_data 找
+        file_path = os.path.join(base_dir, "secure_data", filename)
+    
     if not os.path.exists(file_path):
         print(f"⚠️ [提示] 本地文件未找到: {filename}")
         return None
+        
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -57,8 +64,47 @@ def has_chinese(text):
 def get_utc_now():
     return datetime.datetime.now(datetime.timezone.utc)
 
+# ✨✨✨ 新增功能：同步分路配置 ✨✨✨
+def sync_roles_from_json(db):
+    print("\n🚀 [5/5] 同步 roles.json 分路配置...")
+    
+    role_config = load_json("roles.json")
+    if not role_config:
+        print("⚠️ 未找到 roles.json，跳过分路修正。")
+        return
+
+    collection = db['champions']
+    
+    print("🧹 正在初始化分路标签 (清空 roles 字段)...")
+    # 先清空所有英雄的 roles 字段，确保数据纯净
+    collection.update_many({}, {'$set': {'roles': []}})
+    
+    total_updates = 0
+    
+    for role_name, champions in role_config.items():
+        # print(f"   ↳ 正在处理 {role_name}...")
+        
+        for hero in champions:
+            # 模糊匹配逻辑 (兼容 ID, Name, Alias, 无空格ID)
+            res = collection.update_many(
+                {
+                    '$or': [
+                        {'id': hero}, 
+                        {'name': hero},
+                        {'alias': hero},
+                        {'id': hero.replace(" ", "").replace("'", "")} 
+                    ]
+                },
+                {'$addToSet': {'roles': role_name}} # 追加分路
+            )
+            if res.modified_count > 0:
+                total_updates += 1
+                
+    print(f"✅ 分路同步完成！已基于配置更新了 {total_updates} 处定位信息。")
+
+
 def seed_data():
-    print("🌱 [Seeding] 启动全量更新程序 (多分路适配版)...")
+    print("🌱 [Seeding] 启动全量更新程序 (含分路修正版)...")
     
     try:
         client = MongoClient(MONGO_URI)
@@ -73,7 +119,7 @@ def seed_data():
     # =====================================================
     # 1. 同步英雄数据 (Champions) - 核心升级逻辑
     # =====================================================
-    print("\n🚀 [1/4] 更新英雄数据 (支持多位置合并)...")
+    print("\n🚀 [1/5] 更新英雄基础数据 (支持多位置合并)...")
     
     champs_data = load_json("champions.json")
     if champs_data:
@@ -82,7 +128,6 @@ def seed_data():
         print(f"🧹 已清空旧表 (删除了 {delete_result.deleted_count} 条)")
         
         # 2. 内存字典：用于合并同一个英雄的不同分路数据
-        # 结构: { "Ambessa": { base_info..., positions: { "TOP": {...}, "MID": {...} } } }
         hero_map = {}
 
         for hero in champs_data:
@@ -124,8 +169,10 @@ def seed_data():
                         # ✨ 核心：初始化 positions 字典
                         "positions": {},
                         
-                        # 保留一份“主数据”在根目录，防止某些旧逻辑报错
-                        # (默认存第一条遇到的，后面会根据 Pick率 修正)
+                        # 初始化 roles 数组 (后续由步骤 5 覆盖，这里先给空)
+                        "roles": [],
+
+                        # 保留一份“主数据”在根目录
                         "tier": stats_block["tier"],
                         "win_rate": stats_block["win_rate"],
                         "role": role 
@@ -161,7 +208,7 @@ def seed_data():
     # =====================================================
     # 2. 同步 Prompts
     # =====================================================
-    print("\n🚀 [2/4] 更新 Prompt 模板...")
+    print("\n🚀 [2/5] 更新 Prompt 模板...")
     prompts_data = load_json("prompts.json")
     if prompts_data:
         db.prompt_templates.delete_many({}) 
@@ -176,7 +223,7 @@ def seed_data():
     # =====================================================
     # 3. 同步 S15 机制
     # =====================================================
-    print("\n🚀 [3/4] 更新 S15 数据...")
+    print("\n🚀 [3/5] 更新 S15 数据...")
     s15_json = load_json("s15_mechanics.json")
     if s15_json:
         s15_json["_id"] = "s15_rules"
@@ -186,13 +233,12 @@ def seed_data():
     # =====================================================
     # 4. 管理员账号
     # =====================================================
-    print("\n🚀 [4/4] 强制更新管理员账号...")
+    print("\n🚀 [4/5] 强制更新管理员账号...")
     admin_pass = os.getenv("ADMIN_PASSWORD")
     if admin_pass:
         admin_user = os.getenv("ADMIN_USERNAME", "admin")
         hashed = pwd_context.hash(admin_pass)
         
-        # 👇 新逻辑：不管有没有，强制把密码和权限刷进去
         db.users.update_one(
             {"username": admin_user},
             {
@@ -201,11 +247,19 @@ def seed_data():
                     "role": "admin", 
                     "is_pro": True
                 },
-                "$setOnInsert": {"created_at": get_utc_now()} # 只有新建时才写入创建时间
+                "$setOnInsert": {"created_at": get_utc_now()}
             },
-            upsert=True # 如果不存在就创建，存在就更新
+            upsert=True
         )
         print(f"✅ 管理员 {admin_user} 密码已强制重置！")
+
+    # =====================================================
+    # 5. 调用分路修正 (roles.json)
+    # =====================================================
+    # 这一步会根据配置文件，给英雄打上正确的 ['top', 'mid'] 等标签
+    sync_roles_from_json(db)
+
+    print("\n🎉 所有数据同步完成！")
 
 if __name__ == "__main__":
     seed_data()

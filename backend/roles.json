@@ -1,0 +1,38 @@
+{
+  "top": [
+    "Aatrox", "Camille", "Darius", "Fiora", "Garen", "Gnar", "Gwen", "Illaoi", 
+    "Irelia", "Jax", "Jayce", "K'Sante", "Kayle", "Kennen", "Kled", "Malphite", 
+    "Mordekaiser", "Nasus", "Ornn", "Pantheon", "Poppy", "Quinn", "Renekton", 
+    "Riven", "Rumble", "Sett", "Shen", "Singed", "Sion", "Tahm Kench", "Teemo", 
+    "Tryndamere", "Urgot", "Volibear", "Wukong", "Yasuo", "Yone", "Yorick", "Dr. Mundo"
+  ],
+  "jungle": [
+    "Amumu", "Bel'Veth", "Briar", "Diana", "Ekko", "Elise", "Evelynn", 
+    "Fiddlesticks", "Gragas", "Graves", "Hecarim", "Ivern", "Jarvan IV", 
+    "Karthus", "Kayn", "Kha'Zix", "Kindred", "Lee Sin", "Lillia", "Master Yi", 
+    "Nidalee", "Nocturne", "Nunu & Willump", "Olaf", "Rammus", "Rek'Sai", 
+    "Rengar", "Sejuani", "Shaco", "Shyvana", "Skarner", "Taliyah", "Trundle", 
+    "Udyr", "Vi", "Viego", "Warwick", "Xin Zhao", "Zac", "Maokai", "Brand"
+  ],
+  "mid": [
+    "Ahri", "Akali", "Akshan", "Anivia", "Annie", "Aurelion Sol", "Azir", 
+    "Cassiopeia", "Corki", "Fizz", "Galio", "Heimerdinger", "Hwei", "Kassadin", 
+    "Katarina", "LeBlanc", "Lissandra", "Lux", "Malzahar", "Naafiri", "Neeko", 
+    "Orianna", "Qiyana", "Ryze", "Swain", "Sylas", "Syndra", "Talon", 
+    "Twisted Fate", "Veigar", "Vex", "Viktor", "Vladimir", "Xerath", "Yasuo", 
+    "Yone", "Zed", "Ziggs", "Zoe", "Tristana"
+  ],
+  "bot": [
+    "Aphelios", "Ashe", "Caitlyn", "Draven", "Ezreal", "Jhin", "Jinx", "Kai'Sa", 
+    "Kalista", "Kog'Maw", "Lucian", "Miss Fortune", "Nilah", "Samira", "Sivir", 
+    "Smolder", "Tristana", "Twitch", "Varus", "Vayne", "Xayah", "Zeri", "Ziggs", 
+    "Seraphine"
+  ],
+  "support": [
+    "Alistar", "Bard", "Blitzcrank", "Brand", "Braum", "Janna", "Karma", 
+    "Leona", "Lulu", "Lux", "Maokai", "Milio", "Morgana", "Nami", "Nautilus", 
+    "Pyke", "Rakan", "Rell", "Renata Glasc", "Senna", "Seraphine", "Sona", 
+    "Soraka", "Taric", "Thresh", "Vel'Koz", "Yuumi", "Zilean", "Zyra", 
+    "Ashe", "Heimerdinger", "Camille", "Poppy"
+  ]
+}
