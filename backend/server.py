@@ -16,12 +16,12 @@ from dotenv import load_dotenv
 from typing import List, Optional, Dict
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+# 🟢 修复：这里添加了 BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 
 # ✨ 关键修改：引入异步客户端，解决排队问题
@@ -41,12 +41,29 @@ except ImportError:
     seed_data = None
 
 # ================= 🔧 强制加载根目录 .env =================
-RATE_LIMIT_STORE = {}
-CHAMPION_CACHE = {} # 🟢 全局英雄缓存
+RATE_LIMIT_STORE = {}      # 邮件发送频控
+LOGIN_LIMIT_STORE = {}     # 🟢 [新增] 登录接口频控
+ANALYZE_LIMIT_STORE = {}   # AI分析频控
+CHAMPION_CACHE = {}        # 🟢 全局英雄缓存
+
 current_dir = Path(__file__).resolve().parent
 root_dir = current_dir.parent
 env_path = root_dir / '.env'
 load_dotenv(dotenv_path=env_path)
+
+# ================= 🛡️ 注册风控配置 (防薅羊毛) =================
+# 定义允许注册的邮箱域名白名单
+ALLOWED_EMAIL_DOMAINS = [
+    "qq.com", 
+    "163.com", 
+    "126.com", 
+    "gmail.com", 
+    "outlook.com", 
+    "hotmail.com", 
+    "icloud.com",
+    "foxmail.com",
+    "sina.com"
+]
 
 # ================= 🛡️ 生产环境安全配置 =================
 
@@ -110,6 +127,11 @@ env_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
 if env_origins:
     ORIGINS.extend([o.strip() for o in env_origins if o.strip()])
 
+# 🛡️ [安全增强] 生产环境自动移除本地调试地址
+if APP_ENV == "production":
+    print("🔒 [Security] 生产模式：移除 Localhost 跨域支持")
+    ORIGINS = [origin for origin in ORIGINS if "localhost" not in origin and "127.0.0.1" not in origin]
+
 print(f"🔓 [CORS] 当前允许的跨域来源: {ORIGINS}")
 
 app.add_middleware(
@@ -139,6 +161,11 @@ class UserCreate(BaseModel):
     email: str
     verify_code: str
     device_id: str = "unknown" 
+
+class AdminUserUpdate(BaseModel):
+    username: str
+    action: str  # "add_days", "set_role", "rename", "delete"
+    value: str   # 天数/角色/新名字/空字符串
 
 class EmailRequest(BaseModel):
     email: str
@@ -371,6 +398,46 @@ def get_champion_roles():
     except Exception as e:
         print(f"❌ Role Load Error: {e}")
         return {}
+    
+async def polish_tip_content(tip_id: str, content: str):
+    """后台任务：使用 AI 为玩家攻略生成标题和标签"""
+    try:
+        # 使用更便宜、更快的 V3 模型
+        prompt = f"请为这条LOL攻略生成一个6-10字的吸引人标题和2个分类标签（如：对线、团战、出装）。攻略内容：{content}"
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"} # 强制输出 JSON
+        )
+        res = json.loads(response.choices[0].message.content)
+        
+        # 更新数据库
+        db.tips_col.update_one(
+            {"_id": ObjectId(tip_id)},
+            {"$set": {
+                "title": res.get("title"),
+                "tags": res.get("tags"),
+                "is_polished": True
+            }}
+        )
+    except Exception as e:
+        print(f"AI Polishing Error: {e}")
+
+@app.post("/tips")
+async def add_tip_endpoint(data: TipInput, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    """发布攻略并触发 AI 装修"""
+    res = db.add_tip(data.hero, data.enemy, data.content, current_user['username'], data.is_general)
+    
+    # 开启后台任务，不阻塞用户响应
+    background_tasks.add_task(polish_tip_content, str(res.inserted_id), data.content)
+    
+    return {"status": "success", "msg": "发布成功，AI 正在为您优化排版..."}
+
+@app.get("/tips")
+def get_tips_endpoint(hero: str, enemy: str = "general"):
+    """使用混合流查询"""
+    return db.get_mixed_tips(hero, enemy)
+
 @app.get("/")
 async def serve_spa():
     # 检查前端文件是否存在
@@ -387,22 +454,42 @@ def get_real_ip(request: Request):
     return request.client.host
 
 @app.post("/send-email")
-def send_email_code(req: EmailRequest, request: Request): # 添加 request 参数获取 IP
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
-    else:
-        client_ip = request.client.host
+def send_email_code(req: EmailRequest, request: Request): 
+    # 1. 获取真实 IP
+    client_ip = get_real_ip(request)
     now = time.time()
     
+    # 2. IP 频控 (1分钟1次)
     last_time = RATE_LIMIT_STORE.get(client_ip, 0)
     if now - last_time < 60:
         raise HTTPException(status_code=429, detail="请求过于频繁，请1分钟后再试")
     
     RATE_LIMIT_STORE[client_ip] = now # 更新时间
 
+    # 3. 基础格式校验
     if not re.match(r"[^@]+@[^@]+\.[^@]+", req.email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
+
+    # ================= 🛡️ 新增：防薅羊毛逻辑 =================
+    email_lower = req.email.lower().strip()
+    try:
+        domain = email_lower.split("@")[1]
+    except IndexError:
+        raise HTTPException(status_code=400, detail="邮箱格式错误")
+
+    # A. 域名白名单检查
+    if domain not in ALLOWED_EMAIL_DOMAINS:
+        print(f"🚫 [Security] 拦截非白名单域名注册: {req.email} (IP: {client_ip})")
+        raise HTTPException(
+            status_code=400, 
+            detail="不支持该邮箱服务商，请使用 QQ/微信/Gmail/Outlook 等常用邮箱"
+        )
+
+    # B. Gmail 别名拦截 (防止 user+123@gmail.com 无限注册)
+    if "gmail.com" in domain and "+" in email_lower:
+        print(f"🚫 [Security] 拦截 Gmail 别名注册: {req.email} (IP: {client_ip})")
+        raise HTTPException(status_code=400, detail="不支持使用别名邮箱，请使用原始邮箱地址")
+    # ========================================================
 
     # 生成验证码
     code = "".join([str(random.randint(0, 9)) for _ in range(6)])
@@ -426,7 +513,7 @@ def send_email_code(req: EmailRequest, request: Request): # 添加 request 参�
         server.quit()
     except Exception as e:
         print(f"❌ SMTP Send Error: {e}")
-        raise HTTPException(status_code=500, detail="邮件发送失败")
+        raise HTTPException(status_code=500, detail="邮件发送失败，请检查邮箱地址是否正确")
 
     return {"status": "success", "msg": "验证码已发送至您的邮箱"}
 
@@ -464,14 +551,38 @@ def register(user: UserCreate, request: Request):
     raise HTTPException(status_code=400, detail=err_map.get(result, "注册失败"))
 
 @app.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    # ================= 🛡️ 新增：防爆破限流 (1分钟10次) =================
+    client_ip = get_real_ip(request)
+    now = time.time()
+    
+    last_attempt = LOGIN_LIMIT_STORE.get(client_ip, {"count": 0, "time": 0})
+    
+    if now - last_attempt["time"] < 60:
+        if last_attempt["count"] >= 10:
+             raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="登录尝试次数过多，请1分钟后再试",
+             )
+    else:
+        # 超过1分钟，重置计数
+        last_attempt = {"count": 0, "time": now}
+    
+    LOGIN_LIMIT_STORE[client_ip] = last_attempt
+    # =================================================================
+
     user = db.get_user(form_data.username)
     if not user or not verify_password(form_data.password, user['password']):
+        LOGIN_LIMIT_STORE[client_ip]["count"] += 1 # 失败+1
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # 登录成功，清除计数
+    LOGIN_LIMIT_STORE[client_ip]["count"] = 0
+    
     access_token = create_access_token(data={"sub": user['username']})
     return {"access_token": access_token, "token_type": "bearer", "username": user['username']}
 
@@ -626,6 +737,13 @@ def update_user_admin(data: AdminUserUpdate, current_user: dict = Depends(get_cu
     # 1. 权限检查
     if current_user.get("role") not in ["admin", "root"]:
         raise HTTPException(status_code=403, detail="权限不足")
+
+    # 🛡️ 安全检查：禁止对自己进行破坏性操作 (删除/封禁)
+    if data.username == current_user['username']:
+        if data.action == 'delete':
+            raise HTTPException(status_code=400, detail="为了安全，您不能删除自己的管理员账号")
+        if data.action == 'set_role' and data.value not in ['admin', 'root']:
+            raise HTTPException(status_code=400, detail="您不能取消自己的管理员权限")
 
     # 2. 执行操作
     success, msg = db.admin_update_user(data.username, data.action, data.value)

@@ -1,3 +1,5 @@
+# keonsuyun/lol-coach/lol-coach-d0f75bde0672be53f3ae70724a64a8292b64aea6/backend/core/database.py
+
 import os
 import datetime
 import time
@@ -8,7 +10,7 @@ from bson.objectid import ObjectId
 
 class KnowledgeBase:
     def __init__(self):
-        # 🟢 1. 获取 URI (修复：兼容 MONGO_URI 和 MONGO_URL)
+        # 🟢 1. 获取 URI (兼容 MONGO_URI 和 MONGO_URL)
         self.uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URL") or "mongodb://localhost:27017"
         
         self._log_connection_attempt()
@@ -21,11 +23,9 @@ class KnowledgeBase:
             
             # 🟢 3. 智能数据库选择
             try:
-                # 尝试获取 URI 中指定的数据库
                 self.db = self.client.get_default_database()
                 print(f"✅ [Database] 使用 URI 指定的数据库: {self.db.name}")
             except (ConfigurationError, ValueError):
-                # 如果 URI 没指定库名，直接使用默认 'lol_community'
                 self.db = self.client['lol_community']
                 print(f"✅ [Database] URI 未指定库名，使用默认数据库: {self.db.name}")
             
@@ -37,17 +37,14 @@ class KnowledgeBase:
             self.users_col = self.db['users']
             self.prompt_templates_col = self.db['prompt_templates']
             self.champions_col = self.db['champions'] 
-            
-            # ✨ 验证码与订单
             self.otps_col = self.db['otps']
             self.orders_col = self.db['orders']
-            
 
             # === 索引初始化 ===
             self._init_indexes()
 
         except ServerSelectionTimeoutError:
-            print(f"❌ [Database] 连接超时! 请检查 MongoDB 服务是否开启，或防火墙设置。")
+            print(f"❌ [Database] 连接超时! 请检查 MongoDB 服务。")
         except Exception as e:
             print(f"❌ [Database] 初始化发生未知错误: {e}")
 
@@ -65,7 +62,10 @@ class KnowledgeBase:
     def _init_indexes(self):
         """创建索引，提升查询性能并保证数据唯一性"""
         try:
+            # ✨ 增强索引：支持对位查询和社区混合排序 (真实玩家优先)
             self.tips_col.create_index([("hero", 1), ("enemy", 1)])
+            self.tips_col.create_index([("is_fake", 1), ("liked_by", -1)]) 
+            
             self.corrections_col.create_index([("hero", 1), ("enemy", 1)])
             self.users_col.create_index("username", unique=True)
             self.prompt_templates_col.create_index("mode", unique=True)
@@ -73,64 +73,48 @@ class KnowledgeBase:
             self.users_col.create_index("ip")
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
             self.orders_col.create_index("order_no", unique=True)
-
-            
             print("✅ [Database] 索引检查完毕")
         except Exception as e:
             print(f"⚠️ [Database] 索引创建警告: {e}")
 
     # ==========================
-    # 🔍 核心查询 (超级增强版)
+    # 🔍 核心查询 (保留你原有的英雄名称模糊匹配逻辑)
     # ==========================
     def get_champion_info(self, name_or_id):
+        """支持 LCU 传来的 CamelCase 匹配 (如 LeeSin -> Lee Sin)"""
         if not name_or_id: return None
         
-        # 辅助函数：尝试将 CamelCase 拆分为空格 (LeeSin -> Lee Sin)
         def split_camel_case(s):
             return re.sub(r'(?<!^)(?=[A-Z])', ' ', s)
 
         search_terms = set()
-        search_terms.add(name_or_id) # 原始: "LeeSin"
+        search_terms.add(name_or_id)
         
-        # 1. 尝试拆分驼峰命名 (针对 LCU 传来的数据)
         split_name = split_camel_case(name_or_id)
-        if split_name != name_or_id:
-            search_terms.add(split_name) # 添加: "Lee Sin"
+        if split_name != name_or_id: search_terms.add(split_name)
             
-        # 2. 尝试移除所有空格 (针对数据库有空格，输入无空格)
         no_space_name = name_or_id.replace(" ", "")
-        search_terms.add(no_space_name) # 添加: "LeeSin"
+        search_terms.add(no_space_name)
 
-        # 构造多重查询条件
-        # 只要 id, name, 或 alias 匹配上述任何一种形式即可
         or_conditions = []
         for term in search_terms:
-            # 精确匹配 (最快)
             or_conditions.append({"id": term})
             or_conditions.append({"name": term})
             or_conditions.append({"alias": term})
             
-            # 正则忽略大小写匹配
             safe_term = re.escape(term)
             pattern = f"^{safe_term}$"
             or_conditions.append({"id": {"$regex": pattern, "$options": "i"}})
             or_conditions.append({"name": {"$regex": pattern, "$options": "i"}})
             or_conditions.append({"alias": {"$regex": pattern, "$options": "i"}})
 
-        # 执行查询
-        query = {"$or": or_conditions}
-        champ = self.champions_col.find_one(query)
-        
-        if champ:
-            return champ
-        
-        # print(f"⚠️ [DB Debug] 未找到英雄: {name_or_id}, 尝试过的关键词: {search_terms}")
-        return None
+        return self.champions_col.find_one({"$or": or_conditions})
 
     # ==========================
     # ✨ 验证码管理
     # ==========================
     def save_otp(self, contact, code):
+        """保存验证码，5分钟过期"""
         expire_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
         self.otps_col.update_one(
             {"contact": contact},
@@ -139,6 +123,7 @@ class KnowledgeBase:
         )
 
     def validate_otp(self, contact, code):
+        """验证并删除验证码"""
         record = self.otps_col.find_one({"contact": contact})
         if not record: return False 
         if record['code'] == code:
@@ -147,26 +132,27 @@ class KnowledgeBase:
         return False
 
     # ==========================
-    # 💰 充值与会员系统
+    # 💰 充值与会员系统 (完善累加逻辑)
     # ==========================
     def upgrade_user_role(self, username, days=30):
+        """升级会员，支持在现有过期时间上累加"""
         now = datetime.datetime.utcnow()
         user = self.users_col.find_one({"username": username})
         if not user: return False
 
         current_expire = user.get("membership_expire")
-        if current_expire and current_expire > now:
-            new_expire = current_expire + datetime.timedelta(days=days)
-        else:
-            new_expire = now + datetime.timedelta(days=days)
+        # 如果当前未过期，在过期时间基础上累加；否则从现在开始加
+        base_time = current_expire if current_expire and current_expire > now else now
+        new_expire = base_time + datetime.timedelta(days=days)
 
         self.users_col.update_one(
             {"username": username},
-            {"$set": {"role": "pro", "membership_expire": new_expire}}
+            {"$set": {"role": "pro", "membership_expire": new_expire, "is_pro": True}}
         )
         return True
 
     def process_afdian_order(self, order_no, username, amount, sku_detail):
+        """处理爱发电订单"""
         if self.orders_col.find_one({"order_no": order_no}): return True
         user = self.users_col.find_one({"username": username})
         if not user: return False
@@ -189,42 +175,38 @@ class KnowledgeBase:
         return False
 
     def check_membership_status(self, username):
+        """检查并自动清理过期会员"""
         user = self.users_col.find_one({"username": username})
         if not user: return "user"
-        if user.get("role") in ["pro", "vip", "svip"]:
+        role = user.get("role", "user")
+        if role in ["pro", "vip", "svip"]:
             expire_at = user.get("membership_expire")
-            if not expire_at: return user.get("role")
+            if not expire_at: return role
             if expire_at < datetime.datetime.utcnow():
                 self.users_col.update_one({"username": username}, {"$set": {"role": "user"}})
                 return "user"
-            return user.get("role")
-        return user.get("role", "user")
+            return role
+        return role
 
     def get_user_usage_status(self, username):
+        """获取用户当日分析额度"""
         current_role = self.check_membership_status(username)
         user = self.users_col.find_one({"username": username})
         if not user: return {}
 
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
-        now = datetime.datetime.utcnow()
-        today_str = now.strftime("%Y-%m-%d")
+        today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
         usage_data = user.get("usage_stats", {})
         
-        r1_used = 0
-        if usage_data.get("last_reset_date") == today_str:
-             counts_reasoner = usage_data.get("counts_reasoner", {})
-             r1_used = sum(counts_reasoner.values())
-
+        r1_used = sum(usage_data.get("counts_reasoner", {}).values()) if usage_data.get("last_reset_date") == today_str else 0
         LIMIT = 10 
         return {
-            "is_pro": is_pro,
-            "role": current_role,
-            "r1_limit": LIMIT, 
-            "r1_used": r1_used,
-            "r1_remaining": max(0, LIMIT - r1_used) if not is_pro else -1
+            "is_pro": is_pro, "role": current_role, "r1_limit": LIMIT, 
+            "r1_used": r1_used, "r1_remaining": max(0, LIMIT - r1_used) if not is_pro else -1
         }
 
     def check_and_update_usage(self, username, mode, model_type="chat"):
+        """检查冷却时间与额度限制"""
         current_role = self.check_membership_status(username)
         user = self.users_col.find_one({"username": username})
         if not user: return False, "用户不存在", 0
@@ -237,166 +219,193 @@ class KnowledgeBase:
         if usage_data.get("last_reset_date") != today_str:
             usage_data = {
                 "last_reset_date": today_str, "counts_chat": {}, "counts_reasoner": {}, "last_access": {},
-                "hourly_start": usage_data.get("hourly_start"), "hourly_count": 0 
+                "hourly_start": usage_data.get("hourly_start", now.isoformat()), "hourly_count": 0 
             }
         
-        counts_chat = usage_data.get("counts_chat", {})
-        counts_reasoner = usage_data.get("counts_reasoner", {})
-        last_access = usage_data.get("last_access", {})
-
+        # 频率检查
         HOURLY_LIMIT = 100 if is_pro else 20
-        hourly_start_str = usage_data.get("hourly_start")
+        hourly_start = datetime.datetime.fromisoformat(usage_data.get("hourly_start"))
         hourly_count = usage_data.get("hourly_count", 0)
-        
-        if not hourly_start_str:
-            hourly_start = now
-            hourly_count = 0
-        else:
-            hourly_start = datetime.datetime.fromisoformat(hourly_start_str)
-            if (now - hourly_start).total_seconds() > 3600:
-                hourly_start = now
-                hourly_count = 0
-        
+        if (now - hourly_start).total_seconds() > 3600:
+            hourly_start, hourly_count = now, 0
         if hourly_count >= HOURLY_LIMIT:
             return False, f"请求频繁 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", -1
 
-        COOLDOWN_SECONDS = 5 if is_pro else 15
-        last_time_str = last_access.get(mode)
+        COOLDOWN = 5 if is_pro else 15
+        last_time_str = usage_data.get("last_access", {}).get(mode)
         if last_time_str:
             delta = (now - datetime.datetime.fromisoformat(last_time_str)).total_seconds()
-            if delta < COOLDOWN_SECONDS:
-                return False, f"冷却中 ({int(COOLDOWN_SECONDS-delta)}s)", int(COOLDOWN_SECONDS-delta)
+            if delta < COOLDOWN: return False, f"冷却中", int(COOLDOWN-delta)
 
-        if not is_pro and model_type == "reasoner":
-            if sum(counts_reasoner.values()) >= 10:
-                return False, "深度思考限额已满", -1
+        # R1 额度检查
+        if not is_pro and model_type == "reasoner" and sum(usage_data.get("counts_reasoner", {}).values()) >= 10:
+            return False, "深度思考限额已满", -1
 
-        if model_type == "reasoner": counts_reasoner[mode] = counts_reasoner.get(mode, 0) + 1
-        else: counts_chat[mode] = counts_chat.get(mode, 0) + 1
+        if model_type == "reasoner": usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
+        else: usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
             
-        last_access[mode] = now.isoformat()
-        usage_data.update({"counts_chat": counts_chat, "counts_reasoner": counts_reasoner, "last_access": last_access, "hourly_count": hourly_count + 1, "hourly_start": hourly_start.isoformat()})
-
+        usage_data["last_access"][mode] = now.isoformat()
+        usage_data.update({"hourly_count": hourly_count + 1, "hourly_start": hourly_start.isoformat()})
         self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
         return True, "OK", 0
 
+    # ==========================
+    # 🔥 绝活社区核心逻辑 (完善版)
+    # ==========================
+    def add_tip(self, hero, enemy, content, author_id, is_general, title=None, tags=None, is_fake=False):
+        """发布攻略逻辑：支持标题、标签和马甲标记"""
+        tip_doc = {
+            "hero": hero,
+            "enemy": "general" if is_general else enemy,
+            "title": title or (content[:15] + "..." if len(content) > 15 else content),
+            "content": content,
+            "tags": tags or ["实战经验"],
+            "author_id": author_id,
+            "liked_by": [],
+            "reward_granted": False, # 是否已发放10赞奖励
+            "is_fake": is_fake,        # 区分真实玩家与马甲
+            "is_polished": False,    # 是否经过 AI 自动装修
+            "created_at": datetime.datetime.utcnow()
+        }
+        return self.tips_col.insert_one(tip_doc)
+
+    def toggle_like(self, tip_id, user_id):
+        """点赞逻辑：原子更新并包含10赞自动送3天Pro功能"""
+        try:
+            # 只有当用户不在点赞列表中时才添加 (原子操作)
+            result = self.tips_col.find_one_and_update(
+                {"_id": ObjectId(tip_id), "liked_by": {"$ne": user_id}},
+                {"$push": {"liked_by": user_id}},
+                return_document=True 
+            )
+            if not result: return False
+
+            # 奖励检查：满10赞、未领过奖且非马甲
+            likes_count = len(result.get('liked_by', []))
+            if likes_count >= 10 and not result.get('reward_granted', False) and not result.get('is_fake', False):
+                author = result.get('author_id')
+                if self.upgrade_user_role(author, days=3): # 自动奖励 3 天 Pro
+                    self.tips_col.update_one({"_id": ObjectId(tip_id)}, {"$set": {"reward_granted": True}})
+            return True
+        except: return False
+
+    def get_mixed_tips(self, hero, enemy, limit=10):
+        """混合流查询：真实玩家优先(is_fake=False)，对位优先"""
+        # 1. 获取对位技巧 (Matchup)
+        matchup_tips = list(self.tips_col.find({"hero": hero, "enemy": enemy}).sort([
+            ("is_fake", 1), # 0 (False) 排在 1 (True) 前面
+            ("liked_by", -1)
+        ]).limit(limit))
+        for t in matchup_tips: t['tag_label'] = "🔥 对位绝活"
+
+        # 2. 如果数据不足，补充通用技巧 (General)
+        if len(matchup_tips) < limit:
+            needed = limit - len(matchup_tips)
+            general_tips = list(self.tips_col.find({"hero": hero, "enemy": "general"}).sort([
+                ("is_fake", 1), 
+                ("liked_by", -1)
+            ]).limit(needed))
+            for t in general_tips: t['tag_label'] = "📚 英雄必修"
+            matchup_tips.extend(general_tips)
+
+        # 3. 格式化返回
+        final_list = []
+        for t in matchup_tips:
+            final_list.append({
+                "id": str(t['_id']),
+                "title": t.get("title", "英雄技巧"),
+                "content": t["content"],
+                "author": t["author_id"],
+                "likes": len(t.get("liked_by", [])),
+                "tags": t.get("tags", []),
+                "tag_label": t["tag_label"],
+                "is_pro_author": self.check_membership_status(t["author_id"]) != "user"
+            })
+        return final_list
+
+    def get_tips_for_ui(self, hero, enemy, is_general):
+        """保留原有接口名称，内部切换到增强逻辑"""
+        return self.get_mixed_tips(hero, "general" if is_general else enemy)
+
+    # ==========================
+    # 🤖 AI 知识检索与维护
+    # ==========================
+    def get_top_knowledge_for_ai(self, hero, enemy):
+        """为 AI 提供最相关的背景知识"""
+        tips = self.get_mixed_tips(hero, enemy, limit=6)
+        return {
+            "general": [t['content'] for t in tips if t['tag_label'] == "📚 英雄必修"],
+            "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
+        }
+
+    def get_corrections(self, hero, enemy):
+        """获取历史纠错数据"""
+        query = {"hero": hero, "$or": [{"enemy": enemy}, {"enemy": "general"}]}
+        return [c['content'] for c in self.corrections_col.find(query)]
+
     def create_user(self, username, hashed_password, role="user", email=None, device_id=None, ip=None):
+        """创建用户并执行多重限制检查"""
         try:
             if self.users_col.find_one({"username": username}): return "USERNAME_TAKEN"
             if email and self.users_col.find_one({"email": email}): return "EMAIL_TAKEN"
-            if device_id and device_id != "unknown_client_error":
-                if self.users_col.count_documents({"device_id": device_id}) >= 3: return "DEVICE_LIMIT"
-            if ip:
-                yesterday = datetime.datetime.utcnow() - datetime.timedelta(days=1)
-                if self.users_col.count_documents({"ip": ip, "created_at": {"$gte": yesterday}}) >= 5: return "IP_LIMIT"
+            if device_id and device_id != "unknown_client_error" and self.users_col.count_documents({"device_id": device_id}) >= 3: return "DEVICE_LIMIT"
+            if ip and self.users_col.count_documents({"ip": ip, "created_at": {"$gte": datetime.datetime.utcnow() - datetime.timedelta(days=1)}}) >= 5: return "IP_LIMIT"
 
             self.users_col.insert_one({
                 "username": username, "password": hashed_password, "role": role,
                 "email": email, "device_id": device_id, "ip": ip, "created_at": datetime.datetime.utcnow()
             })
             return True
-        except Exception: return False 
+        except: return False 
 
-    def get_user(self, username):
-        return self.users_col.find_one({"username": username})
-
-    # ==========================
-    # 其他功能
-    # ==========================
-    def get_all_feedbacks(self, limit=50):
-        return [dict(doc, _id=str(doc['_id'])) for doc in self.feedback_col.find().sort('_id', -1).limit(limit)]
-
-    def get_prompt_template(self, mode: str):
-        return self.prompt_templates_col.find_one({"mode": mode})
-
-    def get_game_constants(self):
-        data = self.config_col.find_one({"_id": "s15_rules"})
-        return data if data else {"patch_version": "Unknown", "patch_notes": "数据缺失"}
-
-    def get_tips_for_ui(self, hero, enemy, is_general):
-        query = {"hero": hero, "enemy": "general" if is_general else enemy}
-        tips = [dict(t, id=str(t['_id']), _id=None) for t in self.tips_col.find(query)]
-        tips.sort(key=lambda x: len(x.get('liked_by', [])), reverse=True)
-        return tips
-
-    def add_tip(self, hero, enemy, content, author_id, is_general):
-        self.tips_col.insert_one({
-            "hero": hero, "enemy": "general" if is_general else enemy,
-            "content": content, "author_id": author_id, "liked_by": [], "created_at": datetime.datetime.utcnow()
-        })
-
-    def toggle_like(self, tip_id, user_id):
-        try:
-            return self.tips_col.update_one({"_id": ObjectId(tip_id), "liked_by": {"$ne": user_id}}, {"$push": {"liked_by": user_id}}).modified_count > 0
+    def get_user(self, username): return self.users_col.find_one({"username": username})
+    def get_all_feedbacks(self, limit=50): return [dict(doc, _id=str(doc['_id'])) for doc in self.feedback_col.find().sort('_id', -1).limit(limit)]
+    def get_prompt_template(self, mode: str): return self.prompt_templates_col.find_one({"mode": mode})
+    def get_game_constants(self): return self.config_col.find_one({"_id": "s15_rules"}) or {"patch_version": "Unknown"}
+    def delete_tip(self, tip_id):
+        try: return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0
         except: return False
-
     def get_tip_by_id(self, tip_id):
         try:
             tip = self.tips_col.find_one({"_id": ObjectId(tip_id)})
             return dict(tip, id=str(tip['_id']), _id=None) if tip else None
         except: return None
-
-    def delete_tip(self, tip_id):
-        try: return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0
-        except: return False
-
-    def submit_feedback(self, feedback_data):
-        feedback_data.update({'created_at': datetime.datetime.utcnow(), 'status': 'pending'})
-        self.feedback_col.insert_one(feedback_data)
-
-    def get_top_knowledge_for_ai(self, hero, enemy):
-        gen_tips = self.get_tips_for_ui(hero, enemy, True)[:3]
-        match_tips = self.get_tips_for_ui(hero, enemy, False)[:3]
-        return {
-            "general": [t['content'] for t in gen_tips],
-            "matchup": [t['content'] for t in match_tips]
-        }
-
-    def get_corrections(self, hero, enemy):
-        query = {"hero": hero, "$or": [{"enemy": enemy}, {"enemy": "general"}]}
-        return [c['content'] for c in self.corrections_col.find(query)]
+    def submit_feedback(self, data):
+        data.update({'created_at': datetime.datetime.utcnow(), 'status': 'pending'})
+        self.feedback_col.insert_one(data)
 
     # ==========================
-    # 👮 管理员功能 (新增)
+    # 👮 管理员功能 (保留所有更名、删除逻辑)
     # ==========================
     def get_all_users(self, limit=20, search=""):
-        """获取用户列表，支持按用户名搜索"""
-        query = {}
-        if search:
-            query = {"username": {"$regex": search, "$options": "i"}}
-        
-        # 为了安全，不要返回密码 hash
-        projection = {"password": 0, "usage_stats": 0} 
-        
-        users = list(self.users_col.find(query, projection).sort("created_at", -1).limit(limit))
-        
-        # 处理 ObjectId 和 datetime 转字符串
-        results = []
+        """获取用户列表"""
+        query = {"username": {"$regex": search, "$options": "i"}} if search else {}
+        users = list(self.users_col.find(query, {"password": 0, "usage_stats": 0}).sort("created_at", -1).limit(limit))
         for u in users:
             u["_id"] = str(u["_id"])
-            if u.get("created_at"):
-                u["created_at"] = u["created_at"].isoformat()
-            if u.get("membership_expire"):
-                u["membership_expire"] = u["membership_expire"].isoformat()
-            results.append(u)
-        return results
+            if u.get("created_at"): u["created_at"] = u["created_at"].isoformat()
+            if u.get("membership_expire"): u["membership_expire"] = u["membership_expire"].isoformat()
+        return users
 
     def admin_update_user(self, username, action, value):
-        """管理员手动修改用户"""
+        """管理员手动修改、重命名或删除"""
         user = self.users_col.find_one({"username": username})
         if not user: return False, "用户不存在"
 
         if action == "add_days":
-            # 补单/加时长
-            try:
-                days = int(value)
-                return self.upgrade_user_role(username, days), "充值成功"
-            except:
-                return False, "天数格式错误"
-        
+            try: return self.upgrade_user_role(username, int(value)), "充值成功"
+            except: return False, "天数错误"
         elif action == "set_role":
-            # 修改角色 (比如设为 admin, banned, vip)
             self.users_col.update_one({"username": username}, {"$set": {"role": value}})
-            return True, f"角色已更新为 {value}"
-            
+            return True, f"角色设为 {value}"
+        elif action == "rename":
+            new_name = value.strip()
+            if not new_name or self.users_col.find_one({"username": new_name}): return False, "无效或已占用"
+            self.users_col.update_one({"username": username}, {"$set": {"username": new_name}})
+            self.tips_col.update_many({"author_id": username}, {"$set": {"author_id": new_name}})
+            self.orders_col.update_many({"username": username}, {"$set": {"username": new_name}})
+            return True, f"更名成功"
+        elif action == "delete":
+            self.users_col.delete_one({"username": username})
+            return True, "用户已删除"
         return False, "未知操作"

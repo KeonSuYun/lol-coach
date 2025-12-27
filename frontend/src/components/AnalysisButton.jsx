@@ -183,7 +183,7 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal }) => {
         return (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 opacity-50">
                 <Brain size={48} className="mb-4 text-slate-700" />
-                <div className="text-sm">点击左侧按钮开始分析</div>
+                <div className="text-sm">点击上方按钮开始分析</div>
             </div>
         );
     }

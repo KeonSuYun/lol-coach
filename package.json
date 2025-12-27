@@ -2,5 +2,8 @@
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^5.0.1",
     "react-hot-toast": "^2.6.0"
+  },
+  "devDependencies": {
+    "electron": "^39.2.7"
   }
 }

@@ -14,3 +14,19 @@ frontend/dist/
 .env.local
 .env.production
 .env.development
+# 忽略 Electron 打包生成的目录
+bridge/release/
+bridge/dist_electron/
+bridge/dist/
+
+# 忽略打包生成的具体文件类型
+*.exe
+*.dll
+*.lib
+*.pdb
+*.asar
+*.zip
+*.blockmap
+
+# 忽略依赖包 (双重保险)
+**/node_modules/
