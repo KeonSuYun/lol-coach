@@ -370,35 +370,83 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
 def health_check():
     return {"status": "ok"}
 # 🟢 新增：获取英雄分路映射接口
+# backend/server.py
+
+# ... (保留之前的 import，务必确保引入了 re) ...
+
+# ... (保留前面的代码，直到 get_champion_roles 接口) ...
+
+# 🟢 修改：严格基于 champions.json 的分路获取接口
 @app.get("/champions/roles")
 def get_champion_roles():
     try:
-        # 直接读取 secure_data/champions.json 确保数据源唯一
+        # 读取数据源
         json_path = current_dir / "secure_data" / "champions.json"
         
         if not json_path.exists():
+            print("⚠️ 未找到 champions.json")
             return {}
 
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             
-        # 转换为前端好用的格式: { "Annie": ["MID", "SUPPORT"], "Malphite": ["TOP", "JUNGLE"] }
         mapping = {}
+        
+        # 🛡️ 映射表：将您 JSON 里可能的各种写法，强制统一为前端能看懂的 Key
+        role_standardization = {
+            # 下路 (JSON 可能是 bot, bottom, marksman -> 统一为 ADC)
+            "BOT": "ADC", "BOTTOM": "ADC", "ADC": "ADC", "MARKSMAN": "ADC",
+            # 辅助 (JSON 可能是 sup, support, utility -> 统一为 SUPPORT)
+            "SUP": "SUPPORT", "SUPPORT": "SUPPORT", "UTILITY": "SUPPORT", "AUX": "SUPPORT",
+            # 打野
+            "JUN": "JUNGLE", "JUG": "JUNGLE", "JUNGLE": "JUNGLE",
+            # 中路
+            "MID": "MID", "MIDDLE": "MID",
+            # 上路
+            "TOP": "TOP"
+        }
+
+        # 🛡️ 名字清洗：去掉空格、标点，转小写 (Miss Fortune -> missfortune)
+        def normalize_key(raw_name):
+            if not raw_name: return ""
+            return re.sub(r'[\s\.\'\-]+', '', raw_name).lower()
+
         for item in data:
-            name = item.get("name") # 英文名，如 "Annie"
-            role = item.get("role", "").upper() # 转大写 "MID"
+            # 1. 尝试获取英文名 (优先 id，其次 name)
+            raw_name = item.get("id") or item.get("name")
+            if not raw_name: continue
             
-            if name and role:
-                if name not in mapping:
-                    mapping[name] = []
-                if role not in mapping[name]:
-                    mapping[name].append(role)
+            clean_key = normalize_key(raw_name)
+            
+            # 2. 获取分路 (JSON里可能是 "role": "bot" 或 "role": ["bot", "mid"])
+            raw_roles = item.get("role")
+            if not raw_roles: continue 
+            
+            if isinstance(raw_roles, str):
+                raw_roles = [raw_roles] # 统一转列表处理
+            
+            # 3. 标准化分路
+            final_roles = []
+            for r in raw_roles:
+                r_upper = str(r).upper().strip()
+                # 查表转换
+                standard_role = role_standardization.get(r_upper)
+                if standard_role and standard_role not in final_roles:
+                    final_roles.append(standard_role)
+            
+            # 4. 存入映射 (如果同一个英雄在JSON里出现多次，合并分路)
+            if clean_key:
+                if clean_key in mapping:
+                    mapping[clean_key] = list(set(mapping[clean_key] + final_roles))
+                else:
+                    mapping[clean_key] = final_roles
                     
         return mapping
+
     except Exception as e:
         print(f"❌ Role Load Error: {e}")
         return {}
-    
+
 async def polish_tip_content(tip_id: str, content: str):
     """后台任务：使用 AI 为玩家攻略生成标题和标签"""
     try:

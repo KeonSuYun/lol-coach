@@ -10,26 +10,34 @@ const ROLES = [
   { id: 'SUPPORT', label: '辅助', icon: <Brain size={14} /> },
 ];
 
-// 🟢 修改：优先使用 roleMapping 判断，如果缺失则回退到 tag 判断
+// 🟢 辅助：标准化键值 (移除空格标点，转小写) 以匹配后端的处理方式
+const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
+
+// 🟢 严格检查函数：只使用后端传来的 roleMapping
 const checkRole = (hero, roleId, roleMapping) => {
+    // "全部" 标签显示所有人
     if (roleId === 'ALL') return true;
 
-    // 1. 优先检查数据库映射 (hero.key 是英文名，如 "Annie")
-    if (roleMapping && roleMapping[hero.key]) {
-        return roleMapping[hero.key].includes(roleId);
+    if (roleMapping && Object.keys(roleMapping).length > 0) {
+        // 使用清洗后的 Key 进行匹配 (解决 Miss Fortune vs MissFortune 的问题)
+        const cleanKey = normalizeKey(hero.key); 
+        const cleanName = normalizeKey(hero.name); 
+        
+        // 尝试用英文 ID 或 Name 去匹配配置表
+        const heroRoles = roleMapping[cleanKey] || roleMapping[cleanName];
+        
+        if (heroRoles) {
+            // 只有当 JSON 里明确写了该位置，才返回 True
+            return heroRoles.includes(roleId);
+        }
+        // ⛔ 如果 JSON 里完全没这个英雄的数据，或者没配置 role，不显示
+        return false;
     }
 
-    // 2. 兜底逻辑 (防止 fetch 失败时列表为空)
-    const tags = hero.tags || [];
-    if (roleId === 'TOP') return tags.includes('Fighter') || tags.includes('Tank');
-    if (roleId === 'JUNGLE') return tags.includes('Assassin') || tags.includes('Fighter') || tags.includes('Tank');
-    if (roleId === 'MID') return tags.includes('Mage') || tags.includes('Assassin');
-    if (roleId === 'ADC') return tags.includes('Marksman');
-    if (roleId === 'SUPPORT') return tags.includes('Support') || tags.includes('Tank') || tags.includes('Mage');
+    // 如果 Mapping 尚未加载，不显示任何英雄，避免误导
     return false;
 };
 
-// 🟢 修改：接收 roleMapping prop
 export default function ChampSelectModal({ isOpen, onClose, championList, onSelect, initialRoleIndex, roleMapping }) {
     const [searchTerm, setSearchTerm] = useState("");
     const [activeRole, setActiveRole] = useState('ALL');
@@ -44,9 +52,15 @@ export default function ChampSelectModal({ isOpen, onClose, championList, onSele
 
     const filteredChamps = useMemo(() => {
         return championList.filter(c => {
-            const matchSearch = c.name.includes(searchTerm) || c.title.includes(searchTerm) || c.key.toLowerCase().includes(searchTerm.toLowerCase());
-            // 🟢 传入 roleMapping
+            // 1. 搜索匹配 (支持中文名、称号、英文ID)
+            const matchSearch = 
+                c.name.includes(searchTerm) || 
+                c.title.includes(searchTerm) || 
+                c.key.toLowerCase().includes(searchTerm.toLowerCase());
+            
+            // 2. 分路匹配 (严格遵循 JSON)
             const matchRole = checkRole(c, activeRole, roleMapping);
+            
             return matchSearch && matchRole;
         }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     }, [championList, searchTerm, activeRole, roleMapping]);
@@ -121,8 +135,10 @@ export default function ChampSelectModal({ isOpen, onClose, championList, onSele
                             </button>
                         ))}
                         {filteredChamps.length === 0 && (
-                            <div className="col-span-full text-center py-10 text-slate-600">
-                                未找到匹配的英雄
+                            <div className="col-span-full text-center py-10 text-slate-600 flex flex-col items-center gap-2">
+                                <span className="text-2xl">🧐</span>
+                                <span>未找到该位置的英雄</span>
+                                <span className="text-xs opacity-50">请检查 champions.json 中的 role 配置</span>
                             </div>
                         )}
                     </div>

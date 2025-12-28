@@ -8,7 +8,8 @@ import Header from './components/Header';
 import ChampCard from './components/ChampCard';
 import AnalysisResult from './components/AnalysisResult';
 import CommunityTips from './components/CommunityTips';
-
+// ... 其他 import
+import ChampSelectModal from './components/modals/ChampSelectModal'; // 🟢 引入弹窗组件
 // 模态框引入
 import LoginModal from './components/modals/LoginModal';
 import TipModal from './components/modals/TipModal';
@@ -60,7 +61,13 @@ export default function App() {
   const [userSlot, setUserSlot] = useState(0);
   const [lcuStatus, setLcuStatus] = useState("disconnected");
   const [userRank, setUserRank] = useState(() => loadState('userRank', 'Gold'));
-
+  
+  // 🟢 选人弹窗相关状态
+  const [showChampSelector, setShowChampSelector] = useState(false);
+  const [selectingSlot, setSelectingSlot] = useState(null); // 记录当前正在给哪个格子选英雄
+  const [selectingIsEnemy, setSelectingIsEnemy] = useState(false); // 记录是给我方还是敌方选
+  const [roleMapping, setRoleMapping] = useState({}); // 🟢 存储从后端获取的英雄分类数据
+  
   const [enemyLaneAssignments, setEnemyLaneAssignments] = useState(() =>
       loadState('enemyLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
   );
@@ -181,6 +188,33 @@ export default function App() {
   useEffect(() => { localStorage.setItem('analyzeType', JSON.stringify(analyzeType)); }, [analyzeType]);
   useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
   useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
+
+  // 🟢 核心功能：初始化加载英雄分类数据
+  useEffect(() => {
+      axios.get(`${API_BASE_URL}/champions/roles`)
+          .then(res => setRoleMapping(res.data))
+          .catch(e => console.error("获取英雄分类失败", e));
+  }, []);
+
+  // 🟢 核心功能：点击卡片打开选人弹窗
+  const handleCardClick = (idx, isEnemy) => {
+      setSelectingSlot(idx);
+      setSelectingIsEnemy(isEnemy);
+      setShowChampSelector(true);
+  };
+
+  // 🟢 核心功能：处理弹窗选人结果
+  const handleSelectChampion = (hero) => {
+      const newTeam = selectingIsEnemy ? [...redTeam] : [...blueTeam];
+      newTeam[selectingSlot] = hero;
+      
+      if (selectingIsEnemy) {
+          setRedTeam(newTeam);
+      } else {
+          setBlueTeam(newTeam);
+      }
+      setShowChampSelector(false);
+  };
 
   const handleClearSession = () => {
       if(!confirm("确定要清空当前对局记录吗？")) return;
@@ -304,22 +338,63 @@ export default function App() {
       }
   };
 
+const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
+
   const guessRoles = (team) => {
     const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
     const assignedIndices = new Set();
-    const findHero = (conditionFn) => {
+    
+    // 定义查找函数：优先查 roleMapping，查不到再查 Tags
+    const findHeroForRole = (roleId, tagFallbackFn) => {
+        // 1. 优先：数据库匹配
         for (let i = 0; i < team.length; i++) {
-            if (team[i] && !assignedIndices.has(i) && conditionFn(team[i])) {
-                assignedIndices.add(i); return team[i].name;
+            const hero = team[i];
+            if (!hero || assignedIndices.has(i)) continue;
+
+            const cleanKey = normalizeKey(hero.key);
+            const cleanName = normalizeKey(hero.name);
+            
+            // 查表 (支持 ID 或 名字)
+            const dbRoles = roleMapping[cleanKey] || roleMapping[cleanName];
+            
+            if (dbRoles && dbRoles.includes(roleId)) {
+                assignedIndices.add(i);
+                return hero.name;
+            }
+        }
+
+        // 2. 兜底：如果数据库没数据，回退到 Tag 判断 (防止界面全空)
+        for (let i = 0; i < team.length; i++) {
+            const hero = team[i];
+            if (!hero || assignedIndices.has(i)) continue;
+            
+            if (tagFallbackFn && tagFallbackFn(hero)) {
+                assignedIndices.add(i);
+                return hero.name;
             }
         }
         return "";
     };
-    roles["SUPPORT"] = findHero(c => c.tags.includes("Support") || c.tags.includes("Tank"));
-    roles["ADC"] = findHero(c => c.tags.includes("Marksman"));
-    roles["MID"] = findHero(c => c.tags.includes("Mage") || c.tags.includes("Assassin"));
-    roles["TOP"] = findHero(c => c.tags.includes("Fighter") || c.tags.includes("Tank"));
-    roles["JUNGLE"] = findHero(c => true);
+
+    // 按特征明显程度排序：打野/辅助优先 -> ADC -> 中上
+    roles["JUNGLE"] = findHeroForRole("JUNGLE", c => c.tags.includes("Jungle") || (c.tags.includes("Assassin") && !c.tags.includes("Mage")));
+    roles["SUPPORT"] = findHeroForRole("SUPPORT", c => c.tags.includes("Support") || c.tags.includes("Tank"));
+    roles["ADC"] = findHeroForRole("ADC", c => c.tags.includes("Marksman"));
+    roles["MID"] = findHeroForRole("MID", c => c.tags.includes("Mage") || c.tags.includes("Assassin"));
+    roles["TOP"] = findHeroForRole("TOP", c => c.tags.includes("Fighter") || c.tags.includes("Tank"));
+    
+    // 最后兜底：把剩下的英雄填入剩下的空位
+    const remainingRoles = Object.keys(roles).filter(r => !roles[r]);
+    remainingRoles.forEach(r => {
+        for (let i = 0; i < team.length; i++) {
+            if (team[i] && !assignedIndices.has(i)) {
+                roles[r] = team[i].name;
+                assignedIndices.add(i);
+                break;
+            }
+        }
+    });
+
     return roles;
   };
 
@@ -329,8 +404,10 @@ export default function App() {
         setEnemyLaneAssignments(prev => {
             const next = { ...prev };
             const currentEnemies = redTeam.map(c => c?.name).filter(Boolean);
+            
             Object.keys(guesses).forEach(role => {
                 const currentAssignedName = prev[role];
+                // 仅当当前位置没人，或者那个人已经不在敌方队伍里了 -> 才覆盖
                 if (!currentAssignedName || !currentEnemies.includes(currentAssignedName)) {
                     if (guesses[role]) next[role] = guesses[role];
                 }
@@ -338,7 +415,7 @@ export default function App() {
             return next;
         });
     }
-  }, [redTeam]);
+  }, [redTeam, roleMapping]);
 
   // ================= 5. 鉴权与业务操作 =================
 
@@ -622,7 +699,7 @@ export default function App() {
 
         <div className="w-full mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
-            {/* 左侧：我方 (保持不变) */}
+            {/* 左侧：我方 (Ally) */}
             <div className="lg:col-span-3 flex flex-col gap-5 sticky top-8">
                 {/* 阵容面板 */}
                 <div className="bg-hex-dark border border-hex-gold/30 rounded shadow-hex relative overflow-hidden">
@@ -638,7 +715,12 @@ export default function App() {
                     </div>
                     <div className="p-1 space-y-1 bg-hex-black/30">
                         {blueTeam.map((c, i) => (
-                            <div key={i} className={`transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-hex-blue/20 to-transparent border-l-2 border-hex-blue' : 'hover:bg-white/5 border-l-2 border-transparent'}`}>
+                            <div 
+                                key={i} 
+                                // 🟢 修改：添加 onClick 事件打开弹窗
+                                onClick={() => handleCardClick(i, false)}
+                                className={`cursor-pointer transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-hex-blue/20 to-transparent border-l-2 border-hex-blue' : 'hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
                                 <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={myTeamRoles[i]} />
                             </div>
                         ))}
@@ -740,7 +822,7 @@ export default function App() {
                 </div>
             </div>
             
-            {/* 右侧：敌方 (保持不变) */}
+            {/* 右侧：敌方 (Enemy) */}
             <div className="lg:col-span-3 flex flex-col gap-5 sticky top-8">
                 {/* 敌方阵容 */}
                 <div className="bg-[#1a0505] border border-red-900/30 rounded shadow-lg relative overflow-hidden">
@@ -752,7 +834,12 @@ export default function App() {
                     </div>
                     <div className="p-1 space-y-1 bg-black/20">
                         {redTeam.map((c, i) => (
-                            <div key={i} className="hover:bg-red-900/10 rounded transition-colors border-l-2 border-transparent hover:border-red-800">
+                            <div 
+                                key={i} 
+                                // 🟢 修改：添加 onClick 事件打开弹窗
+                                onClick={() => handleCardClick(i, true)}
+                                className="cursor-pointer hover:bg-red-900/10 rounded transition-colors border-l-2 border-transparent hover:border-red-800"
+                            >
                                 <ChampCard champ={c} idx={i} isEnemy={true} userSlot={userSlot} role={Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === c?.name)?.substring(0,3) || ""} />
                             </div>
                         ))}
@@ -817,10 +904,34 @@ export default function App() {
 
         {/* 模态框组件 (完整版) */}
         <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} authMode={authMode} setAuthMode={setAuthMode} authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} handleRegister={handleRegister} />
-        <TipModal isOpen={showTipModal} onClose={() => setShowTipModal(false)} content={inputContent} setContent={setInputContent} onSubmit={() => handlePostTip(false)}heroName={blueTeam[userSlot]?.name || "英雄"}targetName={tipTargetEnemy} />
+        <TipModal 
+            isOpen={showTipModal} 
+            onClose={() => setShowTipModal(false)} 
+            content={inputContent} 
+            setContent={setInputContent} 
+            onSubmit={() => handlePostTip(false)}
+            heroName={blueTeam[userSlot]?.name || "英雄"}
+            targetName={tipTargetEnemy} 
+        />
         <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handleReportError} />
         <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
         <SettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} currentShortcuts={currentShortcuts} onSave={handleSaveShortcuts} />
+        
+        {/* 🟢 渲染选人弹窗 */}
+        <ChampSelectModal
+            isOpen={showChampSelector}
+            onClose={() => setShowChampSelector(false)}
+            championList={championList}
+            onSelect={handleSelectChampion}
+            roleMapping={roleMapping} // 传入数据库的分类数据
+            // 智能预选分路
+            initialRoleIndex={
+                selectingIsEnemy 
+                ? ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].indexOf(Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === redTeam[selectingSlot]?.name))
+                : ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].indexOf(myTeamRoles[selectingSlot])
+            }
+        />
+
         {showAdminPanel && token && <AdminDashboard token={token} onClose={() => setShowAdminPanel(false)} />}
         {currentUser && ["admin", "root"].includes(currentUser) && (
             <button onClick={() => setShowAdminPanel(true)} className="fixed bottom-6 left-6 z-50 bg-red-600/90 hover:bg-red-500 text-white p-3 rounded-full shadow-lg backdrop-blur hover:scale-110 transition-all">
