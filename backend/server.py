@@ -9,6 +9,7 @@ import smtplib
 import requests
 import hashlib
 import sys
+
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -24,7 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.concurrency import run_in_threadpool
-from datetime import datetime, timedelta
+
 # ✨ 关键修改：引入异步客户端，解决排队问题
 from bson import ObjectId
 from openai import AsyncOpenAI, APIError
@@ -121,7 +122,7 @@ ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000",
     "https://www.hexcoach.gg",
     "https://hexcoach.gg",
 ]
@@ -375,47 +376,41 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
 @app.post("/user/redeem_invite")
 async def redeem_invite(
     payload: InviteRequest, 
-    # 👇 这里非常关键：请查看您代码里其他接口（如 /users/me）是用什么获取当前用户的
-    # 通常是 current_user: dict = Depends(get_current_user)
     current_user: dict = Depends(get_current_user) 
 ):
     invite_code = payload.invite_code.strip()
     if not invite_code:
         raise HTTPException(status_code=400, detail="请输入邀请码")
 
-    # 1. 这里的 db 应该是您全局定义的数据库对象
-    # 如果您是用 request.app.state.db 或者依赖注入，请相应调整
     user = await db.users.find_one({"_id": current_user["_id"]})
     
     if not user:
         raise HTTPException(status_code=404, detail="用户数据同步错误")
 
-    # 2. 检查：是否已经填写过
     if user.get('invited_by'):
         raise HTTPException(status_code=400, detail="您已经领取过新手福利了，无法重复领取")
 
-    # 3. 检查：邀请码有效性 (用户名即邀请码)
     inviter = await db.users.find_one({"username": invite_code})
 
     if not inviter:
         raise HTTPException(status_code=404, detail="无效的邀请码（请输入朋友的用户名）")
 
-    # 4. 检查：不能邀请自己
     if str(inviter['_id']) == str(user['_id']):
         raise HTTPException(status_code=400, detail="不能邀请自己哦")
 
-    # === 核心逻辑：加时间函数 ===
+    # === 核心逻辑：加时间函数 (注意这里的写法变了) ===
     def calculate_new_expire(user_obj, days=3):
-        now = datetime.utcnow()
+        # 👇 修改点 1：使用 datetime.datetime.utcnow()
+        now = datetime.datetime.utcnow()
         current_expire = user_obj.get('membership_expire')
-        # 如果当前没会员或已过期，从现在开始算
+        
         if not current_expire or current_expire < now:
-            return now + timedelta(days=days)
+            # 👇 修改点 2：使用 datetime.timedelta
+            return now + datetime.timedelta(days=days)
         else:
-            # 如果还有会员，顺延
-            return current_expire + timedelta(days=days)
+            return current_expire + datetime.timedelta(days=days)
 
-    # 更新当前用户 (受邀者)
+    # 更新当前用户
     new_expire_user = calculate_new_expire(user)
     await db.users.update_one(
         {"_id": user['_id']},
@@ -423,7 +418,6 @@ async def redeem_invite(
             "$set": {
                 "membership_expire": new_expire_user,
                 "invited_by": inviter['_id'],
-                # 如果是普通用户，升级为Pro
                 "role": "pro" if user.get('role', 'user') == 'user' else user.get('role')
             }
         }
@@ -1251,20 +1245,25 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 DIST_DIR = Path("frontend/dist") 
 
 # 1. 专门处理 favicon.png (解决图标不显示的问题)
-@app.get("/favicon.png")
-async def favicon():
-    # 尝试在 dist 根目录找
-    file_path = DIST_DIR / "favicon.png"
-    # 或者尝试在 public 目录找 (视构建情况而定)
-    if not file_path.exists():
-        file_path = DIST_DIR / "public" / "favicon.png"
+@app.get("/favicon.{ext}")
+async def favicon(ext: str):
+    # 只允许特定后缀，防止任意文件读取
+    if ext not in ["ico", "svg", "png"]:
+        raise HTTPException(status_code=404)
         
-    if file_path.exists():
-        # 🌟 关键：返回 image/png 类型，而不是 html
-        return FileResponse(file_path, media_type="image/png")
+    file_path = DIST_DIR / f"favicon.{ext}"
+    if not file_path.exists():
+        # 尝试去 public 找
+        file_path = DIST_DIR / "public" / f"favicon.{ext}"
     
-    # 如果真的找不到，返回 404，不要返回 index.html 误导浏览器
-    raise HTTPException(status_code=404, detail="Favicon not found on server")
+    if file_path.exists():
+        # 简单判断 mime type
+        media_type = "image/svg+xml" if ext == "svg" else f"image/{ext}"
+        if ext == "ico": media_type = "image/x-icon"
+        
+        return FileResponse(file_path, media_type=media_type)
+        
+    raise HTTPException(status_code=404)
 
 # 2. 捕获所有其他路径 -> 返回 index.html (SPA 路由)
 @app.get("/{full_path:path}")

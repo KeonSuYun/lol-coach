@@ -1,7 +1,9 @@
 {
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^5.0.1",
-    "react-hot-toast": "^2.6.0"
+    "find-process": "^2.0.0",
+    "react-hot-toast": "^2.6.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "electron": "^39.2.7"
