@@ -702,7 +702,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
         <div className="w-full mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
             {/* 左侧：我方 (Ally) */}
-            <div className="lg:col-span-3 flex flex-col gap-5 sticky top-8">
+            <div className="lg:col-span-3 flex flex-col gap-5 lg:sticky lg:top-8">
                 
                 {/* 1. 阵容面板 */}
                 <div className="bg-hex-dark border border-hex-gold/30 rounded shadow-hex relative overflow-hidden">
