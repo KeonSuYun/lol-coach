@@ -797,7 +797,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
                     />
                 </div>
                 {/* Tab */}
-                <div className="grid grid-cols-3 gap-0 bg-hex-black border border-hex-gold/30 rounded-t-lg overflow-hidden sticky top-[80px] z-30 shadow-2xl">
+                <div className="grid grid-cols-3 gap-0 bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg overflow-hidden relative lg:sticky lg:top-[80px] z-30 shadow-2xl">
                     {[
                         { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
                         { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线细节' },

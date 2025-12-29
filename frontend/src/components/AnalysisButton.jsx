@@ -1,11 +1,7 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import { Sparkles, Zap, Search, ChevronRight, Swords, Brain } from 'lucide-react';
+import React from 'react'; // 移除 useState, 使用 props 控制
+import { Search, ChevronRight, Swords, Brain } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL } from '../config/constants';
-
-// 假设我们有一个简单的 lane 映射，或者您可以从 props 传入 lane
-const DEFAULT_LANE = 'MID'; 
 
 export default function AnalysisButton({ 
     selectedHero, 
@@ -13,11 +9,10 @@ export default function AnalysisButton({
     onResult, 
     setLoading, 
     isAnalyzing,
-    currentUser, // 用于鉴权或记录
-    userRole // 用于判断是否解锁高级模型
+    currentUser, 
+    userRole 
 }) {
     
-    // 处理分析请求
     const handleAnalyze = async () => {
         if (!selectedHero) {
             toast.error("请先选择一个英雄！");
@@ -26,71 +21,94 @@ export default function AnalysisButton({
         }
 
         if (isAnalyzing) return;
-
         setLoading(true);
-        // 清空旧结果，给用户一种“重新开始”的感觉
-        onResult(""); 
+        onResult(""); // 清空旧结果
+
+        // 🟢 补全：获取 Token (从本地存储)
+        const token = localStorage.getItem("access_token");
 
         try {
-            // 构造请求数据 (根据您的后端 API 调整)
+            // 构造请求 Payload
             const payload = {
                 hero_name: selectedHero.name,
                 hero_key: selectedHero.key,
-                // 这里假设是对位分析，如果没有选敌方，可以留空或由后端处理
-                // enemy_name: targetHero?.name, 
-                lane: DEFAULT_LANE, 
-                user_id: currentUser || "guest"
+                lane: userRole || 'MID', // 优先使用传入的角色
+                user_id: currentUser || "guest",
+                model_type: "reasoner" // 默认开启深度思考
             };
 
-            // 模拟 API 调用 (请替换为您真实的 endpoint)
-            // const response = await axios.post(`${API_BASE_URL}/analyze`, payload);
+            // 🟢 补全：使用 fetch 替代 axios 以支持流式读取 (Stream)
+            const response = await fetch(`${API_BASE_URL}/analyze`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token ? `Bearer ${token}` : ''
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || `请求失败: ${response.status}`);
+            }
+
+            // 🟢 补全：流式解码器逻辑 (这就是“少的 10 行”)
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let done = false;
+            let accumulatedText = "";
+
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                done = readerDone;
+                if (value) {
+                    const chunk = decoder.decode(value, { stream: true });
+                    accumulatedText += chunk;
+                    // 实时回调，实现打字机效果
+                    onResult(accumulatedText);
+                }
+            }
             
-            // 🟢 临时模拟流式输出效果 (如果您后端是流式的，请改用 EventSource 或 fetch stream)
-            // 这里为了演示效果，使用 axios 请求
-            const response = await axios.post(`${API_BASE_URL}/generate_tactics`, payload);
-            
-            // 假设后端直接返回 { result: "..." } 或直接是字符串
-            const resultText = response.data.result || response.data;
-            onResult(resultText);
-            toast.success("战术分析完成！");
+            toast.success("战术推演完成！");
 
         } catch (error) {
             console.error("Analysis failed:", error);
-            const errMsg = error.response?.data?.detail || "分析服务暂时不可用，请稍后重试";
+            const errMsg = error.message || "服务连接失败";
             toast.error(errMsg);
-            onResult(`❌ **分析失败**: ${errMsg}`);
+            // 发生错误时，将错误信息写在结果里，方便用户看到
+            onResult(prev => prev ? prev + `\n\n❌ **中断**: ${errMsg}` : `❌ **分析失败**: ${errMsg}`);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="w-full max-w-xl mx-auto relative group z-20">
-            {/* 背景光晕装饰 */}
+        // mb-8: 防止红色提示文字被下方的 Tab 栏遮挡
+        <div className="w-full max-w-xl mx-auto relative group z-20 mb-8">
+            
+            {/* 背景光晕 */}
             <div className={`absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000 ${isAnalyzing ? 'animate-pulse opacity-50' : ''}`}></div>
             
-            <div className="relative flex h-14 md:h-16 bg-[#091428] border border-hex-gold/30 rounded-xl overflow-hidden shadow-2xl">
+            <div className="relative flex h-14 md:h-16 bg-[#091428] border border-[#C8AA6E]/30 rounded-xl overflow-hidden shadow-2xl">
                 
-                {/* === 左侧：英雄选择区 (35%) === */}
+                {/* === 左侧：英雄选择区 === */}
                 <button 
                     onClick={onOpenChampSelect}
-                    className="w-[35%] h-full flex items-center justify-center gap-2 md:gap-3 bg-[#010A13]/80 border-r border-hex-gold/20 hover:bg-[#1a2332] transition-all relative overflow-hidden group/select"
+                    className="w-[35%] h-full flex items-center justify-center gap-2 md:gap-3 bg-[#010A13]/80 border-r border-[#C8AA6E]/20 hover:bg-[#1a2332] transition-all relative overflow-hidden group/select"
                 >
-                    {/* 选中英雄时的状态 */}
                     {selectedHero ? (
                         <>
-                            <div className="relative w-8 h-8 md:w-10 md:h-10 rounded border border-hex-gold/50 shadow-lg overflow-hidden shrink-0 group-hover/select:scale-110 transition-transform">
+                            <div className="relative w-8 h-8 md:w-10 md:h-10 rounded border border-[#C8AA6E]/50 shadow-lg overflow-hidden shrink-0 group-hover/select:scale-110 transition-transform">
                                 <img src={selectedHero.image_url} alt={selectedHero.name} className="w-full h-full object-cover" />
                             </div>
                             <div className="flex flex-col items-start min-w-0">
                                 <span className="text-xs text-slate-400 scale-90 origin-left">当前</span>
-                                <span className="text-xs md:text-sm font-bold text-hex-gold truncate max-w-[60px] md:max-w-[80px] leading-tight">
+                                <span className="text-xs md:text-sm font-bold text-[#C8AA6E] truncate max-w-[60px] md:max-w-[80px] leading-tight">
                                     {selectedHero.name}
                                 </span>
                             </div>
                         </>
                     ) : (
-                        // 未选时的状态
                         <>
                             <div className="w-8 h-8 md:w-10 md:h-10 rounded border border-dashed border-slate-600 flex items-center justify-center text-slate-500">
                                 <Search size={16} />
@@ -98,12 +116,10 @@ export default function AnalysisButton({
                             <span className="text-xs font-bold text-slate-400">选择英雄</span>
                         </>
                     )}
-                    
-                    {/* 只有没选人时才显示的提示光效 */}
                     {!selectedHero && <div className="absolute inset-0 bg-white/5 animate-pulse pointer-events-none"></div>}
                 </button>
 
-                {/* === 右侧：分析按钮 (65%) === */}
+                {/* === 右侧：分析按钮 === */}
                 <button 
                     onClick={handleAnalyze}
                     disabled={isAnalyzing || !selectedHero}
@@ -116,7 +132,6 @@ export default function AnalysisButton({
                         }
                     `}
                 >
-                    {/* 按钮内容 */}
                     {isAnalyzing ? (
                         <>
                             <div className="w-5 h-5 md:w-6 md:h-6 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
@@ -124,11 +139,9 @@ export default function AnalysisButton({
                         </>
                     ) : (
                         <>
-                            {/* 这里的图标根据状态变化 */}
                             <div className={`p-1.5 rounded-full ${selectedHero ? 'bg-white/20' : 'bg-black/20'}`}>
                                 <Brain size={18} className={selectedHero ? 'text-white' : 'text-slate-500'} />
                             </div>
-                            
                             <div className="flex flex-col items-start">
                                 <span className={`text-sm md:text-base font-black tracking-wider leading-none ${!selectedHero ? 'opacity-50' : ''}`}>
                                     {selectedHero ? "开始分析" : "准备就绪"}
@@ -139,15 +152,11 @@ export default function AnalysisButton({
                                     </span>
                                 )}
                             </div>
-                            
-                            {/* 箭头动画 */}
                             {selectedHero && (
                                 <ChevronRight size={18} className="absolute right-4 opacity-50 animate-in slide-in-from-left-2 repeat-infinite duration-1000" />
                             )}
                         </>
                     )}
-
-                    {/* 扫光特效 (仅在可用状态下显示) */}
                     {selectedHero && !isAnalyzing && (
                         <div className="absolute top-0 -left-[100%] w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 animate-[shimmer_2s_infinite]"></div>
                     )}
@@ -156,8 +165,8 @@ export default function AnalysisButton({
             
             {/* 底部小字提示 */}
             {!selectedHero && (
-                <div className="absolute -bottom-6 left-0 w-full text-center">
-                    <span className="text-[10px] text-red-400 flex items-center justify-center gap-1 animate-bounce">
+                <div className="absolute -bottom-7 left-0 w-full text-center z-10">
+                    <span className="text-[10px] text-red-400 flex items-center justify-center gap-1 animate-bounce bg-[#050505]/80 backdrop-blur px-2 py-0.5 rounded-full border border-red-900/30 inline-block shadow-sm">
                         <Swords size={10}/> 请先点击左侧选择你的英雄
                     </span>
                 </div>
