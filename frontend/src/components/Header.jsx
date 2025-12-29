@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon, Trophy } from 'lucide-react';
+import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon, Trophy, Settings } from 'lucide-react';
 // 引入新设计的海克斯核心图标
 import HexCoreIcon from './HexCoreIcon';
 // 你的常量配置
@@ -22,9 +22,11 @@ const RANKS = [
 const Header = ({ 
     version = "15.24.1", lcuStatus, userRole, setUserRole, currentUser, logout, setShowLoginModal,
     useThinkingModel, setUseThinkingModel,
+    setShowSettingsModal,
     setShowPricingModal,
     accountInfo,
-    userRank, setUserRank
+    userRank, setUserRank,
+    onGoHome // 🟢 接收返回主页的回调
 }) => {
   
   const isPro = accountInfo?.is_pro === true;
@@ -37,14 +39,19 @@ const Header = ({
       
       {/* ================= 左侧 Logo & 状态区域 ================= */}
         <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-4">
+            {/* 🟢 修改：添加 onClick 和 cursor-pointer 实现点击返回 */}
+            <div 
+                onClick={onGoHome}
+                className="flex items-center gap-4 cursor-pointer select-none group"
+                title="点击返回主页"
+            >
                 {/* 🌀 Logo 图标 (📱 移动端缩小为 w-12 h-12) */}
-                <HexCoreIcon className="w-12 h-12 md:w-16 md:h-16 shrink-0 filter drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]" />
+                <HexCoreIcon className="w-12 h-12 md:w-16 md:h-16 shrink-0 filter drop-shadow-[0_0_15px_rgba(34,211,238,0.4)] group-hover:rotate-180 transition-transform duration-700" />
                 
                 {/* 🏆 标题区域 (📱 移动端隐藏文字，只留 Logo) */}
-                <div className="hidden md:flex flex-col justify-center select-none group">
+                <div className="hidden md:flex flex-col justify-center">
                     <h1 className="text-3xl md:text-4xl font-black italic tracking-wide leading-none flex items-center gap-1.5 filter drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-200 pr-1">
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-200 pr-1 group-hover:to-white transition-colors">
                             海克斯
                         </span>
                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-yellow-500">
@@ -88,7 +95,14 @@ const Header = ({
                         <span className="relative z-10 text-[10px] font-bold tracking-wide">下载助手</span>
                     </a>
                 )}
-
+                <button 
+                    onClick={() => setShowSettingsModal(true)}
+                    className="group relative flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-700 bg-slate-800/50 text-slate-400 hover:text-white hover:border-slate-500 transition-all cursor-pointer ml-1"
+                    title="快捷键设置"
+                >
+                    <Settings size={11} className="group-hover:rotate-90 transition-transform duration-500"/>
+                    <span className="text-[10px] font-bold">设置</span>
+                </button>
                 <span className="text-[10px] font-mono text-slate-700 select-none opacity-50 ml-1">
                     v{version}
                 </span>

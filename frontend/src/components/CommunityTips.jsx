@@ -46,7 +46,7 @@ const CommunityTips = ({ tips, currentUser, currentHero, currentTarget, allies, 
   return (
     <div className="flex-1 bg-[#091428] border border-hex-gold/20 rounded-lg md:rounded-sm overflow-hidden flex flex-col h-full min-h-[350px] shadow-lg relative group/container">
         {/* 背景纹理 */}
-        <div className="absolute inset-0 bg-[url('https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/magic-pattern-sprite.png')] opacity-5 pointer-events-none"></div>
+        <div className="absolute inset-0 bg-hex-pattern opacity-5 pointer-events-none"></div>
 
         {/* --- 顶部动态标题栏 (📱 优化：增加高度和内边距) --- */}
         <div className="flex items-center justify-between px-4 py-3 bg-[#010A13]/90 border-b border-hex-gold/20 backdrop-blur z-20">

@@ -191,7 +191,7 @@ const AdminDashboard = ({ token, onClose }) => {
                 </div>
 
                 {/* 内容区 */}
-                <div className="flex-1 overflow-auto p-6 custom-scrollbar bg-[url('https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/magic-pattern-sprite.png')] bg-opacity-5">
+                <div className="flex-1 overflow-auto p-6 custom-scrollbar bg-hex-pattern bg-opacity-5">
                     
                     {loading && (
                         <div className="h-full flex flex-col items-center justify-center text-[#0AC8B9] animate-pulse gap-3">

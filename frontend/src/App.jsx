@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Shield, Users, Zap, Brain, Crosshair, RefreshCcw, ShieldAlert, RotateCcw, Trash2, GripHorizontal, Settings } from 'lucide-react';
+import OverlayStatus from './components/OverlayStatus';
+import { Toaster, toast } from 'react-hot-toast'; 
 
 // 组件引入
+import LandingPage from './components/LandingPage';
 import AdminDashboard from './components/AdminDashboard';
 import Header from './components/Header';
 import ChampCard from './components/ChampCard';
@@ -11,13 +14,13 @@ import CommunityTips from './components/CommunityTips';
 import AnalysisButton from './components/AnalysisButton';
 import InviteCard from './components/InviteCard';
 // ... 其他 import
-import ChampSelectModal from './components/modals/ChampSelectModal'; // 🟢 引入弹窗组件
+import ChampSelectModal from './components/modals/ChampSelectModal'; 
 // 模态框引入
 import LoginModal from './components/modals/LoginModal';
 import TipModal from './components/modals/TipModal';
 import FeedbackModal from './components/modals/FeedbackModal';
 import PricingModal from './components/modals/PricingModal';
-import SettingsModal from './components/modals/SettingsModal'; // 🟢 新增设置组件
+import SettingsModal from './components/modals/SettingsModal'; 
 
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from './config/constants';
 
@@ -40,8 +43,13 @@ export default function App() {
       window.location.href.includes('overlay=true')
   );
 
+  // 🟢 新增：主页状态控制
+  // 默认为 false (显示主页)，但如果是悬浮窗模式则默认为 true (直接进入)
+  const [hasStarted, setHasStarted] = useState(() => 
+      window.location.href.includes('overlay=true')
+  );
+
   useEffect(() => {
-    // 🔴 修改 2：确保 class 也加上
     if (isOverlay) {
         document.body.classList.add('transparent-mode');
     }
@@ -118,6 +126,7 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('overlay') === 'true') {
         setIsOverlay(true);
+        setHasStarted(true); // 悬浮窗模式直接开始
     }
   }, []);
 
@@ -286,6 +295,7 @@ export default function App() {
           ws.onmessage = (event) => {
               try {
                   const msg = JSON.parse(event.data);
+                  
                   if (msg.type === 'CHAMP_SELECT') setRawLcuData(msg.data);
                   if (msg.type === 'STATUS') {
                        if(msg.data === 'connected') setLcuStatus("connected");
@@ -294,6 +304,25 @@ export default function App() {
                            setLcuRealRole("");
                        }
                   }
+
+                  // ✨✨✨ 新增：处理 Python 引擎发来的警报 ✨✨✨
+                  if (msg.type === 'ALERT') {
+                      const { title, content, level } = msg.data;
+                      
+                      // 使用 toast 弹窗提示
+                      toast(content, {
+                          icon: '🚨',
+                          duration: 5000,
+                          style: {
+                              background: '#450a0a', // 深红色背景
+                              color: '#fecaca',      // 浅红色文字
+                              border: '1px solid #dc2626',
+                              fontWeight: 'bold',
+                              boxShadow: '0 0 20px rgba(220, 38, 38, 0.5)'
+                          },
+                      });
+                  }
+
               } catch(e){}
           };
       };
@@ -581,7 +610,8 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
   if (isOverlay) {
     return (
       <div className="h-screen flex flex-col overflow-hidden bg-slate-900/95 backdrop-blur-md border border-hex-gold/30 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-        
+        <OverlayStatus />
+        <Toaster position="top-center" />
         {/* A. 顶部拖拽条 */}
         <div className="bg-hex-black/90 cursor-move drag-region select-none border-b border-hex-gold/20 flex flex-col shrink-0">
             <div className="h-6 flex items-center justify-between px-3">
@@ -629,7 +659,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
         {/* C. 核心内容区 (只保留中间分析台) */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-0 bg-transparent relative no-drag">
             {/* 背景纹理 */}
-            <div className="absolute inset-0 bg-magic-pattern opacity-5 pointer-events-none z-0"></div>
+            <div className="absolute inset-0 bg-hex-pattern opacity-5 pointer-events-none z-0"></div>
 
             {aiResults[analyzeType] ? (
                 <div className="h-full p-2">
@@ -683,13 +713,28 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
   }
 
   // =================================================================
-  // 🟢 7. 渲染逻辑 B：网页版 (完整 UI)
+  // 🟢 7. 渲染逻辑 B：网页版主页 (Landing Page)
+  // 如果未开始且非悬浮窗模式，则显示 LandingPage
+  // =================================================================
+  if (!hasStarted) {
+      return (
+          <LandingPage 
+              onEnter={() => setHasStarted(true)} 
+              onDownload={() => window.open("/download/DeepCoach-Helper.exe", "_blank")}
+          />
+      );
+  }
+
+  // =================================================================
+  // 🟢 8. 渲染逻辑 C：网页版控制台 (完整 UI)
   // =================================================================
   return (
     <div className="min-h-screen">
+        <Toaster position="top-right" />
       <div className="fixed top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-hex-gold/50 to-transparent z-50"></div>
       <div className="relative z-10 flex flex-col items-center p-4 md:p-8 max-w-[1800px] mx-auto">
         
+        {/* 🟢 修改：传入 onGoHome 回调 */}
         <Header
             version={version} lcuStatus={lcuStatus}
             userRole={userRole} setUserRole={setUserRole}
@@ -697,6 +742,8 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
             useThinkingModel={useThinkingModel} setUseThinkingModel={setUseThinkingModel}
             setShowPricingModal={setShowPricingModal} accountInfo={accountInfo}
             userRank={userRank} setUserRank={setUserRank}
+            setShowSettingsModal={setShowSettingsModal}
+            onGoHome={() => setHasStarted(false)}
         />
 
         <div className="w-full mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -825,7 +872,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
 
                 {/* 内容 */}
                 <div className="relative flex-1 flex flex-col bg-hex-dark border-x border-b border-hex-gold/30 rounded-b-lg shadow-hex p-1">
-                    <div className="absolute inset-0 bg-magic-pattern opacity-5 pointer-events-none z-0"></div>
+                    <div className="absolute inset-0 bg-hex-pattern opacity-5 pointer-events-none z-0"></div>
                     {/* 刷新 */}
                     {aiResults[analyzeType] && !isModeAnalyzing(analyzeType) && (
                         <div className="absolute top-4 right-6 z-20">
@@ -948,7 +995,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
         <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
         <SettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} currentShortcuts={currentShortcuts} onSave={handleSaveShortcuts} />
         
-                {/* 🟢 渲染选人弹窗 */}
+        {/* 🟢 渲染选人弹窗 */}
         <ChampSelectModal
             isOpen={showChampSelector}
             onClose={() => setShowChampSelector(false)}

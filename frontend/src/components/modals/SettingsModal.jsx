@@ -2,13 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { X, Keyboard, Save, RotateCcw, AlertCircle } from 'lucide-react';
 
 const DEFAULT_SHORTCUTS = {
-  tab_bp: 'Alt+1',
-  tab_personal: 'Alt+2',
-  tab_team: 'Alt+3',
-  nav_next: 'Alt+Right',
-  nav_prev: 'Alt+Left',
-  refresh: 'Alt+R',
-  send_chat: 'Alt+Enter'
+  // 🟢 调整：使用 Ctrl+Alt 组合以避免与 LOL 的 Alt+1/2/3 (物品自我施法) 冲突
+  tab_bp: 'Ctrl+Alt+1',
+  tab_personal: 'Ctrl+Alt+2',
+  tab_team: 'Ctrl+Alt+3',
+  
+  // 导航保持原样或微调
+  nav_next: 'Ctrl+Alt+Right',
+  nav_prev: 'Ctrl+Alt+Left',
+  
+  // 🟢 调整：Alt+R 是自我施法大招，改为 Ctrl+Alt+R
+  refresh: 'Ctrl+Alt+R',
+  
+  send_chat: 'Alt+Enter',
+  
+  // 🟢 新增：显示/隐藏悬浮窗 (用户提到的 Alt+W)
+  toggle_mouse: 'Ctrl+Alt+W'
 };
 
 const SHORTCUT_LABELS = {
@@ -18,7 +27,8 @@ const SHORTCUT_LABELS = {
   nav_next: '下一个 Tab',
   nav_prev: '上一个 Tab',
   refresh: '重新分析 (刷新)',
-  send_chat: '发送战术到聊天框'
+  send_chat: '发送战术到聊天框',
+  toggle_mouse: '显示/隐藏 鼠标 (穿透模式)' // 🟢 新增标签
 };
 
 export default function SettingsModal({ isOpen, onClose, currentShortcuts, onSave }) {
@@ -29,7 +39,8 @@ export default function SettingsModal({ isOpen, onClose, currentShortcuts, onSav
 
     useEffect(() => {
         if (currentShortcuts) {
-            setShortcuts(currentShortcuts);
+            // 合并默认值，防止旧版本缺少新键位 (如 toggle_overlay)
+            setShortcuts(prev => ({ ...DEFAULT_SHORTCUTS, ...currentShortcuts }));
         }
     }, [currentShortcuts]);
 
@@ -55,7 +66,9 @@ export default function SettingsModal({ isOpen, onClose, currentShortcuts, onSav
             if (key === 'ArrowDown') key = 'Down';
             if (key === ' ') key = 'Space';
 
-            const shortcutStr = [...modifiers, key.toUpperCase()].join('+');
+            // 转换大写
+            const keyUpper = key.length === 1 ? key.toUpperCase() : key;
+            const shortcutStr = [...modifiers, keyUpper].join('+');
             
             setShortcuts(prev => ({ ...prev, [recordingKey]: shortcutStr }));
             setRecordingKey(null);
@@ -113,6 +126,11 @@ export default function SettingsModal({ isOpen, onClose, currentShortcuts, onSav
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-[#050C18] space-y-3 md:space-y-4">
+                    {/* 提示信息 */}
+                    <div className="text-xs text-slate-500 mb-2 px-1">
+                        * 提示：LOL中 Alt+Q/W/E/R 为技能自我施法，Alt+1/2/3 为物品自我施法。建议使用 Ctrl+Alt 组合键。
+                    </div>
+
                     {Object.keys(DEFAULT_SHORTCUTS).map(key => (
                         <div key={key} className="flex items-center justify-between group py-1">
                             <span className="text-slate-400 text-sm font-bold">{SHORTCUT_LABELS[key] || key}</span>
@@ -122,7 +140,7 @@ export default function SettingsModal({ isOpen, onClose, currentShortcuts, onSav
                                 onClick={() => !isMobile && setRecordingKey(key)}
                                 disabled={isMobile}
                                 className={`
-                                    relative px-3 py-1.5 md:px-4 rounded border text-xs font-mono font-bold transition-all min-w-[90px] md:min-w-[100px] text-center
+                                    relative px-3 py-1.5 md:px-4 rounded border text-xs font-mono font-bold transition-all min-w-[110px] md:min-w-[120px] text-center
                                     ${recordingKey === key 
                                         ? 'bg-hex-gold text-black border-hex-gold animate-pulse' 
                                         : isMobile 

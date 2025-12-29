@@ -1,7 +1,7 @@
 // src/config/constants.js
 
 // 🟢 1. 填入你的域名 (注意：使用 https，且末尾不要加斜杠 /)
-const CLOUD_API_URL = "https://www.haxcoach.com"; 
+const CLOUD_API_URL = "https://www.hexcoach.gg"; 
 
 // 判断开发环境
 const isDev = import.meta.env.MODE === 'development';
