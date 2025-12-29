@@ -8,6 +8,8 @@ import Header from './components/Header';
 import ChampCard from './components/ChampCard';
 import AnalysisResult from './components/AnalysisResult';
 import CommunityTips from './components/CommunityTips';
+import AnalysisButton from './components/AnalysisButton';
+import InviteCard from './components/InviteCard';
 // ... 其他 import
 import ChampSelectModal from './components/modals/ChampSelectModal'; // 🟢 引入弹窗组件
 // 模态框引入
@@ -701,7 +703,8 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
             
             {/* 左侧：我方 (Ally) */}
             <div className="lg:col-span-3 flex flex-col gap-5 sticky top-8">
-                {/* 阵容面板 */}
+                
+                {/* 1. 阵容面板 */}
                 <div className="bg-hex-dark border border-hex-gold/30 rounded shadow-hex relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-hex-blue to-transparent opacity-50"></div>
                     <div className="flex items-center justify-between px-3 py-2 bg-[#010A13]/80 border-b border-hex-gold/10">
@@ -717,7 +720,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
                         {blueTeam.map((c, i) => (
                             <div 
                                 key={i} 
-                                // 🟢 修改：添加 onClick 事件打开弹窗
+                                // 点击卡片打开选人弹窗
                                 onClick={() => handleCardClick(i, false)}
                                 className={`cursor-pointer transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-hex-blue/20 to-transparent border-l-2 border-hex-blue' : 'hover:bg-white/5 border-l-2 border-transparent'}`}
                             >
@@ -727,7 +730,7 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
                     </div>
                 </div>
 
-                {/* 分路面板 */}
+                {/* 2. 分路面板 */}
                 <div className="p-3 bg-hex-dark border border-hex-gold/20 rounded shadow-lg relative">
                     <div className="absolute -top-[1px] left-1/2 -translate-x-1/2 w-1/3 h-[1px] bg-hex-gold/50"></div>
                     <div className="flex items-center justify-between mb-3">
@@ -761,10 +764,38 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
                         })}
                     </div>
                 </div>
+
+                {/* 3. 🟢 新增：邀请有礼卡片 (仅登录后显示) */}
+                {token && currentUser && (
+                    <InviteCard 
+                        token={token}
+                        username={currentUser}
+                        onUpdateSuccess={() => {
+                            // 兑换成功后，刷新用户信息(更新Pro时间和R1额度)
+                            fetchUserInfo();
+                        }}
+                    />
+                )}
             </div>
             
             {/* 中间：核心分析台 (完整版) */}
             <div className="lg:col-span-6 flex flex-col gap-0 min-h-[600px]">
+                {/* 🟢 1. 在这里插入 AnalysisButton 组件 */}
+                <div className="mb-4 px-1">
+                    <AnalysisButton 
+                        selectedHero={blueTeam[userSlot]} 
+                        // 🟢 修改点：传入 -1 作为特殊标记，表示“我要从现有阵容里选自己”
+                        onOpenChampSelect={() => {
+                            setSelectingSlot(-1); 
+                            setShowChampSelector(true);
+                        }} 
+                        onResult={(res) => setAiResults(prev => ({ ...prev, [analyzeType]: res }))} 
+                        setLoading={(val) => setAnalyzingStatus(prev => ({ ...prev, [analyzeType]: val }))} 
+                        isAnalyzing={isModeAnalyzing(analyzeType)} 
+                        currentUser={currentUser}
+                        userRole={accountInfo?.role}
+                    />
+                </div>
                 {/* Tab */}
                 <div className="grid grid-cols-3 gap-0 bg-hex-black border border-hex-gold/30 rounded-t-lg overflow-hidden sticky top-[80px] z-30 shadow-2xl">
                     {[
@@ -917,18 +948,45 @@ const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase(
         <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
         <SettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} currentShortcuts={currentShortcuts} onSave={handleSaveShortcuts} />
         
-        {/* 🟢 渲染选人弹窗 */}
+                {/* 🟢 渲染选人弹窗 */}
         <ChampSelectModal
             isOpen={showChampSelector}
             onClose={() => setShowChampSelector(false)}
-            championList={championList}
-            onSelect={handleSelectChampion}
-            roleMapping={roleMapping} // 传入数据库的分类数据
-            // 智能预选分路
+            
+            // 🟢 核心修改 1：动态列表
+            // 如果是选主视角 (-1)，只显示我方已有的英雄；否则显示全英雄
+            championList={
+                selectingSlot === -1 
+                ? blueTeam.filter(c => c !== null) 
+                : championList
+            }
+            
+            // 🟢 核心修改 2：动态回调
+            onSelect={(hero) => {
+                if (selectingSlot === -1) {
+                    // A. 切换视角模式：找到这个英雄在队伍里的位置，设为“我”
+                    const idx = blueTeam.findIndex(c => c && c.key === hero.key);
+                    if (idx !== -1) {
+                        setUserSlot(idx);
+                        // 顺便自动更新用户角色 (如果有分路数据)
+                        if (myTeamRoles[idx]) setUserRole(myTeamRoles[idx]);
+                    }
+                    setShowChampSelector(false);
+                } else {
+                    // B. 修改阵容模式：走原有逻辑
+                    handleSelectChampion(hero);
+                }
+            }}
+            
+            roleMapping={roleMapping} 
+            
+            // 智能预选分路 (保持原样，或者在视角模式下传 undefined 既然人少不需要筛选)
             initialRoleIndex={
-                selectingIsEnemy 
-                ? ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].indexOf(Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === redTeam[selectingSlot]?.name))
-                : ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].indexOf(myTeamRoles[selectingSlot])
+                selectingSlot === -1 
+                ? undefined 
+                : (selectingIsEnemy 
+                    ? ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].indexOf(Object.keys(enemyLaneAssignments).find(k => enemyLaneAssignments[k] === redTeam[selectingSlot]?.name))
+                    : ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].indexOf(myTeamRoles[selectingSlot]))
             }
         />
 

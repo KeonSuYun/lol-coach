@@ -15,7 +15,7 @@ def load_json(filename):
     """尝试从当前目录或 secure_data 文件夹读取 JSON"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 优先找当前目录 (兼容 roles.json)
+    # 优先找当前目录
     file_path = os.path.join(base_dir, filename)
     if not os.path.exists(file_path):
         # 找不到再去 secure_data 找
@@ -64,41 +64,53 @@ def has_chinese(text):
 def get_utc_now():
     return datetime.datetime.now(datetime.timezone.utc)
 
-# ✨✨✨ 新增功能：同步分路配置 ✨✨✨
-def sync_roles_from_json(db):
-    print("\n🚀 [5/5] 同步 roles.json 分路配置...")
+# ✨✨✨ 新增功能：同步 RAG 修正数据 (Corrections) ✨✨✨
+def sync_corrections_from_json(db):
+    print("\n🚀 [6/6] 同步 RAG 修正数据 (Corrections)...")
     
-    role_config = load_json("roles.json")
-    if not role_config:
-        print("⚠️ 未找到 roles.json，跳过分路修正。")
+    data = load_json("corrections.json")
+    if not data:
+        print("⚠️ 未找到 corrections.json，跳过修正数据同步。")
         return
 
-    collection = db['champions']
+    collection = db['corrections']
     
-    print("🧹 正在初始化分路标签 (清空 roles 字段)...")
-    # 先清空所有英雄的 roles 字段，确保数据纯净
-    collection.update_many({}, {'$set': {'roles': []}})
+    # 清空旧数据以防止重复
+    delete_res = collection.delete_many({})
+    print(f"🧹 已清空旧修正数据 (删除了 {delete_res.deleted_count} 条)")
     
-    total_updates = 0
-    
-    for role_name, champions in role_config.items():
-        for hero in champions:
-            # 模糊匹配逻辑 (兼容 ID, Name, Alias, 无空格ID)
-            res = collection.update_many(
-                {
-                    '$or': [
-                        {'id': hero}, 
-                        {'name': hero},
-                        {'alias': hero},
-                        {'id': hero.replace(" ", "").replace("'", "")} 
-                    ]
-                },
-                {'$addToSet': {'roles': role_name}} # 追加分路
-            )
-            if res.modified_count > 0:
-                total_updates += 1
+    if data:
+        final_docs = []
+        
+        # 🔄 自动裂变逻辑
+        for item in data:
+            # 1. 加入原始条目
+            final_docs.append(item)
+            
+            # 2. 检查是否有双向标记 (mutual: true)
+            if item.get("mutual") is True:
+                # 创建镜像副本
+                mirror_item = item.copy()
                 
-    print(f"✅ 分路同步完成！已基于配置更新了 {total_updates} 处定位信息。")
+                # 核心操作：交换 hero 和 enemy
+                original_hero = item.get("hero", "general")
+                original_enemy = item.get("enemy", "general")
+                
+                mirror_item["hero"] = original_enemy
+                mirror_item["enemy"] = original_hero
+                
+                # 标记这是自动生成的（方便调试，可选）
+                mirror_item["_is_auto_mirror"] = True
+                
+                final_docs.append(mirror_item)
+
+        try:
+            collection.insert_many(final_docs)
+            print(f"✅ 成功写入 {len(final_docs)} 条修正数据 (含自动裂变)！")
+        except Exception as e:
+            print(f"❌ 修正数据写入失败: {e}")
+    else:
+        print("⚠️ JSON 文件为空，未写入数据。")
 
 
 def seed_data():
@@ -115,7 +127,7 @@ def seed_data():
     db = client["lol_community"]
 
     # =====================================================
-    # 1. 同步英雄数据 (Champions)
+    # 1. 同步英雄数据 (Champions) - 以 champions.json 为准
     # =====================================================
     print("\n🚀 [1/5] 更新英雄基础数据 (支持多位置合并)...")
     
@@ -133,6 +145,7 @@ def seed_data():
                 hero_id = hero.get("name") 
                 if not hero_id: continue
                 
+                # 这里会直接使用 champions.json 里的 role，不再被其他文件覆盖
                 role = hero.get("role", "MID").upper()
                 
                 stats_block = {
@@ -159,7 +172,7 @@ def seed_data():
                         "tags": [t.capitalize() for t in hero.get("tags", [])],
                         "updated_at": get_utc_now(),
                         "positions": {},
-                        "roles": [],
+                        # 移除 roles 字段的初始化，完全依赖 champions.json 的 role
                         "tier": stats_block["tier"],
                         "win_rate": stats_block["win_rate"],
                         "role": role 
@@ -242,9 +255,9 @@ def seed_data():
         print(f"✅ 管理员 {admin_user} 密码已强制重置！")
 
     # =====================================================
-    # 5. 调用分路修正 (roles.json)
+    # 5. 调用修正数据 (corrections.json)
     # =====================================================
-    sync_roles_from_json(db)
+    sync_corrections_from_json(db)
 
     print("\n🎉 所有数据同步完成！")
 

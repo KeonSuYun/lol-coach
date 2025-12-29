@@ -15,7 +15,7 @@ const FeedbackModal = ({ isOpen, onClose, content, setContent, onSubmit }) => {
               </p>
               <textarea 
                   className="w-full bg-black border border-slate-700 rounded p-3 text-white text-sm mb-4 h-32 focus:border-red-500 outline-none transition-colors"
-                  placeholder="例如：剑魔现在的W是魔法伤害不是物理伤害..."
+                  placeholder="请直接复制有错误的整段文字"
                   value={content}
                   onChange={e => setContent(e.target.value)}
               />

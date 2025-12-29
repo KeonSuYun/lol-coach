@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.concurrency import run_in_threadpool
-
+from datetime import datetime, timedelta
 # ✨ 关键修改：引入异步客户端，解决排队问题
 from openai import AsyncOpenAI, APIError
 
@@ -363,6 +363,85 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
     # 5. 排序并取 Top 3
     candidates.sort(key=lambda x: x['score'], reverse=True)
     return candidates[:3]
+
+@app.route('/user/redeem_invite', methods=['POST'])
+@jwt_required()
+def redeem_invite():
+    current_user_id = get_jwt_identity() # 获取当前登录用户ID
+    data = request.get_json()
+    invite_code = data.get('invite_code', '').strip()
+
+    if not invite_code:
+        return jsonify({"msg": "请输入邀请码"}), 400
+
+    # 1. 获取当前用户
+    db = get_db() # 假设您有一个获取db的函数
+    user = db.users.find_one({"_id": ObjectId(current_user_id)})
+    
+    if not user:
+        return jsonify({"msg": "用户不存在"}), 404
+
+    # 2. 检查：是否已经填写过邀请码？(防止无限刷)
+    if user.get('invited_by'):
+        return jsonify({"msg": "您已经领取过新手福利了，无法重复领取"}), 400
+
+    # 3. 检查：邀请码是否有效（也就是查找邀请人）
+    # 这里我们直接把 "用户名" 当作邀请码
+    inviter = db.users.find_one({"username": invite_code})
+
+    if not inviter:
+        return jsonify({"msg": "无效的邀请码（请输入朋友的用户名）"}), 404
+
+    # 4. 检查：不能填自己的名字
+    if inviter['_id'] == user['_id']:
+        return jsonify({"msg": "不能邀请自己哦"}), 400
+
+    # === 核心逻辑：给双方各加 3 天 ===
+    
+    def add_days(user_obj, days):
+        now = datetime.utcnow()
+        current_expire = user_obj.get('membership_expire')
+        
+        # 如果当前没会员或已过期，从现在开始算
+        if not current_expire or current_expire < now:
+            new_expire = now + timedelta(days=days)
+        else:
+            # 如果还有会员，在现有时间上顺延
+            new_expire = current_expire + timedelta(days=days)
+        
+        return new_expire
+
+    # 更新当前用户 (受邀者)
+    new_expire_user = add_days(user, 3)
+    db.users.update_one(
+        {"_id": user['_id']},
+        {
+            "$set": {
+                "membership_expire": new_expire_user,
+                "invited_by": inviter['_id'],     # 标记已被谁邀请
+                "role": "pro" if user.get('role') == 'user' else user.get('role') # 自动升级为Pro
+            }
+        }
+    )
+
+    # 更新邀请人 (邀请者)
+    new_expire_inviter = add_days(inviter, 3)
+    db.users.update_one(
+        {"_id": inviter['_id']},
+        {
+            "$set": {
+                "membership_expire": new_expire_inviter,
+                "role": "pro" if inviter.get('role') == 'user' else inviter.get('role')
+            },
+            "$inc": {"invite_count": 1} # 记录他邀请了几个人（可选）
+        }
+    )
+
+    return jsonify({
+        "msg": "兑换成功！您和您的朋友都获得了 3 天 Pro 会员！",
+        "new_expire": new_expire_user.isoformat()
+    }), 200
+
 
 # ================= 🚀 API 接口 =================
 

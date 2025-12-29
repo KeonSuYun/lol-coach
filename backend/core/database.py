@@ -206,48 +206,71 @@ class KnowledgeBase:
         }
 
     def check_and_update_usage(self, username, mode, model_type="chat"):
-        """检查冷却时间与额度限制"""
-        current_role = self.check_membership_status(username)
-        user = self.users_col.find_one({"username": username})
-        if not user: return False, "用户不存在", 0
+            """检查冷却时间与额度限制"""
+            current_role = self.check_membership_status(username)
+            user = self.users_col.find_one({"username": username})
+            if not user: return False, "用户不存在", 0
 
-        is_pro = current_role in ["vip", "svip", "admin", "pro"]
-        now = datetime.datetime.utcnow()
-        today_str = now.strftime("%Y-%m-%d")
-        usage_data = user.get("usage_stats", {})
-        
-        if usage_data.get("last_reset_date") != today_str:
-            usage_data = {
-                "last_reset_date": today_str, "counts_chat": {}, "counts_reasoner": {}, "last_access": {},
-                "hourly_start": usage_data.get("hourly_start", now.isoformat()), "hourly_count": 0 
-            }
-        
-        # 频率检查
-        HOURLY_LIMIT = 100 if is_pro else 20
-        hourly_start = datetime.datetime.fromisoformat(usage_data.get("hourly_start"))
-        hourly_count = usage_data.get("hourly_count", 0)
-        if (now - hourly_start).total_seconds() > 3600:
-            hourly_start, hourly_count = now, 0
-        if hourly_count >= HOURLY_LIMIT:
-            return False, f"请求频繁 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", -1
-
-        COOLDOWN = 5 if is_pro else 15
-        last_time_str = usage_data.get("last_access", {}).get(mode)
-        if last_time_str:
-            delta = (now - datetime.datetime.fromisoformat(last_time_str)).total_seconds()
-            if delta < COOLDOWN: return False, f"冷却中", int(COOLDOWN-delta)
-
-        # R1 额度检查
-        if not is_pro and model_type == "reasoner" and sum(usage_data.get("counts_reasoner", {}).values()) >= 10:
-            return False, "深度思考限额已满", -1
-
-        if model_type == "reasoner": usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
-        else: usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
+            is_pro = current_role in ["vip", "svip", "admin", "pro"]
+            now = datetime.datetime.utcnow()
+            today_str = now.strftime("%Y-%m-%d")
+            usage_data = user.get("usage_stats", {})
             
-        usage_data["last_access"][mode] = now.isoformat()
-        usage_data.update({"hourly_count": hourly_count + 1, "hourly_start": hourly_start.isoformat()})
-        self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
-        return True, "OK", 0
+            # 每日重置逻辑
+            if usage_data.get("last_reset_date") != today_str:
+                usage_data = {
+                    "last_reset_date": today_str, "counts_chat": {}, "counts_reasoner": {}, "last_access": {},
+                    "hourly_start": usage_data.get("hourly_start", now.isoformat()), "hourly_count": 0 
+                }
+            
+            # 1. 小时频控 (符合游戏节奏)
+            # 正常一局游戏20-30分钟，加上选人阶段，一小时很难超过10场。
+            # 每小时：Pro 30次 / 普通 10次，足够正常使用，能防住恶意脚本。
+            HOURLY_LIMIT = 30 if is_pro else 10
+            
+            hourly_start = datetime.datetime.fromisoformat(usage_data.get("hourly_start"))
+            hourly_count = usage_data.get("hourly_count", 0)
+            
+            # 检查是否过了一小时，重置计数
+            if (now - hourly_start).total_seconds() > 3600:
+                hourly_start, hourly_count = now, 0
+                
+            if hourly_count >= HOURLY_LIMIT:
+                # 统一返回 0，不提示升级，让用户以为是操作太快
+                return False, f"操作过于频繁，请稍后重试 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", 0
+
+            # 2. 冷却时间 (CD)
+            COOLDOWN = 5 if is_pro else 15
+            last_time_str = usage_data.get("last_access", {}).get(mode)
+            if last_time_str:
+                delta = (now - datetime.datetime.fromisoformat(last_time_str)).total_seconds()
+                if delta < COOLDOWN: return False, f"AI思考中，请稍后再试", int(COOLDOWN-delta)
+
+            # 3. R1 深度思考额度检查 (R1 依然需要提示升级，因为成本高)
+            if not is_pro and model_type == "reasoner" and sum(usage_data.get("counts_reasoner", {}).values()) >= 10:
+                return False, "深度思考限额已满", -1
+
+            # 4. 🟢 [修改] V3 模型 "无限使用" 承诺背后的安全锁
+            if model_type == "chat":
+                current_chat_usage = sum(usage_data.get("counts_chat", {}).values())
+                
+                # 设置安全阈值：Pro 100次 / 普通 50次
+                # 50次大约对应 15-20 局游戏，正常人类不可能达到，触发即视为异常脚本
+                security_limit = 100 if is_pro else 50
+                
+                if current_chat_usage >= security_limit:
+                    # 🟢 关键点：返回 0。前端只会显示 msg，不会显示 "升级 Pro..."。
+                    # 提示语话术：强调"安全限额"或"系统繁忙"，避免提及"会员额度"。
+                    return False, "系统安全风控：今日调用次数异常 (Limit Reached)", 0
+
+            # 5. 更新计数
+            if model_type == "reasoner": usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
+            else: usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
+                
+            usage_data["last_access"][mode] = now.isoformat()
+            usage_data.update({"hourly_count": hourly_count + 1, "hourly_start": hourly_start.isoformat()})
+            self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
+            return True, "OK", 0
 
     # ==========================
     # 🔥 绝活社区核心逻辑 (完善版)

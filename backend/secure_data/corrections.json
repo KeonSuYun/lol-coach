@@ -1,0 +1,282 @@
+[
+  {
+    "hero": "Malphite",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **绝对机制修正**：墨菲特的大招【势不可挡】拥有游戏最高判定优先级。在飞行过程中，**没有任何控制技能**（含压制、击飞、魅惑、波比W）能将其打断。该机制对敌我双方均生效：除了死亡，无法停止。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Yasuo",
+    "enemy": "Lux",
+    "mutual": true,
+    "content": "⚠️ **交互机制修正**：亚索的风墙（W）**无法阻挡**拉克丝的大招【终极闪光】。底层代码判定：拉克丝R是“光束（Laser）”而非飞行道具，可以直接穿透风墙。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Yasuo",
+    "enemy": "Senna",
+    "mutual": true,
+    "content": "⚠️ **交互机制修正**：赛娜的普通攻击为“瞬发判定（Instant）”，**不可被亚索风墙阻挡**。这与常规射手不同，风墙无法规避赛娜的普攻。",
+    "type": "RULE"
+  },
+  {
+    "hero": "general",
+    "enemy": "Malzahar",
+    "mutual": true,
+    "content": "⚠️ **解控机制修正**：召唤师技能【净化】**无法解除**压制效果（如马尔扎哈R）。被压制状态下，玩家无法使用除【水银饰带/弯刀】或【船长W】以外的任何技能或召唤师技能。",
+    "type": "RULE"
+  },
+  {
+    "hero": "general",
+    "enemy": "Warwick",
+    "mutual": true,
+    "content": "⚠️ **解控机制修正**：召唤师技能【净化】**无法解除**压制效果（如沃里克R）。被压制状态下，玩家无法使用除【水银饰带/弯刀】或【船长W】以外的任何技能或召唤师技能。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Thresh",
+    "enemy": "Blitzcrank",
+    "mutual": true,
+    "content": "⚠️ **物理交互修正**：锤石的E技能**无法拦截**飞行中的机械飞爪（Q）。E技能仅对英雄模型生效。所谓的“打断钩子”是视觉误区，实际上只能打断机器人发招动作或位移本体，不可触碰钩子弹道。",
+    "type": "FACT"
+  },
+  {
+    "hero": "Vayne",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **视野机制修正**：薇恩开启R后的Q翻滚属于**【隐形 (Invisibility)】**。真眼（控制守卫）**无法**使其显形。真眼仅对【伪装】（如老鼠、伊芙琳）有效，对隐形单位无效。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Akali",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **视野机制修正**：阿卡丽的霞阵（W）提供的是**【隐形 (Invisibility)】**。真眼（控制守卫）**无法**使其显形。防御塔是唯一能通过真视看到她的单位。",
+    "type": "RULE"
+  },
+  {
+    "hero": "KhaZix",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **视野机制修正**：卡兹克的大招【虚空来袭】提供的是**【隐形 (Invisibility)】**。真眼（控制守卫）**无法**使其显形。只能通过扫描透镜观察轮廓。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Fiora",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **防御塔交互修正**：菲奥娜的W（劳伦特心眼刀）**无法格挡防御塔伤害**。它可以免疫所有英雄技能和控制，但防御塔的攻击会直接穿透W。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Jax",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **防御塔交互修正**：贾克斯的E（反击风暴）**无法规避防御塔攻击**。它只能闪避普通攻击和减少AoE伤害，但塔的激光/炮弹是必中的。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Shen",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **防御塔交互修正**：慎的W（结界）**无法格挡防御塔攻击**。W技能仅能格挡英雄或小兵的普通攻击，对塔伤无效。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Zeri",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **操作机制修正**：泽丽（Zeri）的 **Q技能（电火迸射）才是她的普攻**，而她的鼠标右键平A实际上是一个“技能”（主要用于斩杀或破盾）。操作逻辑与传统射手完全不同。",
+    "type": "FACT"
+  },
+  {
+    "hero": "Graves",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **普攻机制修正**：男枪（格雷福斯）的普攻会被小兵或防御塔阻挡，**无法穿透目标**。敌方单位可以通过躲在小兵后面来规避男枪的平A伤害。",
+    "type": "FACT"
+  },
+  {
+    "hero": "Samira",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **大招机制修正**：莎弥拉（Samira）的大招**不能随时释放**，必须在短时间内打出 S 级评价（6次不同攻击）才能解锁。没有S评价时无法按出R技能。",
+    "type": "GUIDE"
+  },
+  {
+    "hero": "Yasuo",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **大招机制修正**：亚索的大招**只能对滞空目标释放**。如果目标没有处于被击飞状态，亚索无法释放大招。",
+    "type": "GUIDE"
+  },
+  {
+    "hero": "Senna",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **被动机制修正**：赛娜（Senna）击杀小兵的灵魂掉落率极低，而友方击杀的小兵掉魂率极高。这一机制决定了她通常不适合通过补刀发育，而适合通过“拾取灵魂”来叠加属性。",
+    "type": "GUIDE"
+  },
+  {
+    "hero": "Smolder",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **斩杀机制修正**：斯莫德（小火龙）的斩杀效果依赖被动层数（225层解锁）。在层数未达标前，他的Q技能不具备斩杀能力，爆发伤害也较低。",
+    "type": "GUIDE"
+  },
+  {
+    "hero": "Fizz",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **状态机制修正**：菲兹的E（古灵/精怪）提供的“不可被选取”状态**无法移除**已经挂在身上的持续伤害（DoT），如【引燃】、马尔扎哈的E或诺手的流血。E只能规避即将到来的弹道和伤害。请勿建议利用E来“解掉”点燃伤害。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Vladimir",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **状态机制修正**：弗拉基米尔的W（血红之池）**无法移除**已经生效的持续伤害（DoT），如【引燃】或费德提克的W吸血线。虽然你会变为不可选取，但身上的伤害跳字不会停止。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Pyke",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **斩杀机制修正**：派克的大招【涌泉之恨】是**无视护盾**的阈值处决。只要目标生命值低于红线，任何护盾（包括璐璐R、塔姆E、饮魔刀、屏障）都**无效**，会直接死亡。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Urgot",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **斩杀机制修正**：厄加特的大招二段拉取是**无视护盾**的处决。一旦目标被拉回并开始研磨，任何护盾都无法救下他（除非杀死厄加特）。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Gangplank",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **解控机制修正**：普朗克的W（坏血病疗法）是极少数能解除**压制效果**（Suppression，如马尔扎哈R、狼人R）的技能。但请注意：W**无法解除**莫德凯撒（铁男）的大招领域。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Kalista",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **属性机制修正**：卡莉斯塔的被动跳跃速度与移动速度挂钩。**减速效果**（Slow）会直接降低她的跳跃频率和实际攻击速度（DPS）。对抗她时，减速技能等同于强力减攻速。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Olaf",
+    "enemy": "Mordekaiser",
+    "mutual": true,
+    "content": "⚠️ **交互机制修正**：奥拉夫的大招【诸神黄昏】只能在莫德凯撒**开大之前**开启以免疫拉取。一旦已经被拉入领域，奥拉夫开启大招**无法解除**领域效果。严禁建议“被拉进去后开大解掉”。",
+    "type": "RULE"
+  },
+  {
+    "hero": "general",
+    "enemy": "Mordekaiser",
+    "mutual": true,
+    "content": "⚠️ **绝对机制修正**：莫德凯撒的大招【轮回绝境】一旦生效，**无法被任何手段解除**（包括水银饰带、净化、船长W、牛头R、奥拉夫R）。唯一的应对方法是在他施法前摇时使用“不可阻挡”技能规避。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Zed",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **位移机制修正**：劫的大招【瞬狱影杀阵】落地位置是固定的：永远出现在目标**正后方**（相对于劫释放时的位置）。对抗时技能可直接向身后预判。",
+    "type": "FACT"
+  },
+  {
+    "hero": "Sivir",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **格挡机制修正**：希维尔的E（法术护盾）**只能抵挡技能**，无法抵挡普通攻击或强化普攻（如狗头Q、卡牌W蓝牌）。请勿建议用E去格挡射手的平A伤害。",
+    "type": "FACT"
+  },
+  {
+    "hero": "Nocturne",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **格挡机制修正**：魔腾的W（黑暗庇护）**只能抵挡技能**，无法抵挡普通攻击。它与慎的W或贾克斯的E不同，无法规避ADC的物理输出。",
+    "type": "FACT"
+  },
+  {
+    "hero": "Jax",
+    "enemy": "Ezreal",
+    "mutual": true,
+    "content": "⚠️ **技能判定修正**：伊泽瑞尔的 Q（秘术射击）被视为**普通攻击**。贾克斯的 E、慎的 W 均可**完全格挡**该伤害；提莫的 Q（致盲）会导致该技能**丢失**。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Teemo",
+    "enemy": "Gangplank",
+    "mutual": true,
+    "content": "⚠️ **技能判定修正**：普朗克（船长）的 Q（枪火谈判）被视为**普通攻击**。提莫的致盲（Blind）会导致船长 Q **丢失（Miss）**，包括连桶的引爆也会失败。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Shen",
+    "enemy": "TwistedFate",
+    "mutual": true,
+    "content": "⚠️ **技能判定修正**：崔斯特（卡牌）的 W（选牌）扔出的牌被视为**强化普攻**。慎的 W 和贾克斯的 E 可以**完全格挡**黄牌的眩晕和伤害。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Vayne",
+    "enemy": "Alistar",
+    "mutual": true,
+    "content": "⚠️ **数值机制修正**：薇恩的 W（圣银弩箭）造成的是**真实伤害**，**无视所有减伤效果**（如牛头R、虚弱）。请勿建议用减伤技能来抗薇恩。",
+    "type": "RULE"
+  },
+  {
+    "hero": "MasterYi",
+    "enemy": "Warwick",
+    "mutual": true,
+    "content": "⚠️ **数值机制修正**：易大师的 E（无极剑道）造成的是**真实伤害**。沃里克的 E（减伤）**无法减少**这部分伤害。",
+    "type": "RULE"
+  },
+  {
+    "hero": "general",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **属性机制修正**：**韧性（Tenacity）**仅能减少眩晕、禁锢、沉默等效果的时间，**无法减少击飞、击退（Airborne）**的持续时间。水银之靴对石头人R、亚索Q无效。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Garen",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **状态机制修正**：**沉默（Silence）**状态下，玩家**无法使用主动装备**（如中亚沙漏、闪现）。严禁建议在被沉默时“开金身规避伤害”。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Camille",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **位移机制修正**：卡蜜尔的大招【海克斯最后通牒】一旦锁定，目标**无法以任何手段离开区域**（包括闪现、传送、瑞兹R）。位移技能会被强制弹回。",
+    "type": "RULE"
+  },
+  {
+    "hero": "MasterYi",
+    "enemy": "Nasus",
+    "mutual": true,
+    "content": "⚠️ **免疫机制修正**：易大师的大招【高原血统】免疫所有**移速减缓**和**攻速减缓**。狗头的 W（枯萎）对开大剑圣**完全无效**。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Sivir",
+    "enemy": "Morgana",
+    "mutual": true,
+    "content": "⚠️ **交互机制修正**：法术护盾（希维尔 E、夜之锋刃）**不会触发**于持续性的地板伤害技能（如莫甘娜 W）。走进去不会破盾也不会回蓝，只会白白掉血。",
+    "type": "RULE"
+  },
+  {
+    "hero": "Warwick",
+    "enemy": "general",
+    "mutual": true,
+    "content": "⚠️ **免疫机制修正**：沃里克的 Q（野兽之口）在**长按**时，会使他免疫**位移效果**。利用这一机制可以顶掉击飞或强制位移技能。",
+    "type": "RULE"
+  }
+]

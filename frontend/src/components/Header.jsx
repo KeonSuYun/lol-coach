@@ -32,17 +32,17 @@ const Header = ({
   const r1Limit = accountInfo?.r1_limit || 10;
 
   return (
-    // 恢复了你原始的容器结构，去掉了我添加的背景、阴影和粘性定位
-    <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-slate-800/60 pb-6">
+    // 📱 容器调整：减小移动端底部 padding (pb-4)
+    <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8 border-b border-slate-800/60 pb-4 md:pb-6">
       
       {/* ================= 左侧 Logo & 状态区域 ================= */}
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-4">
-                {/* 🌀 Logo 图标 */}
-                <HexCoreIcon className="w-16 h-16 shrink-0 filter drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]" />
+                {/* 🌀 Logo 图标 (📱 移动端缩小为 w-12 h-12) */}
+                <HexCoreIcon className="w-12 h-12 md:w-16 md:h-16 shrink-0 filter drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]" />
                 
-                {/* 🏆 标题区域 (保持高级版) */}
-                <div className="flex flex-col justify-center select-none group">
+                {/* 🏆 标题区域 (📱 移动端隐藏文字，只留 Logo) */}
+                <div className="hidden md:flex flex-col justify-center select-none group">
                     <h1 className="text-3xl md:text-4xl font-black italic tracking-wide leading-none flex items-center gap-1.5 filter drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-200 pr-1">
                             海克斯
@@ -61,8 +61,8 @@ const Header = ({
                 </div>
             </div>
 
-            {/* 🔌 状态指示器 & 功能区 (新设计按钮) */}
-            <div className="flex items-center gap-3 pl-1 mt-2">
+            {/* 🔌 状态指示器 (📱 移动端隐藏 LCU 状态，因为无法连接) */}
+            <div className="hidden md:flex items-center gap-3 pl-1 mt-2">
                 {/* 连接状态 - 胶囊风格 */}
                 <div className={`
                     relative flex items-center gap-2 px-3 py-1 rounded-full border transition-all duration-500 overflow-hidden
@@ -77,7 +77,7 @@ const Header = ({
                     </span>
                 </div>
 
-                {/* 下载助手 - 圆润风格 */}
+                {/* 下载助手 */}
                 {lcuStatus !== 'connected' && (
                     <a 
                         href="/download/DeepCoach-Helper.exe" 
@@ -95,17 +95,20 @@ const Header = ({
             </div>
         </div>
       
-      {/* ================= 右侧功能区 (保留功能，更新按钮样式) ================= */}
-      <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
+      {/* ================= 右侧功能区 (📱 移动端布局优化) ================= */}
+      {/* 1. flex-row flex-wrap: 移动端横向排列并自动换行
+          2. justify-between: 移动端尽量撑满宽度
+      */}
+      <div className="flex flex-row flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3 w-full md:w-auto">
 
-          {/* 1. 段位选择器 (更新为圆角样式) */}
+          {/* 1. 段位选择器 */}
           <div className="flex flex-col items-start gap-1">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-full hover:border-slate-500 transition-colors">
                 <Trophy size={14} className="text-yellow-500" />
                 <select 
                     value={userRank} 
                     onChange={(e) => setUserRank(e.target.value)}
-                    className="bg-transparent text-xs text-slate-200 outline-none border-none font-bold cursor-pointer min-w-[100px]"
+                    className="bg-transparent text-xs text-slate-200 outline-none border-none font-bold cursor-pointer min-w-[80px] md:min-w-[100px]"
                     title="选择你的段位，AI将根据段位调整推荐算法"
                 >
                     {RANKS.map(r => (
@@ -121,7 +124,7 @@ const Header = ({
           {isPro ? (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-yellow-500/10 to-amber-600/10 border border-yellow-500/30 text-yellow-400 text-xs font-bold rounded-lg shadow-[0_0_10px_rgba(234,179,8,0.1)]">
                   <Crown size={12} className="fill-current" />
-                  <span>PRO MEMBER</span>
+                  <span>PRO</span>
               </div>
           ) : (
               currentUser && (
@@ -130,12 +133,12 @@ const Header = ({
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-600/20 border border-amber-500/50 hover:border-amber-400 text-amber-400 text-xs font-bold rounded-lg transition-all group"
                   >
                       <Diamond size={12} className="group-hover:animate-pulse" />
-                      <span>升级 Pro</span>
+                      <span>升级</span>
                   </button>
               )
           )}
 
-          {/* 3. 模型切换 (更新为圆角风格) */}
+          {/* 3. 模型切换 */}
           <div className="flex p-1 bg-slate-950 rounded-lg border border-slate-800">
               <button 
                   onClick={() => setUseThinkingModel(false)}
@@ -164,12 +167,13 @@ const Header = ({
               </button>
           </div>
 
-          {/* 4. 用户信息 & 登录登出 (更新为圆角风格) */}
+          {/* 4. 用户信息 & 登录登出 */}
           {currentUser ? (
-              <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 rounded-full px-3 py-2">
+              <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 rounded-full px-3 py-2 ml-auto md:ml-0">
                   <span className={`flex items-center gap-1.5 ${isPro ? 'text-yellow-400 font-bold' : 'text-slate-300'}`}>
                       <User size={14} className={isPro ? "fill-current" : ""}/> 
-                      {currentUser}
+                      {/* 📱 移动端如果名字太长可以考虑截断，这里保持原样 */}
+                      <span className="max-w-[80px] md:max-w-none truncate">{currentUser}</span>
                   </span>
                   <div className="w-px h-3 bg-slate-700 mx-1"></div>
                   <button onClick={logout} className="text-red-400 hover:text-red-300 flex items-center gap-1" title="登出">
@@ -181,7 +185,7 @@ const Header = ({
                   onClick={() => setShowLoginModal(true)} 
                   className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white text-xs font-bold rounded-full border border-blue-400/20 shadow-lg shadow-blue-900/20 transition-all hover:scale-105"
               >
-                  登录 / 注册
+                  登录
               </button>
           )}
       </div>
