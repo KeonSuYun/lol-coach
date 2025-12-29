@@ -1,4 +1,4 @@
-import React from 'react'; // 移除 useState, 使用 props 控制
+import React from 'react'; 
 import { Search, ChevronRight, Swords, Brain } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL } from '../config/constants';
@@ -22,22 +22,19 @@ export default function AnalysisButton({
 
         if (isAnalyzing) return;
         setLoading(true);
-        onResult(""); // 清空旧结果
+        onResult(""); 
 
-        // 🟢 补全：获取 Token (从本地存储)
         const token = localStorage.getItem("access_token");
 
         try {
-            // 构造请求 Payload
             const payload = {
                 hero_name: selectedHero.name,
                 hero_key: selectedHero.key,
-                lane: userRole || 'MID', // 优先使用传入的角色
+                lane: userRole || 'MID', 
                 user_id: currentUser || "guest",
-                model_type: "reasoner" // 默认开启深度思考
+                model_type: "reasoner" 
             };
 
-            // 🟢 补全：使用 fetch 替代 axios 以支持流式读取 (Stream)
             const response = await fetch(`${API_BASE_URL}/analyze`, {
                 method: 'POST',
                 headers: {
@@ -52,7 +49,6 @@ export default function AnalysisButton({
                 throw new Error(errData.detail || `请求失败: ${response.status}`);
             }
 
-            // 🟢 补全：流式解码器逻辑 (这就是“少的 10 行”)
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");
             let done = false;
@@ -64,7 +60,6 @@ export default function AnalysisButton({
                 if (value) {
                     const chunk = decoder.decode(value, { stream: true });
                     accumulatedText += chunk;
-                    // 实时回调，实现打字机效果
                     onResult(accumulatedText);
                 }
             }
@@ -75,7 +70,6 @@ export default function AnalysisButton({
             console.error("Analysis failed:", error);
             const errMsg = error.message || "服务连接失败";
             toast.error(errMsg);
-            // 发生错误时，将错误信息写在结果里，方便用户看到
             onResult(prev => prev ? prev + `\n\n❌ **中断**: ${errMsg}` : `❌ **分析失败**: ${errMsg}`);
         } finally {
             setLoading(false);
@@ -83,8 +77,8 @@ export default function AnalysisButton({
     };
 
     return (
-        // mb-8: 防止红色提示文字被下方的 Tab 栏遮挡
-        <div className="w-full max-w-xl mx-auto relative group z-20 mb-8">
+        // 🟢 调整 1：mb-10 (增加底部间距，给跳动的文字留出空间)
+        <div className="w-full max-w-xl mx-auto relative group z-20 mb-6">
             
             {/* 背景光晕 */}
             <div className={`absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000 ${isAnalyzing ? 'animate-pulse opacity-50' : ''}`}></div>
@@ -165,9 +159,10 @@ export default function AnalysisButton({
             
             {/* 底部小字提示 */}
             {!selectedHero && (
-                <div className="absolute -bottom-7 left-0 w-full text-center z-10">
-                    <span className="text-[10px] text-red-400 flex items-center justify-center gap-1 animate-bounce bg-[#050505]/80 backdrop-blur px-2 py-0.5 rounded-full border border-red-900/30 inline-block shadow-sm">
-                        <Swords size={10}/> 请先点击左侧选择你的英雄
+                // 🟢 调整 2：位置下移 (-bottom-10)，去除背景色和边框，只留红色发光文字
+                <div className="absolute -bottom-8 left-0 w-full text-center z-10">
+                    <span className="text-[10px] text-red-500 font-bold tracking-wider flex items-center justify-center gap-1 animate-bounce drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+                        <Swords size={12}/> 请先点击左侧选择你的英雄
                     </span>
                 </div>
             )}
