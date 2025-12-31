@@ -3,7 +3,7 @@ import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from '../config/constants';
 
-// ... (loadState 和其他辅助函数保持不变)
+// 辅助：加载本地缓存
 const loadState = (key, defaultVal) => {
     try {
         const saved = localStorage.getItem(key);
@@ -12,7 +12,7 @@ const loadState = (key, defaultVal) => {
 };
 
 export function useGameCore() {
-    // ... (状态定义保持不变)
+    // ================= 1. 基础状态定义 =================
     const [version, setVersion] = useState("V15.2");
     const [championList, setChampionList] = useState([]);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -68,7 +68,7 @@ export function useGameCore() {
     const analyzeTypeRef = useRef(analyzeType);
     useEffect(() => { analyzeTypeRef.current = analyzeType; }, [analyzeType]);
 
-    // ... (攻略与社区状态保持不变)
+    // 攻略与社区
     const [tipTarget, setTipTarget] = useState(null);
     const [tips, setTips] = useState({ general: [], matchup: [] });
     const [inputContent, setInputContent] = useState("");
@@ -86,58 +86,64 @@ export function useGameCore() {
     const [authForm, setAuthForm] = useState({ username: "", password: "" });
     const [rawLcuData, setRawLcuData] = useState(null);
 
-    // ... (useEffect hook for shortcuts and persistence 保持不变)
+    // ================= 2. Electron IPC (核心通信逻辑) =================
     useEffect(() => {
         if (window.require) {
             try {
                 const { ipcRenderer } = window.require('electron');
-
-                // --- A. 初始化：获取保存的快捷键设置 ---
+                
+                // 1. 获取初始快捷键
                 ipcRenderer.invoke('get-shortcuts').then(saved => {
                     if (saved) setCurrentShortcuts(saved);
                 });
 
-                // --- B. 🔥 [新增] 核心修改：监听 LCU 数据更新 ---
-                // 当 lcu.js 抓取到阵容或技能信息后，会通过这个频道发过来
-                const handleLcuData = (event, data) => {
-                    if (data) {
-                        // 将数据存入 RawLcuData，这会触发另一个 useEffect 去提取 extraMechanics
-                        setRawLcuData(data); 
-                    }
-                };
-                ipcRenderer.on('lcu-update', handleLcuData); // 绑定监听
-
-                // --- C. 监听键盘指令 (F2/F3/F5 等) ---
+                // 2. 监听快捷键命令 (来自 main.js 的转发)
                 const handleCommand = (event, command) => {
-                    // 切换功能 Tab
+                    console.log("[IPC] Shortcut:", command);
                     if (command === 'tab_bp') handleTabClick('bp');
                     if (command === 'tab_personal') handleTabClick('personal');
                     if (command === 'tab_team') handleTabClick('team');
                     
-                    // 左右翻页
+                    // 翻页控制 (对应 F3 / F4)
                     if (command === 'nav_next') setActiveTab(prev => prev + 1);
                     if (command === 'nav_prev') setActiveTab(prev => Math.max(0, prev - 1));
                     
-                    // F5 刷新分析
+                    // 刷新/重新分析 (对应 F5)
                     if (command === 'refresh') {
                         handleAnalyze(analyzeTypeRef.current, true);
                     }
-                    
-                    // 发送聊天 (如果有)
                     if (command === 'send_chat') setSendChatTrigger(prev => prev + 1);
                 };
-                ipcRenderer.on('shortcut-triggered', handleCommand);
 
-                // --- D. 组件卸载时清理监听 (防止内存泄漏) ---
+                // 3. 监听 LCU 数据更新 (替代 WebSocket)
+                const handleElectronLcuUpdate = (event, data) => {
+                    // Electron 传来的 data 格式为 { myTeam: [...], enemyTeam: [...] }
+                    // 我们需要将其适配为 handleLcuUpdate 能识别的 session 格式
+                    if (data && championList.length > 0) {
+                        // 构造临时 session 对象
+                        const adaptedSession = {
+                            myTeam: data.myTeam || [],
+                            theirTeam: data.enemyTeam || [],
+                            // 注意：Electron 版 lcu.js 可能未传 localPlayerCellId，如需自动定位用户位置需修改 lcu.js
+                            localPlayerCellId: data.localPlayerCellId || -1 
+                        };
+                        handleLcuUpdate(adaptedSession);
+                        setLcuStatus("connected");
+                    }
+                };
+
+                ipcRenderer.on('shortcut-triggered', handleCommand);
+                ipcRenderer.on('lcu-update', handleElectronLcuUpdate);
+                
                 return () => {
                     ipcRenderer.removeListener('shortcut-triggered', handleCommand);
-                    ipcRenderer.removeListener('lcu-update', handleLcuData); // 🔥 记得解绑这个新事件
+                    ipcRenderer.removeListener('lcu-update', handleElectronLcuUpdate);
                 };
             } catch (e) {
-                console.error("IPC Error:", e);
+                console.error("Electron IPC init failed:", e);
             }
         }
-    }, []);
+    }, [championList, activeTab]); // 依赖项：确保 handleLcuUpdate 能访问到最新的 championList
 
     const handleSaveShortcuts = (newShortcuts) => {
         setCurrentShortcuts(newShortcuts);
@@ -147,7 +153,7 @@ export function useGameCore() {
         }
     };
 
-    // ... (数据持久化 useEffect 保持不变)
+    // ================= 3. 数据持久化 & 初始化 =================
     useEffect(() => { localStorage.setItem('blueTeam', JSON.stringify(blueTeam)); }, [blueTeam]);
     useEffect(() => { localStorage.setItem('redTeam', JSON.stringify(redTeam)); }, [redTeam]);
     useEffect(() => { localStorage.setItem('myTeamRoles', JSON.stringify(myTeamRoles)); }, [myTeamRoles]);
@@ -159,7 +165,6 @@ export function useGameCore() {
     useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
     useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
 
-    // ... (Init Data useEffect 保持不变)
     useEffect(() => {
         axios.get(`${API_BASE_URL}/champions/roles`)
             .then(res => setRoleMapping(res.data))
@@ -203,9 +208,13 @@ export function useGameCore() {
     };
     useEffect(() => { if (token) fetchUserInfo(); else setAccountInfo(null); }, [token]);
 
-    // ... (WebSocket & LCU 逻辑保持不变)
+    // ================= 4. WebSocket (Web 端兼容) & 结果广播 =================
     const wsRef = useRef(null);
+
+    // 连接 Bridge 并接收消息 (非 Electron 环境使用)
     useEffect(() => {
+        if (window.require) return; // 如果在 Electron 中，跳过 WebSocket 连接，直接走 IPC
+
         let ws; let timer;
         const connect = () => {
             ws = new WebSocket(BRIDGE_WS_URL);
@@ -235,64 +244,88 @@ export function useGameCore() {
         return () => { if(ws) ws.close(); clearTimeout(timer); };
     }, []);
 
+    // 🔥 核心：当分析结果变化时，广播给 Electron 或 WebSocket
     useEffect(() => {
+        // 1. WebSocket 广播 (Web 模式)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && aiResults) {
             wsRef.current.send(JSON.stringify({
                 type: "SYNC_AI_RESULT",
-                data: {
+                data: { results: aiResults, currentMode: analyzeType }
+            }));
+        }
+
+        // 2. Electron IPC 广播 (本地应用模式)
+        if (window.require && aiResults) {
+            try {
+                const { ipcRenderer } = window.require('electron');
+                ipcRenderer.send('analysis-result', {
                     results: aiResults,
                     currentMode: analyzeType
-                }
-            }));
+                });
+            } catch (e) {}
         }
     }, [aiResults, analyzeType]);
 
     useEffect(() => { if (rawLcuData && championList.length > 0) handleLcuUpdate(rawLcuData); }, [rawLcuData, championList]);
 
-    // ... (handleLcuUpdate, guessRoles, useEffects 保持不变)
+    // LCU 数据处理逻辑
     const handleLcuUpdate = (session) => {
         if (!session || championList.length === 0) return;
-
-        // 🔥 [新增] 如果数据包里有技能信息，存起来！
-        if (session.extraMechanics) {
-            setExtraMechanics(session.extraMechanics);
-        }
+        
+        // 映射队伍 ID 到英雄对象
         const mapTeam = (teamArr) => {
             const result = Array(5).fill(null);
             teamArr.forEach(p => {
-                const idx = p.cellId % 5;
-                if (p.championId && p.championId !== 0) {
+                // Electron 传来的 cellId 可能不规范，如果数据源直接是 index 也兼容
+                const idx = (p.cellId !== undefined) ? p.cellId % 5 : -1; 
+                // 如果 idx 无效（如 -1），说明可能需要另一种方式映射，这里暂按 cellId 处理
+                
+                if (p.championId && p.championId !== 0 && idx >= 0 && idx < 5) {
                     const hero = championList.find(c => c.id == p.championId);
                     if (hero) result[idx] = hero;
                 }
             });
             return result;
         };
-        const newBlue = mapTeam(session.myTeam);
-        const newRed = mapTeam(session.theirTeam);
-        if (newBlue.some(c => c !== null) || newRed.some(c => c !== null)) { setBlueTeam(newBlue); setRedTeam(newRed); }
 
-        const roles = Array(5).fill("");
-        const lcuRoleMap = { "TOP": "TOP", "JUNGLE": "JUNGLE", "MIDDLE": "MID", "BOTTOM": "ADC", "UTILITY": "SUPPORT" };
-        session.myTeam.forEach(p => {
-            const idx = p.cellId % 5;
-            const rawRole = p.assignedPosition?.toUpperCase();
-            if (rawRole && lcuRoleMap[rawRole]) roles[idx] = lcuRoleMap[rawRole];
-        });
-        if (roles.some(r => r !== "")) setMyTeamRoles(roles);
+        // 如果 session.myTeam 是数组，直接处理
+        if (Array.isArray(session.myTeam)) {
+            const newBlue = mapTeam(session.myTeam);
+            // 这里假设 enemyTeam 也是类似结构
+            const enemyArr = session.theirTeam || session.enemyTeam || []; // 兼容不同命名
+            const newRed = mapTeam(enemyArr);
+            
+            if (newBlue.some(c => c !== null) || newRed.some(c => c !== null)) { 
+                setBlueTeam(newBlue); 
+                setRedTeam(newRed); 
+            }
 
-        const localPlayer = session.myTeam.find(p => p.cellId === session.localPlayerCellId);
-        if (localPlayer) {
-            setUserSlot(localPlayer.cellId % 5);
-            const assigned = localPlayer.assignedPosition?.toUpperCase();
-            if (assigned && lcuRoleMap[assigned]) {
-                const standardRole = lcuRoleMap[assigned];
-                setUserRole(standardRole);
-                setLcuRealRole(standardRole);
+            const roles = Array(5).fill("");
+            const lcuRoleMap = { "TOP": "TOP", "JUNGLE": "JUNGLE", "MIDDLE": "MID", "BOTTOM": "ADC", "UTILITY": "SUPPORT" };
+            session.myTeam.forEach(p => {
+                const idx = p.cellId % 5;
+                const rawRole = p.assignedPosition?.toUpperCase();
+                if (rawRole && lcuRoleMap[rawRole] && idx >= 0) roles[idx] = lcuRoleMap[rawRole];
+            });
+            if (roles.some(r => r !== "")) setMyTeamRoles(roles);
+
+            // 尝试定位自己
+            if (session.localPlayerCellId !== undefined) {
+                const localPlayer = session.myTeam.find(p => p.cellId === session.localPlayerCellId);
+                if (localPlayer) {
+                    setUserSlot(localPlayer.cellId % 5);
+                    const assigned = localPlayer.assignedPosition?.toUpperCase();
+                    if (assigned && lcuRoleMap[assigned]) {
+                        const standardRole = lcuRoleMap[assigned];
+                        setUserRole(standardRole);
+                        setLcuRealRole(standardRole);
+                    }
+                }
             }
         }
     };
 
+    // 智能分路推断
     const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
     const guessRoles = (team) => {
         const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
@@ -354,7 +387,8 @@ export function useGameCore() {
         }
     }, [redTeam, roleMapping]);
 
-    // ... (其他 handlers 保持不变)
+    // ================= 5. 业务操作实现 =================
+
     const handleLogin = async () => {
         try {
             const formData = new FormData(); formData.append("username", authForm.username); formData.append("password", authForm.password);
@@ -419,14 +453,11 @@ export function useGameCore() {
         try { await authAxios.post(`/feedback`, { match_context: { myHero: blueTeam[userSlot]?.name, mode: analyzeType }, description: inputContent }); alert("反馈已提交"); setShowFeedbackModal(false); setInputContent(""); } catch (e) {}
     };
 
-    // ================== 修改的部分 ==================
-    // 移除 handleAnalyze 调用，只负责切换 Tab 状态
     const handleTabClick = (mode) => {
         setAnalyzeType(mode);
         setActiveTab(0);
-        // 原先这里会自动调用 handleAnalyze(mode)，现在移除了
+        if (!aiResults[mode] && !analyzingStatus[mode]) handleAnalyze(mode);
     };
-    // ===============================================
 
     const handleCardClick = (idx, isEnemy) => {
         setSelectingSlot(idx);
@@ -452,7 +483,7 @@ export function useGameCore() {
         ['blueTeam','redTeam','myTeamRoles','enemyLaneAssignments','myLaneAssignments','aiResults'].forEach(k => localStorage.removeItem(k));
     };
 
-    // handleAnalyze 保持不变，它已经支持 forceRestart 逻辑，只是之前没被 AnalysisButton 正确调用
+    // 核心分析逻辑 (包含流式读取和广播)
     const handleAnalyze = async (mode, forceRestart = false) => {
         if (!token) { setAuthMode('login'); setShowLoginModal(true); return; }
         if (analyzingStatus[mode] && !forceRestart) return;
@@ -461,7 +492,7 @@ export function useGameCore() {
         const newController = new AbortController(); abortControllersRef.current[mode] = newController;
 
         setAnalyzingStatus(prev => ({ ...prev, [mode]: true }));
-        setAiResults(prev => ({ ...prev, [mode]: null })); // 清空结果，触发 UI 刷新
+        setAiResults(prev => ({ ...prev, [mode]: null })); // 🔥 这里更新 state 会自动触发 useEffect 广播 "空" 状态
 
         const payloadAssignments = {};
         blueTeam.forEach((hero, idx) => {
@@ -493,7 +524,6 @@ export function useGameCore() {
                 enemyTeam: redTeam.map(c => c?.key || ""),
                 userRole: finalUserRole,
                 rank: userRank,
-                extraMechanics: extraMechanics,
                 myLaneAssignments: Object.keys(payloadAssignments).length > 0 ? payloadAssignments : null,
                 enemyLaneAssignments: (() => {
                     const clean = {};
@@ -525,7 +555,7 @@ export function useGameCore() {
                 if (value) {
                     const chunk = decoder.decode(value, { stream: true });
                     accumulatedText += chunk;
-                    setAiResults(prev => ({ ...prev, [mode]: accumulatedText }));
+                    setAiResults(prev => ({ ...prev, [mode]: accumulatedText })); // 🔥 关键：每次流更新，都会触发 useEffect 广播
                 }
             }
         } catch (error) {

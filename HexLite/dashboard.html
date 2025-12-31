@@ -65,23 +65,31 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         .controls {
-            margin-top: 40px; display: flex; gap: 10px;
+            margin-top: 40px; display: flex; gap: 8px;
             -webkit-app-region: no-drag; /* 按钮区域不可拖动 */
         }
         
         button {
             background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-            color: #888; padding: 6px 14px; border-radius: 4px; font-size: 11px;
+            color: #888; padding: 6px 12px; border-radius: 4px; font-size: 11px;
             cursor: pointer; transition: all 0.2s;
+            outline: none;
         }
         button:hover { border-color: #C8AA6E; color: #C8AA6E; }
         
-        /* 快捷键提示按钮样式 */
+        /* 快捷键提示按钮样式 (不可点击) */
         .shortcut-tip {
             cursor: default; 
             border-color: #0AC8B9 !important; 
             color: #0AC8B9 !important;
             background: rgba(10, 200, 185, 0.1) !important;
+        }
+
+        /* 退出按钮特有样式 */
+        .btn-close:hover {
+            border-color: #ff4d4d; 
+            color: #ff4d4d; 
+            background: rgba(255, 77, 77, 0.1);
         }
     </style>
 </head>
@@ -98,14 +106,15 @@
     <div class="status-text" id="status">WAITING FOR CLIENT...</div>
 
     <div class="controls">
-        <button class="shortcut-tip">快捷键: Alt + X</button>
+        <button class="shortcut-tip">F2: 开关界面</button>
         <button onclick="window.electron.minimize()">最小化</button>
+        <button class="btn-close" onclick="window.electron.close()">退出</button>
     </div>
 
     <script>
         const { ipcRenderer } = require('electron');
         
-        // 监听连接状态
+        // 监听 LCU 连接状态 (来自 main.js)
         ipcRenderer.on('lcu-status', (e, status) => {
             const body = document.body;
             const text = document.getElementById('status');
@@ -114,18 +123,26 @@
             if (status === 'connected') {
                 body.classList.add('connected');
                 text.innerText = "SYSTEM ONLINE";
-                // 切换为勾选图标
+                // 切换为绿色勾选图标
                 indicator.innerHTML = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#0AC8B9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
             } else {
                 body.classList.remove('connected');
                 text.innerText = "WAITING FOR CLIENT...";
+                // 切换为灰色等待箭头
                 indicator.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
             }
         });
 
-        // 简单的 IPC 桥接
+        // 可选：监听分析结果并显示日志 (如果在 main.js 中开启了转发)
+        ipcRenderer.on('sync-analysis', (e, result) => {
+            console.log("Analysis synced:", result);
+            // 这里可以添加逻辑让圆环闪烁一下，表示数据已处理
+        });
+
+        // 绑定按钮事件到 Electron IPC
         window.electron = {
-            minimize: () => ipcRenderer.send('minimize-app')
+            minimize: () => ipcRenderer.send('minimize-app'),
+            close: () => ipcRenderer.send('close-app')
         };
     </script>
 </body>
