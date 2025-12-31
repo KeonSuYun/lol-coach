@@ -3,7 +3,7 @@ import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from '../config/constants';
 
-// 辅助：加载本地缓存
+// ... (loadState 和其他辅助函数保持不变)
 const loadState = (key, defaultVal) => {
     try {
         const saved = localStorage.getItem(key);
@@ -12,7 +12,7 @@ const loadState = (key, defaultVal) => {
 };
 
 export function useGameCore() {
-    // ================= 1. 基础状态定义 =================
+    // ... (状态定义保持不变)
     const [version, setVersion] = useState("V15.2");
     const [championList, setChampionList] = useState([]);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -68,7 +68,7 @@ export function useGameCore() {
     const analyzeTypeRef = useRef(analyzeType);
     useEffect(() => { analyzeTypeRef.current = analyzeType; }, [analyzeType]);
 
-    // 攻略与社区
+    // ... (攻略与社区状态保持不变)
     const [tipTarget, setTipTarget] = useState(null);
     const [tips, setTips] = useState({ general: [], matchup: [] });
     const [inputContent, setInputContent] = useState("");
@@ -86,28 +86,56 @@ export function useGameCore() {
     const [authForm, setAuthForm] = useState({ username: "", password: "" });
     const [rawLcuData, setRawLcuData] = useState(null);
 
-    // ================= 2. Electron IPC (快捷键) =================
+    // ... (useEffect hook for shortcuts and persistence 保持不变)
     useEffect(() => {
         if (window.require) {
             try {
                 const { ipcRenderer } = window.require('electron');
+
+                // --- A. 初始化：获取保存的快捷键设置 ---
                 ipcRenderer.invoke('get-shortcuts').then(saved => {
                     if (saved) setCurrentShortcuts(saved);
                 });
+
+                // --- B. 🔥 [新增] 核心修改：监听 LCU 数据更新 ---
+                // 当 lcu.js 抓取到阵容或技能信息后，会通过这个频道发过来
+                const handleLcuData = (event, data) => {
+                    if (data) {
+                        // 将数据存入 RawLcuData，这会触发另一个 useEffect 去提取 extraMechanics
+                        setRawLcuData(data); 
+                    }
+                };
+                ipcRenderer.on('lcu-update', handleLcuData); // 绑定监听
+
+                // --- C. 监听键盘指令 (F2/F3/F5 等) ---
                 const handleCommand = (event, command) => {
+                    // 切换功能 Tab
                     if (command === 'tab_bp') handleTabClick('bp');
                     if (command === 'tab_personal') handleTabClick('personal');
                     if (command === 'tab_team') handleTabClick('team');
+                    
+                    // 左右翻页
                     if (command === 'nav_next') setActiveTab(prev => prev + 1);
                     if (command === 'nav_prev') setActiveTab(prev => Math.max(0, prev - 1));
+                    
+                    // F5 刷新分析
                     if (command === 'refresh') {
                         handleAnalyze(analyzeTypeRef.current, true);
                     }
+                    
+                    // 发送聊天 (如果有)
                     if (command === 'send_chat') setSendChatTrigger(prev => prev + 1);
                 };
                 ipcRenderer.on('shortcut-triggered', handleCommand);
-                return () => ipcRenderer.removeListener('shortcut-triggered', handleCommand);
-            } catch (e) {}
+
+                // --- D. 组件卸载时清理监听 (防止内存泄漏) ---
+                return () => {
+                    ipcRenderer.removeListener('shortcut-triggered', handleCommand);
+                    ipcRenderer.removeListener('lcu-update', handleLcuData); // 🔥 记得解绑这个新事件
+                };
+            } catch (e) {
+                console.error("IPC Error:", e);
+            }
         }
     }, []);
 
@@ -119,7 +147,7 @@ export function useGameCore() {
         }
     };
 
-    // ================= 3. 数据持久化 & 初始化 =================
+    // ... (数据持久化 useEffect 保持不变)
     useEffect(() => { localStorage.setItem('blueTeam', JSON.stringify(blueTeam)); }, [blueTeam]);
     useEffect(() => { localStorage.setItem('redTeam', JSON.stringify(redTeam)); }, [redTeam]);
     useEffect(() => { localStorage.setItem('myTeamRoles', JSON.stringify(myTeamRoles)); }, [myTeamRoles]);
@@ -131,6 +159,7 @@ export function useGameCore() {
     useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
     useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
 
+    // ... (Init Data useEffect 保持不变)
     useEffect(() => {
         axios.get(`${API_BASE_URL}/champions/roles`)
             .then(res => setRoleMapping(res.data))
@@ -174,10 +203,8 @@ export function useGameCore() {
     };
     useEffect(() => { if (token) fetchUserInfo(); else setAccountInfo(null); }, [token]);
 
-    // ================= 4. WebSocket & LCU 处理逻辑 =================
+    // ... (WebSocket & LCU 逻辑保持不变)
     const wsRef = useRef(null);
-
-    // 连接 Bridge 并接收消息
     useEffect(() => {
         let ws; let timer;
         const connect = () => {
@@ -208,7 +235,6 @@ export function useGameCore() {
         return () => { if(ws) ws.close(); clearTimeout(timer); };
     }, []);
 
-    // 🔥 核心：当分析结果变化时，广播给悬浮窗 (Overlay)
     useEffect(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && aiResults) {
             wsRef.current.send(JSON.stringify({
@@ -223,9 +249,14 @@ export function useGameCore() {
 
     useEffect(() => { if (rawLcuData && championList.length > 0) handleLcuUpdate(rawLcuData); }, [rawLcuData, championList]);
 
-    // LCU 数据处理逻辑
+    // ... (handleLcuUpdate, guessRoles, useEffects 保持不变)
     const handleLcuUpdate = (session) => {
         if (!session || championList.length === 0) return;
+
+        // 🔥 [新增] 如果数据包里有技能信息，存起来！
+        if (session.extraMechanics) {
+            setExtraMechanics(session.extraMechanics);
+        }
         const mapTeam = (teamArr) => {
             const result = Array(5).fill(null);
             teamArr.forEach(p => {
@@ -262,7 +293,6 @@ export function useGameCore() {
         }
     };
 
-    // 智能分路推断
     const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
     const guessRoles = (team) => {
         const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
@@ -324,8 +354,7 @@ export function useGameCore() {
         }
     }, [redTeam, roleMapping]);
 
-    // ================= 5. 业务操作实现 =================
-
+    // ... (其他 handlers 保持不变)
     const handleLogin = async () => {
         try {
             const formData = new FormData(); formData.append("username", authForm.username); formData.append("password", authForm.password);
@@ -390,11 +419,14 @@ export function useGameCore() {
         try { await authAxios.post(`/feedback`, { match_context: { myHero: blueTeam[userSlot]?.name, mode: analyzeType }, description: inputContent }); alert("反馈已提交"); setShowFeedbackModal(false); setInputContent(""); } catch (e) {}
     };
 
+    // ================== 修改的部分 ==================
+    // 移除 handleAnalyze 调用，只负责切换 Tab 状态
     const handleTabClick = (mode) => {
         setAnalyzeType(mode);
         setActiveTab(0);
-        if (!aiResults[mode] && !analyzingStatus[mode]) handleAnalyze(mode);
+        // 原先这里会自动调用 handleAnalyze(mode)，现在移除了
     };
+    // ===============================================
 
     const handleCardClick = (idx, isEnemy) => {
         setSelectingSlot(idx);
@@ -420,7 +452,7 @@ export function useGameCore() {
         ['blueTeam','redTeam','myTeamRoles','enemyLaneAssignments','myLaneAssignments','aiResults'].forEach(k => localStorage.removeItem(k));
     };
 
-    // 核心分析逻辑 (包含流式读取和广播)
+    // handleAnalyze 保持不变，它已经支持 forceRestart 逻辑，只是之前没被 AnalysisButton 正确调用
     const handleAnalyze = async (mode, forceRestart = false) => {
         if (!token) { setAuthMode('login'); setShowLoginModal(true); return; }
         if (analyzingStatus[mode] && !forceRestart) return;
@@ -429,7 +461,7 @@ export function useGameCore() {
         const newController = new AbortController(); abortControllersRef.current[mode] = newController;
 
         setAnalyzingStatus(prev => ({ ...prev, [mode]: true }));
-        setAiResults(prev => ({ ...prev, [mode]: null })); // 🔥 这里更新 state 会自动触发 useEffect 广播 "空" 状态
+        setAiResults(prev => ({ ...prev, [mode]: null })); // 清空结果，触发 UI 刷新
 
         const payloadAssignments = {};
         blueTeam.forEach((hero, idx) => {
@@ -461,6 +493,7 @@ export function useGameCore() {
                 enemyTeam: redTeam.map(c => c?.key || ""),
                 userRole: finalUserRole,
                 rank: userRank,
+                extraMechanics: extraMechanics,
                 myLaneAssignments: Object.keys(payloadAssignments).length > 0 ? payloadAssignments : null,
                 enemyLaneAssignments: (() => {
                     const clean = {};
@@ -492,7 +525,7 @@ export function useGameCore() {
                 if (value) {
                     const chunk = decoder.decode(value, { stream: true });
                     accumulatedText += chunk;
-                    setAiResults(prev => ({ ...prev, [mode]: accumulatedText })); // 🔥 关键：每次流更新，都会触发 useEffect 广播
+                    setAiResults(prev => ({ ...prev, [mode]: accumulatedText }));
                 }
             }
         } catch (error) {

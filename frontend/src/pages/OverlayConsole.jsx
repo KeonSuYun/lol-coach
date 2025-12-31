@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Lock, Wifi, WifiOff, Activity, Keyboard } from 'lucide-react';
-// 🔴 修正点：路径改为 ../components/modals/SettingsModal
+import { Settings, Lock, Wifi, WifiOff, Activity, Keyboard, RotateCcw } from 'lucide-react';
 import SettingsModal from '../components/modals/SettingsModal'; 
 import AnalysisResult from '../components/AnalysisResult';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
 
 const OverlayConsole = () => {
     const [lcuStatus, setLcuStatus] = useState('disconnected');
@@ -30,14 +29,23 @@ const OverlayConsole = () => {
     }, []);
 
     const handleRegenerate = () => {
+        if (isAnalyzing) return;
         setIsAnalyzing(true);
         setAiResult(""); 
-        // 模拟请求...实际接你的API
+        
+        // 模拟请求...实际场景中你可能需要调用 useGameCore 的逻辑或者发送 IPC 消息给主窗口请求分析
+        // 这里保持原本的模拟逻辑，或者你可以对接真实的重新分析接口
         setTimeout(() => {
-            setAiResult(`{"concise":{"title":"重新分析完成","content":"当前局势建议：控线发育..."},"detailed_tabs":[{"title":"对线细节","content":"注意走位..."},{"title":"团战","content":"切后排..."}]}`);
+            setAiResult(`{"concise":{"title":"战术更新完成","content":"检测到局势变化，建议立即..."},"detailed_tabs":[{"title":"最新策略","content":"对方打野露头..."}]}`);
             setIsAnalyzing(false);
-        }, 1500);
+            toast.success("分析已刷新");
+        }, 1000);
     };
+
+    // 占位函数：防止点击 AnalysisResult 中的反馈按钮导致崩溃
+    // 悬浮窗通常只用于查看，反馈建议去主窗口
+    const handleFeedbackStub = () => toast("请在主窗口进行反馈操作", { icon: 'ℹ️' });
+    const handleSetContentStub = () => {}; 
 
     return (
         // 1. 外层容器全屏透明，不可点击 (pointer-events-none)
@@ -57,12 +65,18 @@ const OverlayConsole = () => {
                     <div className="flex items-center gap-2 no-drag">
                         {/* 快捷键提示条 */}
                         <div className="flex items-center gap-2 text-[9px] text-slate-500 bg-black/40 px-2 py-1 rounded border border-white/5">
-                            <span className="flex items-center gap-1"><Keyboard size={10}/> <span>{shortcutText} 开关</span></span>
-                            <span>|</span>
-                            <span>F3 上页</span>
-                            <span>|</span>
-                            <span>F4 下页</span>
+                            <span className="flex items-center gap-1"><Keyboard size={10}/> <span>{shortcutText}</span></span>
                         </div>
+
+                        {/* ✅ 新增：由于 AnalysisResult 移除了内部按钮，我们在 Header 这里补一个刷新按钮 */}
+                        <button 
+                            onClick={handleRegenerate} 
+                            disabled={isAnalyzing}
+                            className={`text-slate-500 hover:text-[#0AC8B9] transition-colors ${isAnalyzing ? 'animate-spin opacity-50' : ''}`}
+                            title="重新分析"
+                        >
+                            <RotateCcw size={14} />
+                        </button>
 
                         <button onClick={() => setIsSettingsOpen(true)} className="text-slate-500 hover:text-[#C8AA6E] transition-colors">
                             <Settings size={14} />
@@ -75,7 +89,10 @@ const OverlayConsole = () => {
                     <AnalysisResult 
                         aiResult={aiResult}
                         isAnalyzing={isAnalyzing}
-                        handleRegenerate={handleRegenerate}
+                        setShowFeedbackModal={handleFeedbackStub}
+                        setFeedbackContent={handleSetContentStub}
+                        // 悬浮窗暂时不处理发送到聊天框的快捷键触发，传 0 即可
+                        sendChatTrigger={0}
                     />
                 </div>
             </div>

@@ -5,19 +5,19 @@ import remarkGfm from 'remark-gfm';
 import { toast } from 'react-hot-toast';
 import { createPortal } from 'react-dom';
 
-// 🛠️ 智能解析器 V2.3 (完整保留原逻辑)
+// 🛠️ 智能解析器 V2.4 (修改点：增强思考过程提取)
 const parseHybridContent = (rawString) => {
     if (!rawString || typeof rawString !== 'string') return { mode: 'loading', data: null, thought: "" };
     
-    // 1. 🧠 提取思考过程
+    // 1. 🧠 提取思考过程 (支持流式未闭合标签)
     let thought = "";
     const thoughtMatch = rawString.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
     if (thoughtMatch) {
         thought = thoughtMatch[1].trim();
     }
 
-    // 2. 🧹 清洗主体数据
-    let cleanStr = rawString.replace(/<think>[\s\S]*?<\/think>/g, ""); 
+    // 2. 🧹 清洗主体数据 (修改点：彻底移除思考标签，防止泄露)
+    let cleanStr = rawString.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, ""); 
     cleanStr = cleanStr.replace(/```json/g, "").replace(/```/g, "").trim();
 
     try {
@@ -25,12 +25,12 @@ const parseHybridContent = (rawString) => {
         return { mode: 'json', data: parsed, thought };
     } catch (e) { }
 
-    // 3. 🕵️‍♀️ 流式提取 (容错路径)
+    // 3. 🕵️‍♀️ 流式提取 (容错路径) - 保持原有逻辑
     const hasJsonStructure = cleanStr.includes('"detailed_tabs"') || cleanStr.includes('"concise"');
 
     if (hasJsonStructure || cleanStr.startsWith('{')) {
-        // --- A. 提取 Concise ---
         let conciseObj = { title: "正在分析战局...", content: "" };
+        
         const conciseStart = cleanStr.indexOf('"concise"');
         if (conciseStart !== -1) {
             const braceStart = cleanStr.indexOf('{', conciseStart);
@@ -354,63 +354,69 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
             {/* === 顶部：核心简报区域 === */}
             <div className="bg-[#232329]/90 backdrop-blur rounded-xl p-3 md:p-4 border border-white/10 shadow-lg shrink-0 transition-all group relative">
                 
-                {handleRegenerate && (
-                    <button onClick={handleRegenerate} disabled={isAnalyzing} className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 rounded-md text-[10px] font-bold border border-slate-600 bg-slate-800 text-slate-300 hover:text-white hover:border-amber-500 hover:bg-amber-500/10 transition-all z-10">
-                        <RefreshCw size={12} className={isAnalyzing ? "animate-spin" : ""} />
-                        <span className="hidden md:inline">{isAnalyzing ? "分析中..." : "重新分析"}</span>
-                        <span className="md:hidden">{isAnalyzing ? "..." : "重试"}</span>
-                    </button>
-                )}
+                {/* 注意：原有的 handleRegenerate 按钮已被移除，因为它集成到了外部 */}
 
                 <div className="flex items-start gap-3 md:gap-4">
+                    {/* 🔥 重点修改：思考过程灯泡 🔥 */}
                     <div 
                         onClick={() => thought && setShowThought(!showThought)}
                         className={`
-                            p-2 md:p-3 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-600/20 border border-amber-500/30 shrink-0 shadow-[0_0_15px_rgba(245,158,11,0.2)] transition-all duration-300 mt-1
-                            ${thought ? 'cursor-pointer hover:bg-amber-500/30 hover:scale-105' : 'opacity-80'}
-                            ${showThought ? 'bg-amber-500/40 text-white shadow-[0_0_25px_rgba(245,158,11,0.5)]' : 'text-amber-400'}
-                            ${isAnalyzing ? 'animate-pulse' : ''}
+                            relative p-2 md:p-3 rounded-lg border shrink-0 transition-all duration-300 mt-1
+                            ${thought 
+                                ? 'cursor-pointer border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 hover:scale-105 hover:shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
+                                : 'opacity-40 border-transparent cursor-not-allowed bg-black/20'}
+                            ${showThought ? 'bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] border-amber-500' : ''}
+                            ${isAnalyzing && !thought ? 'animate-pulse' : ''} 
                         `}
-                        title={thought ? "点击查看/隐藏深度思考过程" : "AI 正在分析..."}
+                        title={thought ? "点击查看深度思考过程" : "等待思考内容..."}
                     >
-                        <Lightbulb size={20} className="md:w-6 md:h-6" />
+                        <Lightbulb 
+                            size={20} 
+                            className={`
+                                md:w-6 md:h-6 transition-colors duration-300
+                                ${thought ? 'text-amber-400' : 'text-slate-600'}
+                                ${isAnalyzing && thought ? 'animate-pulse' : ''}
+                            `} 
+                        />
+                        {/* 正在生成思考时的小红点动画 */}
+                        {isAnalyzing && thought && !showThought && (
+                            <span className="absolute top-0 right-0 w-2 h-2 bg-amber-500 rounded-full animate-ping"></span>
+                        )}
                     </div>
                     
                     <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex justify-between items-center mb-1 md:mb-2">
-                            <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-16 md:pr-24 truncate">
-                                {concise.title || "生成中..."}
+                            <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-4 truncate">
+                                {concise.title || (isAnalyzing ? "正在进行战术推演..." : "等待分析结果")}
                             </h2>
                         </div>
+                        
+                        {/* 简报内容 */}
                         <div className="text-xs md:text-sm text-slate-300 leading-relaxed font-sans whitespace-pre-wrap break-words opacity-90 mb-2 selection:bg-amber-500/30 selection:text-white">
                              {concise.content}
                              {isAnalyzing && !concise.content && <span className="inline-block w-1.5 h-3 md:w-2 md:h-4 bg-amber-500 ml-1 animate-pulse align-middle"/>}
                         </div>
 
-                        {thought && (
-                            <div className={`mt-2 mb-3 overflow-hidden transition-all duration-300 ease-in-out ${showThought ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                                <div className="bg-black/40 border-l-2 border-amber-500/50 p-3 rounded-r-lg text-[10px] md:text-[11px] font-mono text-slate-400 leading-relaxed italic animate-in fade-in slide-in-from-left-2">
-                                    <div className="flex items-center gap-2 mb-1 text-amber-500/70 not-italic font-bold uppercase tracking-tighter">
-                                        <Coffee size={10} /> 深度思考过程：
-                                    </div>
+                        {/* 🔥 新增：思考过程展开区域 🔥 */}
+                        <div className={`
+                            overflow-hidden transition-all duration-500 ease-in-out
+                            ${showThought && thought ? 'max-h-[600px] opacity-100 mb-3' : 'max-h-0 opacity-0'}
+                        `}>
+                            <div className="bg-black/40 border-l-2 border-amber-500/50 p-3 rounded-r-lg text-[10px] md:text-[11px] font-mono text-slate-400 leading-relaxed relative group/thought">
+                                <div className="flex items-center gap-2 mb-2 text-amber-500/70 font-bold uppercase tracking-tighter sticky top-0 bg-black/80 backdrop-blur py-1 z-10 w-fit px-2 rounded">
+                                    <Coffee size={10} /> 深度思考链 (CoT)
+                                </div>
+                                <div className="whitespace-pre-wrap break-words">
                                     {thought}
-                                    {isAnalyzing && <span className="inline-block w-1 h-3 bg-slate-600 ml-1 animate-pulse"/>}
+                                    {isAnalyzing && <span className="inline-block w-1 h-3 bg-amber-500 ml-1 animate-pulse"/>}
                                 </div>
                             </div>
-                        )}
+                        </div>
 
+                        {/* 底部按钮栏 (保持不变) */}
                         <div className="flex justify-end items-center gap-2 mt-2 pt-2 border-t border-white/5">
-                            {thought && (
-                                <button 
-                                    onClick={() => setShowThought(!showThought)} 
-                                    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-colors ${showThought ? 'text-amber-400 bg-amber-500/10' : 'text-slate-500 hover:text-amber-400'}`}
-                                >
-                                    <Brain size={12} className={isAnalyzing && showThought ? "animate-bounce" : ""} />
-                                    {showThought ? "收起" : "思考"}
-                                </button>
-                            )}
                             <div className="flex-1"></div>
-                            
+                            {/* ... 复制和 Debug 按钮 ... */}
                             <button onClick={handleCopyToTeam} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer select-none ${teamCopied ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:border-amber-500 hover:bg-amber-500/10'}`}>
                                 {teamCopied ? <Check size={12}/> : <Copy size={12}/>}<span>{teamCopied ? '已复制' : '复制'}</span>
                             </button>

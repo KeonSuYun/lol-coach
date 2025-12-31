@@ -830,14 +830,14 @@
     "ban_rate": "2.4%"
   },
   {
-    "name": "Atakhan",
-    "alias": ["不落魔锋"],
-    "role": "jungle",
-    "tier": "T3",
-    "tags": ["fighter", "diver"],
-    "win_rate": "49.84%",
-    "pick_rate": "2.39%",
-    "ban_rate": "48.38%"
+  "name": "Zaahen",
+  "alias": ["不落魔锋", "亚恒"],
+  "role": "jungle",
+  "tier": "T1",
+  "tags": ["fighter", "skirmisher", "revive"],
+  "win_rate": "51.20%", 
+  "pick_rate": "14.5%",
+  "ban_rate": "62.1%"
   },
   {
     "name": "Rammus",

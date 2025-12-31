@@ -48,48 +48,44 @@ try {
 
 function startKeyboardPolling() {
     if (!GetAsyncKeyState) return;
-
-    // 状态记录，防止连发 { code: boolean }
     let keyStates = {}; 
 
     if (pollingInterval) clearInterval(pollingInterval);
 
     pollingInterval = setInterval(() => {
-        // 我们要监听的所有按键
         const keysToCheck = [
             { code: shortcuts.toggle, action: 'toggle' },
-            { code: shortcuts.prev,   action: 'trigger-prev-tab' },
-            { code: shortcuts.next,   action: 'trigger-next-tab' },
-            { code: shortcuts.refresh, action: 'trigger-regenerate' }
+            // 🔥 修改点：这里把 action 改为 useGameCore.js 里监听的事件名
+            { code: shortcuts.prev,   action: 'nav_prev' }, 
+            { code: shortcuts.next,   action: 'nav_next' },
+            { code: shortcuts.refresh, action: 'refresh' }
         ];
 
         keysToCheck.forEach(({ code, action }) => {
             if (!code) return;
-
             const state = GetAsyncKeyState(code);
             const isPressed = (state & 0x8000) !== 0;
             const wasPressed = keyStates[code] || false;
 
-            // 上升沿触发 (按下瞬间)
             if (isPressed && !wasPressed) {
-                console.log(`>>> 触发按键动作: ${action}`);
                 handleAction(action);
             }
-
-            // 更新状态
             keyStates[code] = isPressed;
         });
-    }, 50); // 50ms 轮询间隔
+    }, 50);
 }
 
-// 统一动作分发
 function handleAction(action) {
     if (action === 'toggle') {
         toggleOverlay();
     } else {
-        // 其他动作直接发给前端 (翻页、刷新)
+        // 🔥 发送 'shortcut-triggered' 事件，配合前端 useGameCore.js
         if (overlayWindow && !overlayWindow.isDestroyed()) {
-            overlayWindow.webContents.send('keyboard-action', action);
+            overlayWindow.webContents.send('shortcut-triggered', action);
+        }
+        // 可选：如果需要在控制台也响应按键
+        if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+            dashboardWindow.webContents.send('shortcut-triggered', action);
         }
     }
 }
@@ -129,47 +125,58 @@ function createWindows() {
 
     // 1. 控制台 (后台)
     dashboardWindow = new BrowserWindow({
-        width: 300, height: 400, show: true, frame: false, backgroundColor: '#010A13',
-        webPreferences: { nodeIntegration: true, contextIsolation: false }
+        width: 320, height: 450, show: true, frame: false, backgroundColor: '#010A13',
+        webPreferences: { 
+            nodeIntegration: true, 
+            contextIsolation: false,
+            // 建议使用 preload，但为了兼容你现有的代码，暂时保持 nodeIntegration: true
+        }
     });
     dashboardWindow.loadFile('dashboard.html');
 
-    // 2. 悬浮窗 (全屏透明)
+    // 2. 悬浮窗
     overlayWindow = new BrowserWindow({
         width: width, height: height,
         transparent: true, frame: false,
         alwaysOnTop: true, skipTaskbar: true,
         hasShadow: false, resizable: false,
-        focusable: false, // 🔥 关键：不可聚焦，保证不抢游戏操作
-        backgroundColor: '#00000000', // 完全透明
-        webPreferences: { nodeIntegration: true, contextIsolation: false }
+        focusable: false,
+        backgroundColor: '#00000000',
+        webPreferences: { 
+            nodeIntegration: true, 
+            contextIsolation: false 
+        }
     });
 
     overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-    overlayWindow.setVisibleOnAllWorkspaces(true);
-    // 初始状态：完全穿透 (只听键盘)
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-
     overlayWindow.loadURL(WEB_APP_URL);
 
+    // 🔥 LCU 连接逻辑：数据转发给两个窗口
     connectToLCU((data) => {
-        if (!dashboardWindow.isDestroyed()) dashboardWindow.webContents.send('lcu-status', 'connected');
-        if (!overlayWindow.isDestroyed()) overlayWindow.webContents.send('lcu-update', data);
+        console.log('LCU Data Update:', data ? 'Has Data' : 'Empty');
+        
+        // 发送给 dashboard 显示状态
+        if (!dashboardWindow.isDestroyed()) {
+            dashboardWindow.webContents.send('lcu-status', data.myTeam && data.myTeam.length > 0 ? 'connected' : 'waiting');
+        }
+        
+        // 🔥 关键：发送给网页端 (Overlay) 进行显示和分析
+        if (!overlayWindow.isDestroyed()) {
+            overlayWindow.webContents.send('lcu-update', data); 
+        }
     });
 }
 
 function toggleOverlay() {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
-
-    // 逻辑变更：F2 只是用来 显示/隐藏 界面
-    // 因为现在是“纯键盘模式”，不需要切换鼠标穿透状态
     if (overlayWindow.isVisible()) {
-        overlayWindow.hide(); // 彻底隐藏
-        console.log('Overlay Hidden');
+        overlayWindow.hide();
     } else {
-        overlayWindow.show(); // 显示
-        overlayWindow.setIgnoreMouseEvents(true, { forward: true }); // 确保显示后也是穿透的
-        console.log('Overlay Shown');
+        overlayWindow.show();
+        // 重新确立穿透和置顶
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+        overlayWindow.setAlwaysOnTop(true, 'screen-saver');
     }
 }
 

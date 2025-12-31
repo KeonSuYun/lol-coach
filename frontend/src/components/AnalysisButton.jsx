@@ -1,19 +1,18 @@
 import React from 'react'; 
 import { Search, ChevronRight, Swords, Brain } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { API_BASE_URL } from '../config/constants';
+// API_BASE_URL 引用已不需要，因为不在这里请求了
 
 export default function AnalysisButton({ 
     selectedHero, 
     onOpenChampSelect, 
-    onResult, 
-    setLoading, 
+    // 删除了 onResult, setLoading, currentUser, userRole 等不需要的 props
+    onAnalyze,      // 新增：外部传入的分析函数
     isAnalyzing,
-    currentUser, 
-    userRole 
 }) {
     
-    const handleAnalyze = async () => {
+    // 简化的点击处理函数
+    const handleClick = () => {
         if (!selectedHero) {
             toast.error("请先选择一个英雄！");
             onOpenChampSelect();
@@ -21,63 +20,14 @@ export default function AnalysisButton({
         }
 
         if (isAnalyzing) return;
-        setLoading(true);
-        onResult(""); 
-
-        const token = localStorage.getItem("access_token");
-
-        try {
-            const payload = {
-                hero_name: selectedHero.name,
-                hero_key: selectedHero.key,
-                lane: userRole || 'MID', 
-                user_id: currentUser || "guest",
-                model_type: "reasoner" 
-            };
-
-            const response = await fetch(`${API_BASE_URL}/analyze`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': token ? `Bearer ${token}` : ''
-                },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.detail || `请求失败: ${response.status}`);
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let done = false;
-            let accumulatedText = "";
-
-            while (!done) {
-                const { value, done: readerDone } = await reader.read();
-                done = readerDone;
-                if (value) {
-                    const chunk = decoder.decode(value, { stream: true });
-                    accumulatedText += chunk;
-                    onResult(accumulatedText);
-                }
-            }
-            
-            toast.success("战术推演完成！");
-
-        } catch (error) {
-            console.error("Analysis failed:", error);
-            const errMsg = error.message || "服务连接失败";
-            toast.error(errMsg);
-            onResult(prev => prev ? prev + `\n\n❌ **中断**: ${errMsg}` : `❌ **分析失败**: ${errMsg}`);
-        } finally {
-            setLoading(false);
+        
+        // 直接调用父组件传入的函数
+        if (onAnalyze) {
+            onAnalyze();
         }
     };
 
     return (
-        // 🟢 调整 1：mb-10 (增加底部间距，给跳动的文字留出空间)
         <div className="w-full max-w-xl mx-auto relative group z-20 mb-6">
             
             {/* 背景光晕 */}
@@ -115,7 +65,7 @@ export default function AnalysisButton({
 
                 {/* === 右侧：分析按钮 === */}
                 <button 
-                    onClick={handleAnalyze}
+                    onClick={handleClick}
                     disabled={isAnalyzing || !selectedHero}
                     className={`flex-1 h-full flex items-center justify-center gap-2 md:gap-3 transition-all relative overflow-hidden
                         ${!selectedHero 
@@ -159,7 +109,6 @@ export default function AnalysisButton({
             
             {/* 底部小字提示 */}
             {!selectedHero && (
-                // 🟢 调整 2：位置下移 (-bottom-10)，去除背景色和边框，只留红色发光文字
                 <div className="absolute -bottom-8 left-0 w-full text-center z-10">
                     <span className="text-[10px] text-red-500 font-bold tracking-wider flex items-center justify-center gap-1 animate-bounce drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
                         <Swords size={12}/> 请先选择双方阵容的英雄

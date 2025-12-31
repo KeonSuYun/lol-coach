@@ -48,6 +48,8 @@ RATE_LIMIT_STORE = {}      # 邮件发送频控
 LOGIN_LIMIT_STORE = {}     # 🟢 [新增] 登录接口频控
 ANALYZE_LIMIT_STORE = {}   # AI分析频控
 CHAMPION_CACHE = {}        # 🟢 全局英雄缓存
+# 🟢 1. 新增：全局英雄名称映射表 (用于自动纠错)
+CHAMPION_NAME_MAP = {}
 
 current_dir = Path(__file__).resolve().parent
 root_dir = current_dir.parent
@@ -147,9 +149,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🟢 2. 新增：名称归一化工具函数
+def normalize_simple(name):
+    """去除所有非字母数字字符并转小写 (Jarvan IV -> jarvaniv)"""
+    if not name: return ""
+    return re.sub(r'[^a-zA-Z0-9]+', '', name).lower()
+
+# 🟢 3. 新增：预加载名称映射
+def preload_champion_map():
+    global CHAMPION_NAME_MAP
+    try:
+        json_path = current_dir / "secure_data" / "champions.json"
+        if not json_path.exists(): 
+            print("⚠️ 未找到 champions.json，名称自动纠错功能可能受限")
+            return
+        
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        count = 0
+        for item in data:
+            real_name = item.get("name")
+            if not real_name: continue
+            
+            # 1. 记录标准名
+            CHAMPION_NAME_MAP[real_name] = real_name
+            # 2. 记录归一化名 (核心修复逻辑)
+            CHAMPION_NAME_MAP[normalize_simple(real_name)] = real_name
+            
+            # 3. 记录别名 (如中文名)
+            for alias in item.get("alias", []):
+                CHAMPION_NAME_MAP[alias] = real_name
+                CHAMPION_NAME_MAP[normalize_simple(alias)] = real_name
+            count += 1
+                
+        # 4. 手动补丁 (处理 Riot API 特殊命名)
+        CHAMPION_NAME_MAP["monkeyking"] = "Wukong"
+        CHAMPION_NAME_MAP["wukong"] = "Wukong"
+        CHAMPION_NAME_MAP["jarvaniv"] = "Jarvan IV" # 强制补充
+        
+        print(f"✅ [Init] 英雄名称自动纠错字典已加载: {len(CHAMPION_NAME_MAP)} 条索引")
+        
+    except Exception as e:
+        print(f"❌ [Init] 名称映射加载失败: {e}")
+
 # 🚀 启动时自动同步 Prompts
 @app.on_event("startup")
 async def startup_event():
+    # 🟢 4. 启动时加载映射
+    preload_champion_map()
+
     if seed_data:
         print("🔄 [Startup] 检测到 seed_data 模块，正在尝试同步数据库...")
         try:
@@ -210,12 +259,6 @@ class AnalyzeRequest(BaseModel):
     myLaneAssignments: Optional[Dict[str, str]] = None 
     enemyLaneAssignments: Optional[Dict[str, str]] = None
     model_type: str = "chat" # 'chat' or 'reasoner'
-
-# 🟢 新增：管理员修改用户请求模型
-class AdminUserUpdate(BaseModel):
-    username: str
-    action: str  # "add_days" 或 "set_role"
-    value: str   # 天数 "30" 或 角色名 "admin"
 
 # ================= 🔐 核心权限逻辑 =================
 
@@ -447,12 +490,6 @@ async def redeem_invite(
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
-# 🟢 新增：获取英雄分路映射接口
-# backend/server.py
-
-# ... (保留之前的 import，务必确保引入了 re) ...
-
-# ... (保留前面的代码，直到 get_champion_roles 接口) ...
 
 # 🟢 修改：严格基于 champions.json 的分路获取接口
 @app.get("/champions/roles")
@@ -918,7 +955,24 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             })
         return StreamingResponse(limit_err(), media_type="application/json")
 
-    # 3. Input Sanitization (输入清洗)
+    # 🟢 5. 输入自动纠错 (JarvanIV -> Jarvan IV)
+    def fix_name(n):
+        if not n: return ""
+        # 优先查表修正，如果没查到则尝试归一化查，最后保留原值
+        return CHAMPION_NAME_MAP.get(n) or CHAMPION_NAME_MAP.get(normalize_simple(n)) or n
+
+    # 对所有可能涉及英雄名的字段进行清洗
+    data.myHero = fix_name(data.myHero)
+    data.enemyHero = fix_name(data.enemyHero)
+    data.myTeam = [fix_name(h) for h in data.myTeam]
+    data.enemyTeam = [fix_name(h) for h in data.enemyTeam]
+    
+    if data.myLaneAssignments:
+        data.myLaneAssignments = {k: fix_name(v) for k, v in data.myLaneAssignments.items()}
+    if data.enemyLaneAssignments:
+        data.enemyLaneAssignments = {k: fix_name(v) for k, v in data.enemyLaneAssignments.items()}
+
+    # 3. Input Sanitization (输入清洗 - 验证清洗后的名称)
     if data.myHero:
         hero_info = db.get_champion_info(data.myHero)
         if not hero_info:
@@ -1227,9 +1281,35 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 messages=[{"role": "system", "content": system_content}, {"role": "user", "content": user_content}],
                 stream=True, temperature=0.6, max_tokens=4000
             )
+            
+            # 🟢 新增状态标记：是否正在输出思考过程
+            is_thinking = False
+            
             async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    
+                    # 1. 尝试获取思考内容 (DeepSeek R1 特有字段 reasoning_content)
+                    # 注意：有些库版本可能需要用 getattr，或者直接 .reasoning_content
+                    reasoning = getattr(delta, 'reasoning_content', None)
+                    
+                    if reasoning:
+                        if not is_thinking:
+                            yield "<think>" # 💡 手动加上开始标签，前端才能识别
+                            is_thinking = True
+                        yield reasoning
+                    
+                    # 2. 处理正式回复 (content)
+                    elif delta.content:
+                        if is_thinking:
+                            yield "</think>" # 💡 思考结束，闭合标签
+                            is_thinking = False
+                        yield delta.content
+                        
+            # 🛡️ 兜底：防止流结束时思考标签没闭合
+            if is_thinking:
+                yield "</think>"
+                
         except Exception as e:
             print(f"❌ AI Error: {e}")
             yield json.dumps({"concise": {"title": "错误", "content": "AI服务繁忙，请稍后重试。"}})

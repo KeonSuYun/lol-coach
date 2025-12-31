@@ -134,15 +134,12 @@ export default function MainConsole({ state, actions }) {
                             <AnalysisButton 
                                 selectedHero={blueTeam[userSlot]} 
                                 onOpenChampSelect={() => { setSelectingSlot(-1); setShowChampSelector(true); }} 
-                                onResult={(res) => setAiResults(prev => ({ ...prev, [analyzeType]: res }))} 
-                                setLoading={(val) => setAnalyzingStatus(prev => ({ ...prev, [analyzeType]: val }))} 
+                                onAnalyze={() => handleAnalyze(analyzeType, true)}
                                 isAnalyzing={isModeAnalyzing(analyzeType)} 
-                                currentUser={currentUser}
-                                userRole={accountInfo?.role}
                             />
                         </div>
-                        {/* Tab */}
-                        <div className="grid grid-cols-3 gap-0 bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg overflow-hidden relative lg:sticky lg:top-[80px] z-30 shadow-2xl">
+                        {/* Tab - 🔴 移除了 lg:sticky lg:top-[80px] */}
+                        <div className="grid grid-cols-3 gap-0 bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg overflow-hidden relative z-30 shadow-2xl">
                             {[
                                 { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
                                 { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线细节' },
@@ -171,18 +168,6 @@ export default function MainConsole({ state, actions }) {
                         {/* 内容 */}
                         <div className="relative flex-1 flex flex-col bg-[#091428] border-x border-b border-[#C8AA6E]/30 rounded-b-lg shadow-lg p-1">
                             <div className="absolute inset-0 opacity-5 pointer-events-none z-0 bg-[url('/hex-pattern.png')]"></div>
-                            {/* 刷新 */}
-                            {aiResults[analyzeType] && !isModeAnalyzing(analyzeType) && (
-                                <div className="absolute top-4 right-6 z-20">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleAnalyze(analyzeType, true); }}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-black/80 hover:bg-[#0AC8B9]/20 rounded border border-[#C8AA6E]/20 text-[#C8AA6E] hover:text-white transition-all backdrop-blur group"
-                                    >
-                                        <RotateCcw size={14} className="group-hover:rotate-180 transition-transform duration-500" />
-                                        <span className="text-xs font-bold">REGENERATE</span>
-                                    </button>
-                                </div>
-                            )}
                             <div className="relative z-10 min-h-[500px] h-auto">
                                 <AnalysisResult
                                     aiResult={aiResults[analyzeType]}
