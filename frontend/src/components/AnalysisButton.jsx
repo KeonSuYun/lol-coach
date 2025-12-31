@@ -162,7 +162,7 @@ export default function AnalysisButton({
                 // 🟢 调整 2：位置下移 (-bottom-10)，去除背景色和边框，只留红色发光文字
                 <div className="absolute -bottom-8 left-0 w-full text-center z-10">
                     <span className="text-[10px] text-red-500 font-bold tracking-wider flex items-center justify-center gap-1 animate-bounce drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
-                        <Swords size={12}/> 请先点击左侧选择你的英雄
+                        <Swords size={12}/> 请先选择双方阵容的英雄
                     </span>
                 </div>
             )}

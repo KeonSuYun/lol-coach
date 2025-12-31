@@ -6,11 +6,18 @@ import {
     ScanEye, Activity, GitBranch, BarChart3,
     MousePointer2, Clock, CheckCircle2, Globe
 } from 'lucide-react';
+
 import HexCoreIcon from './HexCoreIcon';
 import { Toaster, toast } from 'react-hot-toast';
 
-const LandingPage = ({ onEnter }) => {
+  const LandingPage = ({ onEnter, onOpenCommunity }) => {
   const [activeFeature, setActiveFeature] = useState(0);
+
+  // 1. 设置浏览器标签页标题
+  useEffect(() => {
+    document.title = "Hex Coach - AI 全能战术教练";
+    return () => { document.title = "Hex Coach"; };
+  }, []);
 
   // 模拟轮播
   useEffect(() => {
@@ -49,15 +56,17 @@ const LandingPage = ({ onEnter }) => {
         <div className="max-w-[1600px] mx-auto px-6 h-20 flex items-center justify-between">
           
           {/* Logo */}
-          <div className="flex items-center gap-4 group cursor-pointer" onClick={onEnter}>
-            <div className="relative">
+          <div className="flex items-center gap-3 group cursor-pointer" onClick={onEnter}>
+            <div className="relative shrink-0">
               <HexCoreIcon className="w-10 h-10 md:w-12 md:h-12 text-[#0AC8B9] group-hover:scale-110 transition-transform duration-500 filter drop-shadow-[0_0_10px_rgba(10,200,185,0.5)]" />
             </div>
-            <div className="flex flex-col">
-              <span className="text-xl md:text-2xl font-black tracking-tighter text-white italic leading-none flex gap-1">
-                HEX<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200">COACH</span>
+            
+            <div className="flex flex-col justify-center pl-2">
+              {/* 🟢 修复点：在 COACH 的 span 上添加了 pr-1 (右内边距)，专治斜体字尾被切 */}
+              <span className="text-xl md:text-2xl font-black tracking-tight text-white italic leading-tight flex gap-1 transform translate-y-0.5">
+                HEX<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200 pr-1">COACH</span>
               </span>
-              <span className="text-[10px] font-bold tracking-[0.2em] text-slate-500 uppercase group-hover:text-[#0AC8B9] transition-colors">
+              <span className="text-[10px] font-bold tracking-[0.2em] text-slate-500 uppercase group-hover:text-[#0AC8B9] transition-colors leading-normal mt-0.5">
                 AI Strategy Partner
               </span>
             </div>
@@ -71,8 +80,7 @@ const LandingPage = ({ onEnter }) => {
             <button onClick={scrollToInGame} className="hover:text-white transition-colors flex items-center gap-2 text-[#C8AA6E]">
               <ScanEye size={16}/> 局内决策黑科技
             </button>
-            {/* 🟢 修改点：将“绿色合规”替换为“绝活社区”，并设为未开放状态 */}
-            <button onClick={() => handleNotReady("绝活社区")} className="hover:text-white transition-colors flex items-center gap-2">
+            <button onClick={onOpenCommunity} className="hover:text-white transition-colors flex items-center gap-2">
               <Globe size={16}/> 绝活社区
             </button>
           </div>

@@ -18,7 +18,7 @@ from typing import List, Optional, Dict
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 # 🟢 修复：这里添加了 BackgroundTasks
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -1236,6 +1236,74 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 
+# ==========================================
+# 👁️ CV 视觉引擎与 WebSocket 桥接
+# ==========================================
+
+# 全局连接管理器
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.tracker = None
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        print("🔗 [WS] 前端已连接")
+        
+        # 当有第一个客户端连接时，启动 CV 引擎
+        if not self.tracker and JungleTracker:
+            print("👁️ [CV] 正在启动打野追踪引擎...")
+            try:
+                self.tracker = JungleTracker(self.broadcast_sync)
+                self.tracker.start()
+            except Exception as e:
+                print(f"❌ CV 引擎启动失败: {e}")
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        
+        # 当所有客户端断开时，关闭 CV 引擎以节省资源
+        if len(self.active_connections) == 0 and self.tracker:
+            print("💤 [CV] 所有前端已断开，暂停 CV 引擎")
+            self.tracker.stop()
+            self.tracker = None
+
+    # 异步发送消息 (给 FastAPI 用)
+    async def broadcast(self, message: dict):
+        # 复制一份列表进行遍历，防止迭代时修改报错
+        for connection in self.active_connections[:]:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                self.disconnect(connection)
+            
+    # 同步回调包装器 (给 CV 线程用)
+    def broadcast_sync(self, message: dict):
+        import asyncio
+        # 在主事件循环中调度发送任务
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.broadcast(message), loop)
+        except Exception as e:
+            print(f"❌ 消息推送失败: {e}")
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/bridge")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # 保持连接，接收心跳或指令 (目前只需保持连接即可)
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        print(f"❌ WS Error: {e}")
+        manager.disconnect(websocket)
 
 # ==========================================
 # 🌟 静态文件与路由修复 

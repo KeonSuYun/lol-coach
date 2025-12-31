@@ -96,3 +96,19 @@ body.transparent-mode #root {
     -webkit-app-region: no-drag;
     cursor: pointer;
 }
+/* 确保悬浮窗模式下背景透明 */
+body.transparent-mode {
+    background-color: transparent !important;
+    background-image: none !important;
+}
+/* src/index.css */
+
+/* 海克斯科技风格的网格背景 (替代失效的图片) */
+.bg-hex-pattern {
+    background-image: 
+        radial-gradient(circle at 2px 2px, rgba(200, 170, 110, 0.1) 1px, transparent 0),
+        linear-gradient(to right, rgba(200, 170, 110, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(200, 170, 110, 0.05) 1px, transparent 1px);
+    background-size: 24px 24px, 48px 48px, 48px 48px;
+    background-position: 0 0, 0 0, 0 0;
+}

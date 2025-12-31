@@ -2,7 +2,7 @@
   "name": "hex-coach-client",
   "version": "1.0.0",
   "description": "HexCoach Desktop Client",
-  "main": "bridge.js",
+  "main": "main.js",
   "author": "HexCoach Team",
   "license": "MIT",
   "scripts": {
@@ -10,6 +10,7 @@
     "build": "electron-builder"
   },
   "dependencies": {
+    "axios": "^1.13.2",
     "electron-store": "^11.0.2",
     "find-process": "^2.0.0",
     "ws": "^8.18.3"

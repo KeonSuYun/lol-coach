@@ -1,17 +1,15 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, FileText, Layout, MessageSquarePlus, Copy, Check, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
+import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, FileText, Layout, MessageSquarePlus, Copy, Check, Coffee } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'react-hot-toast';
 import { createPortal } from 'react-dom';
 
 // 🛠️ 智能解析器 V2.3 (完整保留原逻辑)
-// 此解析器负责将 AI 返回的混合字符串解析为结构化数据
 const parseHybridContent = (rawString) => {
-    // 0. 基础校验
     if (!rawString || typeof rawString !== 'string') return { mode: 'loading', data: null, thought: "" };
     
-    // 1. 🧠 提取思考过程 (DeepSeek 专属 <think> 标签)
+    // 1. 🧠 提取思考过程
     let thought = "";
     const thoughtMatch = rawString.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
     if (thoughtMatch) {
@@ -19,25 +17,20 @@ const parseHybridContent = (rawString) => {
     }
 
     // 2. 🧹 清洗主体数据
-    // 移除 <think> 标签，以免干扰 JSON 解析
     let cleanStr = rawString.replace(/<think>[\s\S]*?<\/think>/g, ""); 
-    // 移除 markdown 代码块标记，只保留纯文本/JSON
     cleanStr = cleanStr.replace(/```json/g, "").replace(/```/g, "").trim();
 
-    // 尝试直接解析完整 JSON (针对已完成的请求，这是最理想的情况)
     try {
         const parsed = JSON.parse(cleanStr);
         return { mode: 'json', data: parsed, thought };
     } catch (e) { }
 
-    // 3. 🕵️‍♀️ 流式提取 (容错路径 - 处理 JSON 结构尚不完整的情况)
+    // 3. 🕵️‍♀️ 流式提取 (容错路径)
     const hasJsonStructure = cleanStr.includes('"detailed_tabs"') || cleanStr.includes('"concise"');
 
     if (hasJsonStructure || cleanStr.startsWith('{')) {
-        
-        // --- A. 提取 Concise (黄色简报区域) ---
+        // --- A. 提取 Concise ---
         let conciseObj = { title: "正在分析战局...", content: "" };
-        
         const conciseStart = cleanStr.indexOf('"concise"');
         if (conciseStart !== -1) {
             const braceStart = cleanStr.indexOf('{', conciseStart);
@@ -52,8 +45,6 @@ const parseHybridContent = (rawString) => {
                 if (contentMatch) {
                     const contentStart = contentMatch.index + contentMatch[0].length;
                     let contentEnd = -1;
-                    
-                    // 🛡️ 核心修复：寻找安全边界
                     const nextFieldIdx = cleanStr.indexOf('"detailed_tabs"', contentStart);
                     
                     if (nextFieldIdx !== -1) {
@@ -87,7 +78,7 @@ const parseHybridContent = (rawString) => {
             }
         }
 
-        // --- B. 提取 Detailed Tabs (详细标签页) ---
+        // --- B. 提取 Detailed Tabs ---
         const tabs = [];
         const detailedStart = cleanStr.indexOf('"detailed_tabs"');
         
@@ -128,15 +119,12 @@ const parseHybridContent = (rawString) => {
 
         return { 
             mode: 'json', 
-            data: { 
-                concise: conciseObj, 
-                detailed_tabs: tabs 
-            }, 
+            data: { concise: conciseObj, detailed_tabs: tabs }, 
             thought 
         };
     }
 
-    // 4. 降级处理：如果不像 JSON，则作为纯 Markdown 显示
+    // 4. 降级处理
     if (cleanStr.length > 0) {
         return { mode: 'markdown', data: cleanStr, thought };
     }
@@ -152,10 +140,8 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
     const [selectionMenu, setSelectionMenu] = useState(null); 
     const scrollRef = useRef(null);
 
-    // 解析内容
     const { mode, data, thought } = useMemo(() => parseHybridContent(aiResult), [aiResult]);
 
-    // 自动滚动
     useEffect(() => {
         if (isAnalyzing && scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -177,16 +163,16 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
             const finalMsg = `${cleanText} (来自:海克斯教练)`;
             if (window.require) {
                 const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('perform-send-chat', finalMsg);
-                if(typeof toast !== 'undefined') toast.success("已发送到游戏聊天框");
+                // 使用 copy-and-lock 确保发送后也能归还焦点
+                ipcRenderer.send('copy-and-lock', finalMsg); 
+                if(typeof toast !== 'undefined') toast.success("已复制到剪贴板");
             }
         }
     }, [sendChatTrigger, data]);
 
-    // 🖱️ 文本选中监听 (📱 移动端禁用)
+    // 文本选中监听
     useEffect(() => {
         const handleSelection = () => {
-            // 📱 移动端跳过，避免遮挡和触摸冲突
             if (window.innerWidth < 768) return;
 
             const selection = window.getSelection();
@@ -220,15 +206,21 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
         };
     }, []);
 
+    // ✅ 修复 1：选中文本复制后，也自动锁屏
     const handleJustCopy = (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (selectionMenu && selectionMenu.text) {
-            navigator.clipboard.writeText(selectionMenu.text).then(() => {
-                if(typeof toast !== 'undefined') toast.success("已复制选中内容");
-                setSelectionMenu(null);
-                window.getSelection().removeAllRanges(); 
-            });
+            if (window.require) {
+                const { ipcRenderer } = window.require('electron');
+                ipcRenderer.send('copy-and-lock', selectionMenu.text);
+                if(typeof toast !== 'undefined') toast.success("已复制！请按 Ctrl+V");
+            } else {
+                navigator.clipboard.writeText(selectionMenu.text);
+                if(typeof toast !== 'undefined') toast.success("已复制");
+            }
+            setSelectionMenu(null);
+            window.getSelection().removeAllRanges(); 
         }
     };
 
@@ -247,9 +239,12 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
         }
     };
 
+    // ✅ 修复 2：一键复制逻辑，使用 copy-and-lock IPC，完全保留你的正则
     const handleCopyToTeam = () => {
         const content = data?.concise?.content || "";
         if (!content) return;
+        
+        // --- 你的原始正则开始 ---
         const cleanText = content
             .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, '')
             .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -257,12 +252,29 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
             .replace(/\n{2,}/g, '\n')
             .replace(/[ \t]+/g, ' ')
             .trim();
+        // --- 你的原始正则结束 ---
+            
         const finalMsg = `${cleanText} (来自:海克斯教练)`;
-        navigator.clipboard.writeText(finalMsg).then(() => {
+
+        // 优先使用 Electron 主进程复制，这是在游戏中粘贴成功的关键
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            
+            // 发送指令：后端写入剪贴板 + 强制锁屏 + 强制失焦
+            // 这样你只需要按 Ctrl+V 即可，无需手动点游戏
+            ipcRenderer.send('copy-and-lock', finalMsg);
+            
             setTeamCopied(true);
-            if(typeof toast !== 'undefined') toast.success("复制成功！");
+            if(typeof toast !== 'undefined') toast.success("已复制！请直接在游戏中按 Ctrl+V");
             setTimeout(() => setTeamCopied(false), 2000);
-        }).catch(() => alert("复制失败，请手动复制"));
+        } else {
+            // 浏览器环境兜底
+            navigator.clipboard.writeText(finalMsg).then(() => {
+                setTeamCopied(true);
+                if(typeof toast !== 'undefined') toast.success("已复制！请直接在游戏中按 Ctrl+V");
+                setTimeout(() => setTeamCopied(false), 2000);
+            }).catch(() => alert("复制失败，请手动复制"));
+        }
     };
 
     // 悬浮菜单组件
@@ -328,7 +340,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
     const tabs = data?.detailed_tabs || [];
 
     const HexMarkdownComponents = {
-        // 📱 表格优化：允许横向滚动，避免撑破手机屏幕
         table: ({node, ...props}) => <div className="overflow-x-auto my-4 rounded-sm border border-hex-gold/20 shadow-lg"><table className="w-full text-left border-collapse bg-hex-black/50 min-w-[300px]" {...props} /></div>,
         thead: ({node, ...props}) => <thead className="bg-gradient-to-r from-hex-dark to-hex-black border-b border-hex-gold/30" {...props} />,
         tbody: ({node, ...props}) => <tbody className="divide-y divide-hex-gold/5" {...props} />,
@@ -352,7 +363,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
                 )}
 
                 <div className="flex items-start gap-3 md:gap-4">
-                    {/* 灯泡：点击切换思考 */}
                     <div 
                         onClick={() => thought && setShowThought(!showThought)}
                         className={`
@@ -377,7 +387,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
                              {isAnalyzing && !concise.content && <span className="inline-block w-1.5 h-3 md:w-2 md:h-4 bg-amber-500 ml-1 animate-pulse align-middle"/>}
                         </div>
 
-                        {/* 思考过程区域 */}
                         {thought && (
                             <div className={`mt-2 mb-3 overflow-hidden transition-all duration-300 ease-in-out ${showThought ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                 <div className="bg-black/40 border-l-2 border-amber-500/50 p-3 rounded-r-lg text-[10px] md:text-[11px] font-mono text-slate-400 leading-relaxed italic animate-in fade-in slide-in-from-left-2">
@@ -390,7 +399,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
                             </div>
                         )}
 
-                        {/* 底部按钮栏 */}
                         <div className="flex justify-end items-center gap-2 mt-2 pt-2 border-t border-white/5">
                             {thought && (
                                 <button 
@@ -414,8 +422,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
 
             {/* === 底部：详细内容 Tabs 区域 === */}
             <div className="flex-1 bg-[#232329]/80 backdrop-blur rounded-xl border border-white/5 flex flex-col min-h-0 relative shadow-inner overflow-hidden">
-                
-                {/* 📱 优化：吸顶 Tab 栏 (Sticky Top) */}
                 <div className="sticky top-0 z-10 flex border-b border-white/5 overflow-x-auto scrollbar-hide bg-[#2c2c33]/90 backdrop-blur-md">
                     <div className="flex items-center px-3 border-r border-white/5 text-slate-500 shrink-0">
                         <Layout size={14} />
@@ -439,7 +445,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
                     )}
                 </div>
                 
-                {/* 内容显示区 */}
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-transparent relative selection:bg-amber-500/30 selection:text-white scroll-smooth">
                     {tabs[activeTab] ? (
                         <div className="prose prose-invert prose-sm max-w-none 
@@ -457,7 +462,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, handleReg
                     <SelectionFloatingButton />
                 </div>
                 
-                {/* 底部纠错按钮 */}
                 <div className="p-2 border-t border-white/5 flex justify-end bg-[#2c2c33]/40 rounded-b-xl shrink-0">
                     <button 
                         onClick={() => setShowFeedbackModal(true)} 

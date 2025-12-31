@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>HexCoach Lite</title>
+    <style>
+        body {
+            margin: 0; padding: 0;
+            background: #010A13;
+            color: #C8AA6E;
+            font-family: 'Segoe UI', sans-serif;
+            overflow: hidden;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            height: 100vh;
+            user-select: none;
+            -webkit-app-region: drag; /* 允许拖动窗口 */
+        }
+
+        /* 核心圆环动画 */
+        .core-ring {
+            width: 100px; height: 100px;
+            border: 2px solid rgba(200, 170, 110, 0.3);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+            box-shadow: 0 0 30px rgba(10, 200, 185, 0.1);
+            transition: all 0.5s ease;
+        }
+
+        /* 旋转的装饰圈 */
+        .core-ring::after {
+            content: ''; position: absolute;
+            top: -5px; left: -5px; right: -5px; bottom: -5px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            border-top-color: #0AC8B9;
+            border-bottom-color: #0AC8B9;
+            animation: spin 6s linear infinite;
+        }
+
+        /* 连接成功时的激活样式 */
+        body.connected .core-ring {
+            border-color: #0AC8B9;
+            box-shadow: 0 0 50px rgba(10, 200, 185, 0.4);
+        }
+
+        .logo-text {
+            font-size: 20px; font-weight: 900; font-style: italic;
+            background: linear-gradient(to right, #C8AA6E, #F0E6D2);
+            -webkit-background-clip: text; color: transparent;
+            margin-bottom: 30px;
+        }
+
+        .status-text {
+            font-size: 10px; font-weight: bold; letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-top: 25px;
+            color: #555;
+            transition: color 0.3s;
+        }
+        
+        body.connected .status-text { color: #0AC8B9; }
+        
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .controls {
+            margin-top: 40px; display: flex; gap: 10px;
+            -webkit-app-region: no-drag; /* 按钮区域不可拖动 */
+        }
+        
+        button {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            color: #888; padding: 6px 14px; border-radius: 4px; font-size: 11px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        button:hover { border-color: #C8AA6E; color: #C8AA6E; }
+        
+        /* 快捷键提示按钮样式 */
+        .shortcut-tip {
+            cursor: default; 
+            border-color: #0AC8B9 !important; 
+            color: #0AC8B9 !important;
+            background: rgba(10, 200, 185, 0.1) !important;
+        }
+    </style>
+</head>
+<body>
+    
+    <div class="logo-text">HEX LITE</div>
+
+    <div class="core-ring" id="indicator">
+        <svg id="icon-wait" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+    </div>
+
+    <div class="status-text" id="status">WAITING FOR CLIENT...</div>
+
+    <div class="controls">
+        <button class="shortcut-tip">快捷键: Alt + X</button>
+        <button onclick="window.electron.minimize()">最小化</button>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        // 监听连接状态
+        ipcRenderer.on('lcu-status', (e, status) => {
+            const body = document.body;
+            const text = document.getElementById('status');
+            const indicator = document.getElementById('indicator');
+            
+            if (status === 'connected') {
+                body.classList.add('connected');
+                text.innerText = "SYSTEM ONLINE";
+                // 切换为勾选图标
+                indicator.innerHTML = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#0AC8B9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            } else {
+                body.classList.remove('connected');
+                text.innerText = "WAITING FOR CLIENT...";
+                indicator.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+            }
+        });
+
+        // 简单的 IPC 桥接
+        window.electron = {
+            minimize: () => ipcRenderer.send('minimize-app')
+        };
+    </script>
+</body>
+</html>
