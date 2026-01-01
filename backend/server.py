@@ -1353,10 +1353,14 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     
     # 🔥🔥🔥 接收并处理 mapSide 参数
     map_side_desc = "未知阵营"
+    enemy_side_desc = "未知阵营" # 🔥 [修复] 默认值，防止 KeyError
+
     if data.mapSide == "blue":
         map_side_desc = "🔵 蓝色方 (基地左下)"
+        enemy_side_desc = "🔴 红色方 (基地右上)" # 🔥 [修复] 自动推断敌方
     elif data.mapSide == "red":
         map_side_desc = "🔴 红色方 (基地右上)"
+        enemy_side_desc = "🔵 蓝色方 (基地左下)" # 🔥 [修复] 自动推断敌方
 
     user_content = tpl['user_template'].format(
         mode=data.mode,
@@ -1370,6 +1374,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         
         # 🔥 注入红蓝方信息
         mapSide=map_side_desc,
+        enemySide=enemy_side_desc,  # 🔥 [修复] 传入参数，解决 KeyError
 
         # 👇 关键优化：不再重复传输大段文本
         s15_context="(机制库已加载至 System Context，请基于该知识库分析)", 

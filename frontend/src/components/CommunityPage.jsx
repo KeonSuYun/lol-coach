@@ -4,6 +4,7 @@ import { Search, ChevronLeft, BookOpen, Beer, Flame, ThumbsUp, Share2, PenTool, 
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL } from '../config/constants';
 import TipModal from './modals/TipModal'; 
+import ChampSelectModal from './modals/ChampSelectModal'; // 🟢 1. 找回丢失的组件
 
 const THEME = {
     textMain: "text-[#C8AA6E]", 
@@ -34,13 +35,16 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
     const [loading, setLoading] = useState(false);
 
     const [showChampSelector, setShowChampSelector] = useState(false);
-    const [searchTerm, setSearchTerm] = useState("");
+    // 🟢 2. 新增 roleMapping 状态，用于支持高级选择器的分类功能
+    const [roleMapping, setRoleMapping] = useState({});
     
     const [showPostModal, setShowPostModal] = useState(false);
     const [postContent, setPostContent] = useState("");
     const [postTarget, setPostTarget] = useState(""); 
 
-    const currentHeroInfo = championList.find(c => c.id === currentHeroId) || { name: currentHeroId, title: "英雄" };
+    // 注意：useGameCore 中 key 是英文名(如Camille)，id 是数字字符串
+    // 这里做个兼容查找，优先匹配 key (英文ID)
+    const currentHeroInfo = championList.find(c => c.key === currentHeroId || c.id === currentHeroId) || { name: currentHeroId, title: "英雄" };
 
     const fetchTips = async () => {
         setLoading(true);
@@ -55,6 +59,13 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
             setLoading(false);
         }
     };
+
+    // 🟢 3. 初始化时获取英雄定位数据
+    useEffect(() => {
+        axios.get(`${API_BASE_URL}/champions/roles`)
+            .then(res => setRoleMapping(res.data))
+            .catch(e => console.error("Failed to load roles", e));
+    }, []);
 
     useEffect(() => {
         fetchTips();
@@ -124,12 +135,6 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
             return new Date(b.created_at || 0) - new Date(a.created_at || 0);
         });
     }, [tips, activeTab, activeCategory, sortBy]);
-
-    const filteredChampions = useMemo(() => {
-        if (!searchTerm) return championList;
-        const lower = searchTerm.toLowerCase();
-        return championList.filter(c => c.name.includes(lower) || c.id.toLowerCase().includes(lower) || c.title.includes(lower));
-    }, [championList, searchTerm]);
 
     return (
         <div className={`fixed inset-0 z-50 flex flex-col ${THEME.bgGradient} text-slate-200 overflow-hidden transition-colors duration-700`}>
@@ -277,31 +282,18 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
                 )}
             </div>
 
-            {/* Champ Selector Modal */}
-            {showChampSelector && (
-                <div className="fixed inset-0 z-[60] bg-[#091428]/95 backdrop-blur-xl flex flex-col animate-in zoom-in-95 duration-200">
-                    <div className="px-8 py-6 flex items-center gap-6 border-b border-[#C8AA6E]/20 bg-gradient-to-r from-[#091428] to-[#010A13]">
-                        <Search size={24} className="text-[#C8AA6E]"/>
-                        <input type="text" placeholder="搜索英雄..." className="flex-1 bg-transparent border-none outline-none text-[#F0E6D2] text-2xl placeholder-slate-600 font-bold uppercase tracking-wider" autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                        <button onClick={() => setShowChampSelector(false)} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors"><X size={32}/></button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                        <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-4 max-w-[1920px] mx-auto">
-                            {filteredChampions.length > 0 ? filteredChampions.map(c => (
-                                <button key={c.id} onClick={() => { setCurrentHeroId(c.id); setShowChampSelector(false); setSearchTerm(""); toast.success(`已进入 ${c.name} 社区`); }} className="flex flex-col items-center gap-2 group relative">
-                                    <div className={`relative w-16 h-16 md:w-20 md:h-20 transition-all duration-300 ${currentHeroId === c.id ? 'scale-110 border-2 border-[#C8AA6E]' : 'group-hover:scale-110'}`}>
-                                        <div className={`absolute inset-0 border-2 border-[#C8AA6E] rotate-45 transition-all opacity-0 group-hover:opacity-100 ${currentHeroId === c.id ? 'opacity-100' : ''}`}></div>
-                                        <div className="w-full h-full overflow-hidden border border-slate-700 group-hover:border-[#C8AA6E] transition-colors bg-slate-900">
-                                            <img src={c.image_url} className={`w-full h-full object-cover transition-all duration-500 ${currentHeroId === c.id ? '' : 'grayscale group-hover:grayscale-0'}`} />
-                                        </div>
-                                    </div>
-                                    <span className={`text-[10px] font-bold truncate w-full text-center tracking-wide transition-colors ${currentHeroId === c.id ? 'text-[#C8AA6E]' : 'text-slate-500 group-hover:text-[#F0E6D2]'}`}>{c.name}</span>
-                                </button>
-                            )) : <div className="col-span-full text-center py-20 text-slate-500"><p>未找到匹配的英雄</p></div>}
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* 🟢 4. 使用完整功能的英雄选择器 */}
+            <ChampSelectModal
+                isOpen={showChampSelector}
+                onClose={() => setShowChampSelector(false)}
+                championList={championList}
+                onSelect={(hero) => {
+                    setCurrentHeroId(hero.key); // 这里使用 key (如 "Camille") 而不是 id (数字)
+                    setShowChampSelector(false);
+                    toast.success(`已进入 ${hero.name} 社区`);
+                }}
+                roleMapping={roleMapping} // 🟢 传入分类数据
+            />
 
             {/* Post Modal */}
             <TipModal 

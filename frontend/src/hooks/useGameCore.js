@@ -601,13 +601,19 @@ export function useGameCore() {
         }
 
         try {
+            // 🔥🔥🔥 关键修复：计算 enemySide
+            let enemySide = "unknown";
+            if (mapSide === "blue") enemySide = "red";
+            else if (mapSide === "red") enemySide = "blue";
+
             const payload = {
                 mode,
                 myHero: blueTeam[userSlot]?.key || "",
                 myTeam: blueTeam.map(c => c?.key || ""),
                 enemyTeam: redTeam.map(c => c?.key || ""),
                 userRole: finalUserRole,
-                mapSide: mapSide, // 🔥🔥🔥【修改】直接使用 state 变量，而不是未定义的 lcuData 🔥🔥🔥
+                mapSide: mapSide, 
+                enemySide: enemySide, // 🔥🔥🔥 补充发送 enemySide，防止后端 KeyError
                 rank: userRank,
                 extraMechanics: extraMechanics,
                 myLaneAssignments: Object.keys(payloadAssignments).length > 0 ? payloadAssignments : null,

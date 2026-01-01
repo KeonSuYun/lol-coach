@@ -25,6 +25,7 @@ const checkRole = (hero, roleId, roleMapping) => {
         if (heroRoles) return heroRoles.includes(roleId);
         return false;
     }
+    // 如果没有 mapping 数据，默认不仅行筛选（或者你可以改为 return false 强制不显示）
     return false;
 };
 
@@ -65,16 +66,16 @@ export default function ChampSelectModal({ isOpen, onClose, championList, onSele
                 // 📱 弹窗主体：
                 // Mobile: 底部抽屉样式 (rounded-t-2xl, h-[90vh], slide-in-from-bottom)
                 // PC: 悬浮窗样式 (rounded-xl, h-[80vh], zoom-in)
-                className="w-full md:max-w-4xl h-[90vh] md:h-[80vh] bg-hex-dark border-t md:border border-hex-gold/50 rounded-t-2xl md:rounded-xl shadow-2xl flex flex-col overflow-hidden relative animate-in slide-in-from-bottom duration-300 md:zoom-in md:duration-200"
+                className="w-full md:max-w-4xl h-[90vh] md:h-[80vh] bg-[#050C18] border-t md:border border-[#C8AA6E]/50 rounded-t-2xl md:rounded-xl shadow-2xl flex flex-col overflow-hidden relative animate-in slide-in-from-bottom duration-300 md:zoom-in md:duration-200"
                 onClick={e => e.stopPropagation()}
             >
                 {/* 📱 顶部把手 (仅手机显示) */}
                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-3 mb-1 md:hidden opacity-50"></div>
 
                 {/* Header */}
-                <div className="p-4 border-b border-hex-gold/20 bg-hex-black flex flex-col gap-3 md:gap-4 shrink-0">
+                <div className="p-4 border-b border-[#C8AA6E]/20 bg-[#091428] flex flex-col gap-3 md:gap-4 shrink-0">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-lg md:text-xl font-bold text-hex-gold-light tracking-widest uppercase flex items-center gap-2">
+                        <h2 className="text-lg md:text-xl font-bold text-[#F0E6D2] tracking-widest uppercase flex items-center gap-2">
                             Select Champion
                         </h2>
                         <button onClick={onClose} className="p-1 bg-white/5 rounded-full text-slate-500 hover:text-white transition-colors">
@@ -89,7 +90,7 @@ export default function ChampSelectModal({ isOpen, onClose, championList, onSele
                             <input 
                                 type="text" 
                                 placeholder="搜索英雄 (名字/称号)..." 
-                                className="w-full bg-slate-900/50 border border-hex-gold/20 rounded-lg py-2.5 pl-9 pr-4 text-sm text-slate-200 focus:border-hex-gold/60 focus:outline-none focus:ring-1 focus:ring-hex-gold/60 transition-all placeholder:text-slate-600"
+                                className="w-full bg-slate-900/50 border border-[#C8AA6E]/20 rounded-lg py-2.5 pl-9 pr-4 text-sm text-slate-200 focus:border-[#C8AA6E]/60 focus:outline-none focus:ring-1 focus:ring-[#C8AA6E]/60 transition-all placeholder:text-slate-600"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                                 autoFocus={window.innerWidth > 768} // 📱 手机端不自动聚焦，防键盘遮挡
@@ -105,7 +106,7 @@ export default function ChampSelectModal({ isOpen, onClose, championList, onSele
                                     className={`
                                         flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap border shrink-0
                                         ${activeRole === role.id 
-                                            ? 'bg-hex-blue/20 text-hex-blue border-hex-blue/50 shadow-[0_0_10px_rgba(10,200,185,0.2)]' 
+                                            ? 'bg-[#0AC8B9]/20 text-[#0AC8B9] border-[#0AC8B9]/50 shadow-[0_0_10px_rgba(10,200,185,0.2)]' 
                                             : 'bg-white/5 text-slate-500 border-transparent hover:bg-white/10 hover:text-slate-300'}
                                     `}
                                 >
@@ -125,14 +126,14 @@ export default function ChampSelectModal({ isOpen, onClose, championList, onSele
                             <button 
                                 key={hero.key}
                                 onClick={() => onSelect(hero)}
-                                className="group flex flex-col items-center gap-1.5 p-1.5 rounded-lg hover:bg-white/5 transition-all border border-transparent hover:border-hex-gold/30 active:scale-95"
+                                className="group flex flex-col items-center gap-1.5 p-1.5 rounded-lg hover:bg-white/5 transition-all border border-transparent hover:border-[#C8AA6E]/30 active:scale-95"
                             >
-                                <div className="relative w-full aspect-square rounded border border-hex-gold/20 group-hover:border-hex-gold group-hover:shadow-[0_0_10px_rgba(200,170,110,0.3)] transition-all overflow-hidden bg-slate-900">
+                                <div className="relative w-full aspect-square rounded border border-[#C8AA6E]/20 group-hover:border-[#C8AA6E] group-hover:shadow-[0_0_10px_rgba(200,170,110,0.3)] transition-all overflow-hidden bg-slate-900">
                                     <img src={hero.image_url} alt={hero.name} className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-300" loading="lazy"/>
                                     {/* 手机端的文字遮罩 */}
                                     <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent md:hidden"></div>
                                 </div>
-                                <span className="text-[11px] md:text-xs font-bold text-slate-400 group-hover:text-hex-gold-light text-center truncate w-full px-1">
+                                <span className="text-[11px] md:text-xs font-bold text-slate-400 group-hover:text-[#F0E6D2] text-center truncate w-full px-1">
                                     {hero.name}
                                 </span>
                             </button>

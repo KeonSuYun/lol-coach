@@ -6,6 +6,9 @@ const WebSocket = require('ws');
 const { connectToLCU } = require('./lcu');
 const { pathToFileURL } = require('url');
 
+// 🔥🔥🔥【关键配置】禁用 GPU 硬件加速，防止部分系统下启动崩溃或黑屏 🔥🔥🔥
+app.disableHardwareAcceleration();
+
 // === 全局变量 ===
 let dashboardWindow;
 let overlayWindow;
@@ -13,21 +16,23 @@ let pollingInterval;
 let wssInstance = null; 
 let isMouseIgnored = true; 
 let tray = null;
-let hasWarnedAdmin = false;
 // 🔥🔥🔥【新增】数据缓存，防止前端加载慢丢失数据 🔥🔥🔥
 let lastLcuData = null;
 
 const WSS_PORT = 29150; 
 const isDev = !app.isPackaged;
+
+// 🟢 生产环境云端地址 (Web Wrapper 模式)
+const PRODUCTION_URL = 'https://www.hexcoach.gg';
 const WEB_APP_URL = isDev 
     ? 'http://localhost:5173?overlay=true' 
-    : 'https://www.hexcoach.gg?overlay=true';
+    : `${PRODUCTION_URL}?overlay=true`;
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
-// ==========================================\r
-// 🌐 1. WebSocket 服务\r
-// ==========================================\r
+// ==========================================
+// 🌐 1. WebSocket 服务
+// ==========================================
 function startWebSocketServer() {
     try {
         wssInstance = new WebSocket.Server({ port: WSS_PORT });
@@ -70,9 +75,9 @@ function broadcast(message) {
     });
 }
 
-// ==========================================\r
-// 🎮 2. 全键位映射表\r
-// ==========================================\r
+// ==========================================
+// 🎮 2. 全键位映射表
+// ==========================================
 const VK_MAP = {
     // 鼠标
     'LBtn': 0x01, 'RBtn': 0x02, 'MBtn': 0x04,
@@ -230,30 +235,32 @@ function createWindows() {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
     // ==========================================
-    // 🪟 1. Dashboard 主窗口 (控制台)
+    // 🪟 1. Dashboard 主窗口 (控制台) - 已隐藏
     // ==========================================
     dashboardWindow = new BrowserWindow({
-        width: 320, height: 480, show: false, 
+        width: 320, height: 480, 
+        show: false, // 🔴【修改点】设置为 false，隐藏中间的窗口，只在后台运行
         frame: false, backgroundColor: '#010A13',
-        webPreferences: { nodeIntegration: true, contextIsolation: false }
+        webPreferences: { 
+            nodeIntegration: true, 
+            contextIsolation: false,
+            webSecurity: false 
+        }
     });
 
-    // 生产环境适配：根据环境自动切换加载方式
     if (isDev) {
-        // 开发环境：加载 localhost 以支持热更新
         dashboardWindow.loadURL('http://localhost:5173'); 
     } else {
-        // 生产环境：加载打包后的静态文件
-        const indexPath = path.join(__dirname, 'dist', 'index.html');
-        dashboardWindow.loadURL(pathToFileURL(indexPath).href); 
+        // 🔴【修改点】生产环境直接加载云端地址
+        dashboardWindow.loadURL(PRODUCTION_URL); 
     }
 
     // ==========================================
-    // 👻 2. Overlay 窗口 (游戏内覆盖层)
+    // 👻 2. Overlay 窗口 (右上角) - 保持显示
     // ==========================================
     overlayWindow = new BrowserWindow({
         width: 350, height: 300, 
-        x: width - 370, y: 120,
+        x: width - 370, y: 120, // 右上角定位
         transparent: true, 
         frame: false,
         alwaysOnTop: true, 
@@ -262,7 +269,11 @@ function createWindows() {
         resizable: true, 
         focusable: false,
         minWidth: 200, minHeight: 40,
-        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
+        webPreferences: { 
+            nodeIntegration: true, 
+            contextIsolation: false, 
+            webSecurity: false 
+        }
     });
 
     overlayWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -272,8 +283,8 @@ function createWindows() {
     if (isDev) {
         overlayWindow.loadURL(WEB_APP_URL);
     } else {
-        const indexPath = path.join(__dirname, 'dist', 'index.html');
-        overlayWindow.loadURL(`${pathToFileURL(indexPath).href}?overlay=true`);
+        // 🔴【修改点】生产环境直接加载云端地址 (带参数)
+        overlayWindow.loadURL(`${PRODUCTION_URL}?overlay=true`);
     }
 
     overlayWindow.webContents.on('did-finish-load', () => {
@@ -289,7 +300,6 @@ function createWindows() {
     // ==========================================
     let hasWarnedAdmin = false; // 防抖变量，防止弹窗重复
 
-    // 注意：这里的 connectToLCU 已经适配了两个回调参数 (数据回调, 警告回调)
     connectToLCU((data) => {
         // --- ✅ 成功获取数据的回调 ---
         lastLcuData = data;
@@ -297,7 +307,7 @@ function createWindows() {
         const isConnected = data.myTeam && data.myTeam.length > 0;
         const statusMsg = isConnected ? 'connected' : 'waiting';
         
-        // 1. 发送给 Dashboard (包含方位修复)
+        // 1. 发送给 Dashboard (即使隐藏了也要发，保证后台逻辑正常)
         if (dashboardWindow && !dashboardWindow.isDestroyed()) {
             dashboardWindow.webContents.send('lcu-status', statusMsg);
             dashboardWindow.webContents.send('lcu-update', data);
