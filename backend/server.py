@@ -9,7 +9,8 @@ import smtplib
 import requests
 import hashlib
 import sys
-
+from fastapi import UploadFile, File
+import shutil
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -139,7 +140,7 @@ if APP_ENV == "production":
     print("🔒 [Security] 生产模式：移除 Localhost 跨域支持")
     ORIGINS = [origin for origin in ORIGINS if "localhost" not in origin and "127.0.0.1" not in origin]
 
-print(f"🔓 [CORS] 当前允许的跨域来源: {ORIGINS}")
+##print(f"🔓 [CORS] 当前允许的跨域来源: {ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1384,10 +1385,10 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 9. AI 调用
     if data.model_type == "reasoner":
         MODEL_NAME = "deepseek-reasoner"
-        print(f"🧠 [AI] R1 Request - User: {current_user['username']}")
+        ##print(f"🧠 [AI] R1 Request - User: {current_user['username']}")
     else:
         MODEL_NAME = "deepseek-chat"
-        print(f"🚀 [AI] V3 Request - User: {current_user['username']}")
+        ##print(f"🚀 [AI] V3 Request - User: {current_user['username']}")
 
     async def event_stream():
         try:
@@ -1534,6 +1535,66 @@ async def catch_all(full_path: str):
     if index_path.exists():
         return FileResponse(index_path)
     return {"error": "Frontend build not found. Did you run 'npm run build'?"}
+
+# ================= 🚀 热更新接口 (无需重启) =================
+
+@app.post("/admin/hot-update")
+async def hot_update_config(
+    file: UploadFile = File(...), 
+    file_type: str = Body(..., embed=True), # 选项: "prompts", "mechanics", "corrections", "champions"
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    🚀 零停机更新配置！
+    用法：在 Postman 中 POST /admin/hot-update
+    Body (form-data):
+      - file: 选择你的 json 文件
+      - file_type: 输入 "prompts" 或 "champions"
+    """
+    # 1. 权限检查 (必须是管理员)
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    # 2. 映射文件名
+    filename_map = {
+        "prompts": "prompts.json",
+        "mechanics": "s15_mechanics.json",
+        "corrections": "corrections.json",
+        "champions": "champions.json"
+    }
+
+    target_filename = filename_map.get(file_type)
+    if not target_filename:
+        raise HTTPException(status_code=400, detail="无效的文件类型，请选择: prompts, mechanics, corrections, champions")
+
+    target_path = current_dir / "secure_data" / target_filename
+
+    # 3. 覆盖服务器本地文件
+    try:
+        # 写入新文件
+        with open(target_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        print(f"🔥 [HotUpdate] {target_filename} 文件已覆盖")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件写入失败: {str(e)}")
+
+    # 4. 触发内存/数据库刷新逻辑
+    try:
+        # A. 如果是英雄数据，刷新名称映射表
+        if file_type == "champions":
+            preload_champion_map()
+            print("🔄 [HotUpdate] 英雄名称映射表已重载")
+
+        # B. 重新运行 seed_data 同步到 MongoDB
+        # 你的 seed_data 脚本会自动读取刚才覆盖的新文件，并更新到数据库
+        if seed_data:
+            seed_data()
+            print("🔄 [HotUpdate] 数据库已同步")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据同步失败: {str(e)}")
+
+    return {"status": "success", "msg": f"成功！{target_filename} 已更新并生效，无需重启。"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
