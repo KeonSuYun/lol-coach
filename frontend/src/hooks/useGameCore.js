@@ -39,10 +39,11 @@ export function useGameCore() {
     const [userSlot, setUserSlot] = useState(0);
     const [lcuStatus, setLcuStatus] = useState("disconnected");
     const [userRank, setUserRank] = useState(() => loadState('userRank', 'Gold'));
+    const [mapSide, setMapSide] = useState(() => loadState('mapSide', "unknown"));
+    const [showDownloadModal, setShowDownloadModal] = useState(false);
     const [extraMechanics, setExtraMechanics] = useState({});
     
-    // 🔥🔥🔥【关键修复1】增加持久化，防止刷新后丢失方位 🔥🔥🔥
-    const [mapSide, setMapSide] = useState(() => loadState('mapSide', "unknown")); 
+    
 
     // 选人弹窗
     const [showChampSelector, setShowChampSelector] = useState(false);
@@ -660,7 +661,8 @@ export function useGameCore() {
             useThinkingModel, aiResults, analyzingStatus, isModeAnalyzing, analyzeType, viewMode, activeTab,
             showChampSelector, selectingSlot, selectingIsEnemy, roleMapping,
             currentUser, accountInfo, token, authMode, authForm, showLoginModal, showPricingModal,
-            tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot
+            tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot,
+            mapSide,showDownloadModal
         },
         actions: {
             setHasStarted, setShowCommunity, setShowAdminPanel, setShowSettingsModal,
@@ -672,7 +674,8 @@ export function useGameCore() {
             
             handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo,
             handleCardClick, handleSelectChampion, handleSaveShortcuts,
-            handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick
+            handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide,
+            setShowDownloadModal
         }
     };
 }

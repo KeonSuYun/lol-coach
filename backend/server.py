@@ -9,23 +9,23 @@ import smtplib
 import requests
 import hashlib
 import sys
-from fastapi import UploadFile, File
-import shutil
+
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from dotenv import load_dotenv
 from typing import List, Optional, Dict
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-# 🟢 修复：这里添加了 BackgroundTasks
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, WebSocket, WebSocketDisconnect
+# 🟢 [修改] 引入 RedirectResponse 用于重定向下载
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.concurrency import run_in_threadpool
+from contextlib import asynccontextmanager
+import shutil
 
 # ✨ 关键修改：引入异步客户端，解决排队问题
 from bson import ObjectId
@@ -49,7 +49,7 @@ RATE_LIMIT_STORE = {}      # 邮件发送频控
 LOGIN_LIMIT_STORE = {}     # 登录接口频控
 ANALYZE_LIMIT_STORE = {}   # AI分析频控
 CHAMPION_CACHE = {}        # 全局英雄缓存
-# 🟢 1. 新增：全局英雄名称映射表 (用于自动纠错)
+# 🟢 全局英雄名称映射表 (用于自动纠错)
 CHAMPION_NAME_MAP = {}
 
 current_dir = Path(__file__).resolve().parent
@@ -105,51 +105,6 @@ client = AsyncOpenAI(
     base_url="https://api.deepseek.com"
 )
 
-# 🔒 生产环境关闭 Swagger UI
-app = FastAPI(docs_url=None, redoc_url=None) 
-db = KnowledgeBase()
-
-# 密码哈希工具
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-# OAuth2 方案
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# 挂载静态资源
-if os.path.exists("frontend/dist/assets"):
-    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
-
-# 🟢 3. 严格 CORS 配置 (强制包含本地开发地址)
-ORIGINS = [
-    "https://www.haxcoach.com",
-    "https://haxcoach.com",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://www.hexcoach.gg",
-    "https://hexcoach.gg",
-]
-
-# 允许通过环境变量扩展 CORS 域名
-env_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
-if env_origins:
-    ORIGINS.extend([o.strip() for o in env_origins if o.strip()])
-
-# 🛡️ [安全增强] 生产环境自动移除本地调试地址
-if APP_ENV == "production":
-    print("🔒 [Security] 生产模式：移除 Localhost 跨域支持")
-    ORIGINS = [origin for origin in ORIGINS if "localhost" not in origin and "127.0.0.1" not in origin]
-
-##print(f"🔓 [CORS] 当前允许的跨域来源: {ORIGINS}")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ORIGINS, 
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], 
-    allow_headers=["*"],
-)
-
 # 🟢 2. 新增：名称归一化工具函数
 def normalize_simple(name):
     """去除所有非字母数字字符并转小写 (Jarvan IV -> jarvaniv)"""
@@ -194,9 +149,10 @@ def preload_champion_map():
     except Exception as e:
         print(f"❌ [Init] 名称映射加载失败: {e}")
 
-# 🚀 启动时自动同步 Prompts
-@app.on_event("startup")
-async def startup_event():
+# ================= 🚀 Lifespan (生命周期) 管理 =================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- 启动逻辑 ---
     # 🟢 4. 启动时加载映射
     preload_champion_map()
 
@@ -207,6 +163,56 @@ async def startup_event():
             print("✅ [Startup] 数据库同步完成！")
         except Exception as e:
             print(f"⚠️ [Startup] 数据库同步失败 (非致命): {e}")
+    
+    yield  # 服务运行中...
+    
+    # --- 关闭逻辑 (如果有) ---
+    pass
+
+# 🔒 生产环境关闭 Swagger UI，并注册 lifespan
+app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan) 
+db = KnowledgeBase()
+
+# 密码哈希工具
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# OAuth2 方案
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# 挂载静态资源
+if os.path.exists("frontend/dist/assets"):
+    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+
+# 🟢 3. 严格 CORS 配置 (强制包含本地开发地址)
+ORIGINS = [
+    "https://www.haxcoach.com",
+    "https://haxcoach.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://www.hexcoach.gg",
+    "https://hexcoach.gg",
+]
+
+# 允许通过环境变量扩展 CORS 域名
+env_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+if env_origins:
+    ORIGINS.extend([o.strip() for o in env_origins if o.strip()])
+
+# 🛡️ [安全增强] 生产环境自动移除本地调试地址
+if APP_ENV == "production":
+    print("🔒 [Security] 生产模式：移除 Localhost 跨域支持")
+    ORIGINS = [origin for origin in ORIGINS if "localhost" not in origin and "127.0.0.1" not in origin]
+
+print(f"🔓 [CORS] 当前允许的跨域来源: {ORIGINS}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ORIGINS, 
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], 
+    allow_headers=["*"],
+)
 
 # ================= 模型定义 =================
 
@@ -256,8 +262,9 @@ class AnalyzeRequest(BaseModel):
     
     # ✨ 新增段位字段，默认为黄金/白金
     rank: str = "Gold"
-    # 🔥🔥🔥 [关键修复] 添加 mapSide 字段，否则后端接不到前端数据！
-    mapSide: str = "unknown" # 'blue' or 'red'
+    # 🔥🔥🔥 [新增] 接收地图方位参数
+    mapSide: str = "unknown" 
+    
     myLaneAssignments: Optional[Dict[str, str]] = None 
     enemyLaneAssignments: Optional[Dict[str, str]] = None
     model_type: str = "chat" # 'chat' or 'reasoner'
@@ -393,12 +400,12 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
         if rank_tier == "Diamond+":
             # 💎 高分段：看重 Meta (Pick率)
             score += pick_rate * 50
-            reason = f"高分段T{tier}热门 (Pick: {pick_rate:.1%})"
+            reason = f"高分段T{tier}热门 (选取率: {pick_rate:.1%})"
         else:
             # 🥇 低分段：看重 胜率 & Ban率
             score += ban_rate * 20
             score += (win_rate - 0.5) * 100 
-            reason = f"当前版本T{tier}强势 (Win: {win_rate:.1%})"
+            reason = f"当前版本T{tier}强势 (胜率: {win_rate:.1%})"
 
         # ⚠️ 已移除所有克制微调逻辑
 
@@ -421,7 +428,7 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
     candidates.sort(key=lambda x: x['score'], reverse=True)
     return candidates[:3]
 
-# 🟢 FastAPI 版本的邀请码接口
+# 🟢 FastAPI 版本的邀请码接口 (已增加 30 天上限逻辑)
 @app.post("/user/redeem_invite")
 async def redeem_invite(
     payload: InviteRequest, 
@@ -431,36 +438,33 @@ async def redeem_invite(
     if not invite_code:
         raise HTTPException(status_code=400, detail="请输入邀请码")
 
+    # 获取当前用户 (受邀人)
     user = await db.users.find_one({"_id": current_user["_id"]})
-    
     if not user:
         raise HTTPException(status_code=404, detail="用户数据同步错误")
 
     if user.get('invited_by'):
         raise HTTPException(status_code=400, detail="您已经领取过新手福利了，无法重复领取")
 
+    # 获取邀请人
     inviter = await db.users.find_one({"username": invite_code})
-
     if not inviter:
         raise HTTPException(status_code=404, detail="无效的邀请码（请输入朋友的用户名）")
 
     if str(inviter['_id']) == str(user['_id']):
         raise HTTPException(status_code=400, detail="不能邀请自己哦")
 
-    # === 核心逻辑：加时间函数 (注意这里的写法变了) ===
+    # === 核心逻辑：加时间函数 ===
     def calculate_new_expire(user_obj, days=3):
-        # 👇 修改点 1：使用 datetime.datetime.utcnow()
         now = datetime.datetime.utcnow()
         current_expire = user_obj.get('membership_expire')
-        
         if not current_expire or current_expire < now:
-            # 👇 修改点 2：使用 datetime.timedelta
             return now + datetime.timedelta(days=days)
         else:
             return current_expire + datetime.timedelta(days=days)
 
-    # 更新当前用户
-    new_expire_user = calculate_new_expire(user)
+    # 1. 给【当前用户 (填写者)】加时间 - 永远成功
+    new_expire_user = calculate_new_expire(user, days=3)
     await db.users.update_one(
         {"_id": user['_id']},
         {
@@ -472,21 +476,37 @@ async def redeem_invite(
         }
     )
 
-    # 更新邀请人
-    new_expire_inviter = calculate_new_expire(inviter)
-    await db.users.update_one(
-        {"_id": inviter['_id']},
-        {
-            "$set": {
-                "membership_expire": new_expire_inviter,
-                "role": "pro" if inviter.get('role', 'user') == 'user' else inviter.get('role')
-            },
-            "$inc": {"invite_count": 1}
-        }
-    )
+    # 2. 给【邀请人】加时间 - 🔥 增加上限判断
+    # 限制：每人最多邀请 10 人 (10 * 3天 = 30天)
+    MAX_INVITES = 10
+    current_invite_count = inviter.get('invite_count', 0)
+    
+    inviter_msg = ""
+
+    if current_invite_count < MAX_INVITES:
+        # 未达上限，正常加时间
+        new_expire_inviter = calculate_new_expire(inviter, days=3)
+        await db.users.update_one(
+            {"_id": inviter['_id']},
+            {
+                "$set": {
+                    "membership_expire": new_expire_inviter,
+                    "role": "pro" if inviter.get('role', 'user') == 'user' else inviter.get('role')
+                },
+                "$inc": {"invite_count": 1} # 计数+1
+            }
+        )
+    else:
+        # 已达上限，不加时间，但也不报错
+        inviter_msg = " (但邀请人已达30天奖励上限)"
+        # 依然记录邀请次数(可选)，方便统计人气，但不加会员时长
+        await db.users.update_one(
+            {"_id": inviter['_id']},
+            {"$inc": {"invite_count": 1}}
+        )
 
     return {
-        "msg": "兑换成功！您和您的朋友都获得了 3 天 Pro 会员！",
+        "msg": f"兑换成功！您获得了 3 天 Pro 会员！{inviter_msg}",
         "new_expire": new_expire_user.isoformat()
     }
 
@@ -955,12 +975,12 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         async def limit_err(): 
             yield json.dumps({
                 "concise": {
-                    "title": "请求拒绝", 
+                    "title": "请求被拒绝", 
                     "content": msg + ("\n💡 升级 Pro 可解锁无限次使用！" if remaining == -1 else "")
                 }
             })
         return StreamingResponse(limit_err(), media_type="application/json")
-    print(f"📥 [调试日志] 用户:{username} | 英雄:{data.myHero} | 方位:{data.mapSide}")
+
     # 🟢 5. 输入自动纠错 (JarvanIV -> Jarvan IV)
     def fix_name(n):
         if not n: return ""
@@ -1150,7 +1170,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         【博弈定性】：
         这是一场 [{my_mid_t}+{my_jg_t}] VS [{en_mid_t}+{en_jg_t}] 的节奏对抗。
         请在【前期博弈】中明确回答：
-        1. 河道主权：3分30秒河蟹刷新时，哪边中野更强？
+        1. 河道主权：3分15秒河蟹刷新时，哪边中野更强？
         2. 先手权：谁拥有推线游走的主动权？
         -------------------------------------------------------------
         """
@@ -1194,15 +1214,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 7. RAG 检索 (防止打野被线上Tips误导)
     top_tips = []
     corrections = []
-
-    ROLE_STRATEGY_MAP = {
-        "TOP": "role_top",
-        "JUNGLE": "role_jungle",
-        "MID": "role_mid",
-        "ADC": "role_adc",
-        "SUPPORT": "role_support"
-    }
-
+    
     # 🔥 关键修改：只有在已选英雄且不为 None 时才进行 RAG 检索
     if data.myHero and data.myHero != "None":
         rag_enemy = primary_enemy
@@ -1217,21 +1229,10 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             top_tips = knowledge.get("general", [])
         else:
             top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
-        
-        # 🔥🔥🔥 通用分路策略注入 🔥🔥🔥
-        strategy_key = ROLE_STRATEGY_MAP.get(user_role_key)
-        if strategy_key:
-            role_knowledge = await run_in_threadpool(db.get_top_knowledge_for_ai, strategy_key, "general")
-            special_role_tips = role_knowledge.get("general", [])
             
-            if special_role_tips:
-                print(f"✨ [RAG] 已为 {user_role_key} 玩家注入 {len(special_role_tips)} 条位置专属博弈策略")
-                # 将位置策略插入到列表最前面，确保 AI 优先看到
-                top_tips = special_role_tips + top_tips
-
         corrections = db.get_corrections(data.myHero, rag_enemy)
 
-    # 🛡️ 安全修改：使用 XML 标签隔离不可信内容
+# 🛡️ 安全修改：使用 XML 标签隔离不可信内容
     if top_tips:
         safe_tips = []
         for t in top_tips:
@@ -1251,32 +1252,27 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 1. 处理前端传来的实时技能数据
     live_mechanics_str = ""
     if data.extraMechanics:
+        # ⚠️ 关键：必须排序！确保每次生成的字符串顺序一致，否则缓存会失效
+        sorted_mechanics = sorted(data.extraMechanics.items())
+        
         mechanics_list = []
-        
-        # 1. 定义“白名单”：只关心自己和主要敌人
-        # normalize_simple 是前面定义的去空格转小写函数
-        target_keys = {normalize_simple(data.myHero), normalize_simple(primary_enemy)}
-        
-        # 记录已添加的英雄，防止 lcu.js 发送的 Alias 和 Name 重复添加
-        added_keys = set() 
-
-        # 2. 遍历前端发来的技能包
-        for h_key, h_desc in data.extraMechanics.items():
-            # 归一化 key (比如 "Lee Sin" -> "leesin")
-            simple_key = normalize_simple(h_key)
-            
-            # 如果这个英雄在我们的关注列表里
-            if simple_key in target_keys and simple_key not in added_keys:
-                # 放宽单个英雄的字数限制 (因为总数少了，可以让 AI 看得更细)
-                clean_desc = str(h_desc).strip()[:1500] 
-                mechanics_list.append(f"【{h_key} 实时机制/CD数值】:\n{clean_desc}")
-                added_keys.add(simple_key)
+        for hero_name, mech_desc in sorted_mechanics:
+            # 简单清洗，防止过长
+            clean_desc = str(mech_desc).strip()[:800] 
+            mechanics_list.append(f"【{hero_name} 关键机制/CD】:\n{clean_desc}")
         
         if mechanics_list:
             live_mechanics_str = "\n".join(mechanics_list)
-            print(f"✨ [Context] 已注入 {len(mechanics_list)} 个核心英雄的实时技能数据")
 
-    full_s15_context_with_skills = f"{s15_context}\n\n====== 🚨 重点英雄实时数据 (Live LCU) ======\n{live_mechanics_str or '暂无 (使用通用知识库)'}"
+    # 2. 组合“超级系统提示词” (S15机制 + 实时技能)
+    # 只要这部分内容不变（同局游戏），DeepSeek 就会命中缓存，费用打 1 折，速度极快
+    # 这里的技巧是把 s15_context 扩展，包含了实时技能数据
+    full_s15_context_with_skills = f"""
+    {s15_context}
+
+    ====== 🚨 实时英雄技能情报 (Live LCU Data) ======
+    {live_mechanics_str or "暂无特定技能数据"}
+    """
 
     # 3. 确定模板
     target_mode = data.mode
@@ -1318,24 +1314,29 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # A. 组装 System Content (静态部分 - 命中缓存)
     sys_tpl_str = tpl['system_template']
-    system_content = sys_tpl_str
+    
+    # 尝试将所有静态知识注入 System 模板
+    # 注意：我们把你上传的 JSON 模板里的 {s15_context} 替换为 (s15 + 实时技能)
+    try:
+        # 如果模板支持占位符，直接填充
+        if "{s15_context}" in sys_tpl_str:
+            system_content = sys_tpl_str.format(
+                s15_context=full_s15_context_with_skills, # 🔥 注入点
+                tips_text=tips_text,
+                correction_prompt=correction_prompt
+            )
+        else:
+            # 兜底：如果模板里没有占位符，强行拼接到最后
+            system_content = (
+                f"{sys_tpl_str}\n\n"
+                f"=== 🌍 S15 Context ===\n{full_s15_context_with_skills}\n\n"
+                f"=== 📚 Community Tips ===\n{tips_text}\n\n"
+                f"{correction_prompt}"
+            )
+    except Exception as e:
+        print(f"⚠️ Prompt Formatting Warning: {e}")
+        system_content = sys_tpl_str + f"\n\nContext: {full_s15_context_with_skills}\nTips: {tips_text}"
 
-    # 使用 replace 替代 format，避免 {} 冲突报错
-    if "{s15_context}" in system_content:
-        system_content = system_content.replace("{s15_context}", full_s15_context_with_skills)
-    else:
-        system_content += f"\n\n=== 🌍 S15 Context ===\n{full_s15_context_with_skills}"
-
-    if "{tips_text}" in system_content:
-        system_content = system_content.replace("{tips_text}", tips_text)
-    else:
-        system_content += f"\n\n=== 📚 Community Tips ===\n{tips_text}"
-
-    # 替换其他变量
-    system_content = system_content.replace("{correction_prompt}", correction_prompt)
-    system_content = system_content.replace("{userRole}", user_role_key)
-
-    # 强制 JSON 约束
     if "Output JSON only" not in system_content:
         system_content += "\n⚠️ IMPORTANT: You must return PURE JSON only."
 
@@ -1343,52 +1344,41 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 因为 System 里已经包含了 s15_context，这里我们不需要再传一次巨大的文本
     # 但为了兼容 prompts.json 里的 {s15_context} 占位符，我们传一个简短的引用
     
-    # 🔥🔥🔥 关键修复：翻译地图方位 🔥🔥🔥
-    map_side_cn = "未知方位"
-    enemy_side_cn = "未知方位"
-    
+    # 🔥🔥🔥 接收并处理 mapSide 参数
+    map_side_desc = "未知阵营"
     if data.mapSide == "blue":
-        map_side_cn = "蓝色方 (Blue Side - 基地在左下)"
-        enemy_side_cn = "红色方 (Red Side - 基地在右上)"
+        map_side_desc = "🔵 蓝色方 (基地左下)"
     elif data.mapSide == "red":
-        map_side_cn = "红色方 (Red Side - 基地在右上)"
-        enemy_side_cn = "蓝色方 (Blue Side - 基地在左下)"
-    
-    # 打印日志确认
-    print(f"🗺️ [Map] 我方: {map_side_cn} | 敌方: {enemy_side_cn}")
+        map_side_desc = "🔴 红色方 (基地右上)"
 
-    # B. 组装 User Content (动态部分)
-    try:
-        user_content = tpl['user_template'].format(
-            mode=data.mode,
-            user_rank=data.rank,        
-            db_suggestions=rec_str,     
-            myTeam=format_roles_str(my_roles_cn),       
-            enemyTeam=format_roles_str(enemy_roles_cn), 
-            myHero=my_hero_cn,          
-            enemyHero=enemy_hero_cn,    
-            userRole=user_role_key,    
-            
-            # 🔥🔥🔥 这里补上了 mapSide 参数 🔥🔥🔥
-            mapSide=map_side_cn,
-            enemySide=enemy_side_cn,
-            s15_context="(机制库已加载至 System Context，请基于该知识库分析)", 
-            compInfo=lane_matchup_context,
-            tips_text="(已加载至System)", 
-            correction_prompt=""          
-        )
-    except KeyError as e:
-        print(f"❌ Template Key Error: {e}")
-        # 兜底防止崩溃：如果模板里还有其他未知的 {key}，回退到安全模式
-        user_content = f"模板渲染出错 (缺参数 {e})。请检查 prompts.json。\n\n当前参数:\n英雄: {my_hero_cn}\n位置: {user_role_key}"
+    user_content = tpl['user_template'].format(
+        mode=data.mode,
+        user_rank=data.rank,        
+        db_suggestions=rec_str,     
+        myTeam=format_roles_str(my_roles_cn),       # ✅ 中文阵容 (别名)
+        enemyTeam=format_roles_str(enemy_roles_cn), # ✅ 中文阵容 (别名)
+        myHero=my_hero_cn,          # ✅ 中文名 (别名)
+        enemyHero=enemy_hero_cn,    # ✅ 中文名 (别名)
+        userRole=user_role_key,    
+        
+        # 🔥 注入红蓝方信息
+        mapSide=map_side_desc,
+
+        # 👇 关键优化：不再重复传输大段文本
+        s15_context="(机制库已加载至 System Context，请基于该知识库分析)", 
+        
+        compInfo=lane_matchup_context,
+        tips_text="(已加载至System)", # 同理
+        correction_prompt=""          # 同理
+    )
 
     # 9. AI 调用
     if data.model_type == "reasoner":
         MODEL_NAME = "deepseek-reasoner"
-        ##print(f"🧠 [AI] R1 Request - User: {current_user['username']}")
+        print(f"🧠 [AI] R1 Request - User: {current_user['username']}")
     else:
         MODEL_NAME = "deepseek-chat"
-        ##print(f"🚀 [AI] V3 Request - User: {current_user['username']}")
+        print(f"🚀 [AI] V3 Request - User: {current_user['username']}")
 
     async def event_stream():
         try:
@@ -1440,15 +1430,15 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-        self.tracker = None  # 🟢 修复：初始化 tracker，避免 AttributeError
+        
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
         print("🔗 [WS] 前端已连接")
         
-        # 当有第一个客户端连接时，尝试启动 CV 引擎 (如果存在 JungleTracker 类)
-        if not self.tracker and 'JungleTracker' in globals():
+        # 当有第一个客户端连接时，启动 CV 引擎
+        if not self.tracker and JungleTracker:
             print("👁️ [CV] 正在启动打野追踪引擎...")
             try:
                 self.tracker = JungleTracker(self.broadcast_sync)
@@ -1460,6 +1450,7 @@ class ConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         
+
     # 异步发送消息 (给 FastAPI 用)
     async def broadcast(self, message: dict):
         # 复制一份列表进行遍历，防止迭代时修改报错
@@ -1502,6 +1493,39 @@ async def websocket_endpoint(websocket: WebSocket):
 # 定义前端构建目录的路径 (根据你的 Dockerfile 结构)
 DIST_DIR = Path("frontend/dist") 
 
+# 🟢 [新增] 全员公开下载接口 (无需 Token，支持对象存储重定向)
+@app.get("/api/download/client")
+async def download_client_public():
+    """
+    全员开放的直链下载通道
+    为了节省 Sealos 服务器流量，这里使用 HTTP 重定向 (307)
+    让用户直接从 Sealos 对象存储 (OSS) 下载文件
+    """
+    # 1. 优先读取环境变量中的对象存储链接
+    # 您需要在 Sealos 的“环境变量”中设置 CLIENT_DOWNLOAD_URL
+    # 例如: https://your-bucket.oss-cn-hangzhou.sealos.run/HexCoach-Lite-1.0.0.exe
+    oss_url = os.getenv("CLIENT_DOWNLOAD_URL")
+    
+    if oss_url:
+        return RedirectResponse(url=oss_url)
+
+    # 2. 如果没配置，尝试本地文件 (兜底)
+    file_path = current_dir / "secure_data" / "HexCoach-Lite-1.0.0.exe"
+    
+    # 兼容旧文件名
+    if not file_path.exists():
+        file_path = current_dir / "secure_data" / "HexClient.exe"
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="下载服务配置错误：未找到文件或OSS链接")
+
+    # 如果是本地文件，依然使用流式传输 (消耗服务器流量)
+    return FileResponse(
+        path=file_path, 
+        filename="HexCoach-Lite-1.0.0.exe", 
+        media_type="application/vnd.microsoft.portable-executable"
+    )
+
 # 1. 专门处理 favicon.png (解决图标不显示的问题)
 @app.get("/favicon.{ext}")
 async def favicon(ext: str):
@@ -1523,14 +1547,20 @@ async def favicon(ext: str):
         
     raise HTTPException(status_code=404)
 
-# 2. 捕获所有其他路径 -> 返回 index.html (SPA 路由)
+# 2. 捕获所有其他路径 -> 智能判断是文件还是页面
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    # 如果请求的是 API 或静态资源但没找到，返回 404
+    # A. 优先检查 frontend/dist 下有没有这个文件 (例如 .exe, .png)
+    # 这样如果你把 exe 放在 frontend/dist/download/ 目录下，就能直接下载了
+    file_path = DIST_DIR / full_path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(file_path)
+
+    # B. 如果请求的是 API 或静态资源(assets)但没找到，返回 404
     if full_path.startswith("api/") or full_path.startswith("assets/"):
         raise HTTPException(status_code=404)
         
-    # 其他页面路径返回 index.html
+    # C. SPA 路由兜底：返回 index.html
     index_path = DIST_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
@@ -1562,7 +1592,7 @@ async def hot_update_config(
         "corrections": "corrections.json",
         "champions": "champions.json"
     }
-
+    
     target_filename = filename_map.get(file_type)
     if not target_filename:
         raise HTTPException(status_code=400, detail="无效的文件类型，请选择: prompts, mechanics, corrections, champions")
@@ -1590,7 +1620,7 @@ async def hot_update_config(
         if seed_data:
             seed_data()
             print("🔄 [HotUpdate] 数据库已同步")
-
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据同步失败: {str(e)}")
 

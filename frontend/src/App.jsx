@@ -6,6 +6,7 @@ import LandingPage from './components/LandingPage';
 import CommunityPage from './components/CommunityPage';
 import MainConsole from './pages/MainConsole';
 import OverlayConsole from './pages/OverlayConsole'; // 🟢 悬浮窗页面
+import DownloadModal from './components/modals/DownloadModal'; // 🟢 新增引入
 
 export default function App() {
     // 1. 从 Hook 中获取所有状态(state)和操作方法(actions)
@@ -37,10 +38,18 @@ export default function App() {
     // =================================================================
     if (!state.hasStarted) {
         return (
-            <LandingPage 
-                onEnter={() => actions.setHasStarted(true)} 
-                onOpenCommunity={() => actions.setShowCommunity(true)}
-            />
+            <>
+                <DownloadModal 
+                    isOpen={state.showDownloadModal} 
+                    onClose={() => actions.setShowDownloadModal(false)} 
+                />
+                <LandingPage 
+                    onEnter={() => actions.setHasStarted(true)} 
+                    onOpenCommunity={() => actions.setShowCommunity(true)}
+                    // 🟢 修复：绑定下载按钮点击事件
+                    onDownloadClick={() => actions.setShowDownloadModal(true)} 
+                />
+            </>
         );
     }
 

@@ -256,25 +256,25 @@ def seed_data():
     # =====================================================
     # 4. 管理员账号
     # =====================================================
-    print("\n🚀 [4/5] 强制更新管理员账号...")
-    admin_pass = os.getenv("ADMIN_PASSWORD")
-    if admin_pass:
-        admin_user = os.getenv("ADMIN_USERNAME", "admin")
-        hashed = pwd_context.hash(admin_pass)
+    # print("\n🚀 [4/5] 强制更新管理员账号...")
+    # admin_pass = os.getenv("ADMIN_PASSWORD")
+    # if admin_pass:
+    #     admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    #     hashed = pwd_context.hash(admin_pass)
         
-        db.users.update_one(
-            {"username": admin_user},
-            {
-                "$set": {
-                    "password": hashed, 
-                    "role": "admin", 
-                    "is_pro": True
-                },
-                "$setOnInsert": {"created_at": get_utc_now()}
-            },
-            upsert=True
-        )
-        print(f"✅ 管理员 {admin_user} 密码已强制重置！")
+    #     db.users.update_one(
+    #         {"username": admin_user},
+    #         {
+    #             "$set": {
+    #                 "password": hashed, 
+    #                 "role": "admin", 
+    #                 "is_pro": True
+    #             },
+    #             "$setOnInsert": {"created_at": get_utc_now()}
+    #         },
+    #         upsert=True
+    #     )
+    #     print(f"✅ 管理员 {admin_user} 密码已强制重置！")
 
     # =====================================================
     # 5. 调用修正数据 (corrections.json)

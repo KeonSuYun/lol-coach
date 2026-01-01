@@ -16,6 +16,8 @@ import TipModal from '../components/modals/TipModal';
 import FeedbackModal from '../components/modals/FeedbackModal';
 import PricingModal from '../components/modals/PricingModal';
 import SettingsModal from '../components/modals/SettingsModal'; 
+import DownloadModal from '../components/modals/DownloadModal';
+import LandingPage from '../components/LandingPage'; 
 
 export default function MainConsole({ state, actions }) {
     const { 
@@ -25,7 +27,8 @@ export default function MainConsole({ state, actions }) {
         showChampSelector, selectingSlot, selectingIsEnemy, roleMapping, championList,
         token, authMode, authForm, showLoginModal, showTipModal, inputContent, tipTarget, tips, tipTargetEnemy,
         showAdminPanel, showSettingsModal, currentShortcuts, sendChatTrigger,
-        showFeedbackModal, showPricingModal
+        showFeedbackModal, showPricingModal,
+        mapSide, showDownloadModal, hasStarted 
     } = state;
 
     const {
@@ -35,14 +38,51 @@ export default function MainConsole({ state, actions }) {
         setShowChampSelector, setSelectingSlot, setUserSlot, handleSelectChampion,
         handleLogin, handleRegister, setAuthMode, setAuthForm,
         setShowSettingsModal, setShowAdminPanel, setInputContent, setShowTipModal, setShowFeedbackModal,
-        handlePostTip, handleReportError, handleLike, handleDeleteTip, handleSaveShortcuts, setTipTarget, handleTabClick
+        handlePostTip, handleReportError, handleLike, handleDeleteTip, handleSaveShortcuts, setTipTarget, handleTabClick,
+        setMapSide, setShowDownloadModal
     } = actions;
+
+    const getEnemySideLabel = () => {
+        if (mapSide === 'blue') return '(红色方)';
+        if (mapSide === 'red') return '(蓝色方)';
+        return '';
+    };
+
+    // 🔥 修复：改为直接跳转到完整社区页面，而不是滚动
+    const handleShowCommunity = () => {
+        actions.setShowCommunity(true);
+    };
+
+    if (!hasStarted) {
+        return (
+            <>
+                <Toaster position="top-right" />
+                <DownloadModal 
+                    isOpen={showDownloadModal} 
+                    onClose={() => setShowDownloadModal(false)} 
+                />
+                <LandingPage 
+                    onEnter={() => setHasStarted(true)} 
+                    version={version}
+                    onOpenCommunity={() => actions.setShowCommunity(true)}
+                    onDownloadClick={() => setShowDownloadModal(true)}
+                />
+            </>
+        );
+    }
 
     return (
         <div className="min-h-screen">
             <Toaster position="top-right" />
+            <DownloadModal 
+                isOpen={showDownloadModal} 
+                onClose={() => setShowDownloadModal(false)} 
+            />
+
             <div className="fixed top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#C8AA6E]/50 to-transparent z-50"></div>
-            <div className="relative z-10 flex flex-col items-center p-4 md:p-8 max-w-[1800px] mx-auto">
+            
+            {/* 恢复正常的 padding, 适配原来的 Header */}
+            <div className="relative z-10 flex flex-col items-center p-4 md:p-8 pt-24 max-w-[1800px] mx-auto">
                 
                 <Header
                     version={version} lcuStatus={lcuStatus}
@@ -51,25 +91,60 @@ export default function MainConsole({ state, actions }) {
                     useThinkingModel={useThinkingModel} setUseThinkingModel={setUseThinkingModel}
                     setShowPricingModal={setShowPricingModal} accountInfo={accountInfo}
                     userRank={userRank} setUserRank={setUserRank}
+                    
                     onGoHome={() => setHasStarted(false)}
+                    onShowCommunity={handleShowCommunity} // 🔥 绑定新的跳转函数
+                    onShowDownload={() => setShowDownloadModal(true)}
+                    
+                    onShowSettings={setShowSettingsModal}
+                    onShowAdmin={setShowAdminPanel}
                 />
 
                 <div className="w-full mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                     
                     {/* 左侧：我方 (Ally) */}
                     <div className="lg:col-span-3 flex flex-col gap-5 lg:sticky lg:top-8">
+                        
                         {/* 1. 阵容面板 */}
                         <div className="bg-[#091428] border border-[#C8AA6E]/30 rounded shadow-lg relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#0AC8B9] to-transparent opacity-50"></div>
+                            
                             <div className="flex items-center justify-between px-3 py-2 bg-[#010A13]/80 border-b border-[#C8AA6E]/10">
                                 <div className="flex items-center gap-2 text-[#0AC8B9]">
                                     <Shield size={14} />
                                     <span className="text-xs font-bold tracking-[0.15em] text-[#F0E6D2] uppercase">我方阵容</span>
                                 </div>
-                                <button onClick={handleClearSession} className="text-slate-500 hover:text-red-400 transition-colors opacity-50 hover:opacity-100">
+                                <button onClick={handleClearSession} className="text-slate-500 hover:text-red-400 transition-colors opacity-50 hover:opacity-100" title="清空对局">
                                     <Trash2 size={12}/>
                                 </button>
                             </div>
+
+                            <div className="flex items-center justify-center py-1.5 bg-black/40 border-b border-[#C8AA6E]/10 gap-2">
+                                <button 
+                                    onClick={() => setMapSide('blue')}
+                                    className={`flex items-center gap-1.5 px-3 py-1 rounded text-[10px] font-bold transition-all duration-200 border ${
+                                        mapSide === 'blue' 
+                                        ? 'bg-blue-900/60 border-blue-500 text-blue-300 shadow-[0_0_8px_rgba(59,130,246,0.3)]' 
+                                        : 'bg-transparent border-transparent text-slate-600 hover:text-slate-400 hover:bg-white/5'
+                                    }`}
+                                >
+                                    <div className={`w-1.5 h-1.5 rounded-full ${mapSide === 'blue' ? 'bg-blue-400' : 'bg-slate-700'}`}></div>
+                                    我是蓝方 (左下)
+                                </button>
+                                <div className="w-[1px] h-3 bg-slate-800"></div>
+                                <button 
+                                    onClick={() => setMapSide('red')}
+                                    className={`flex items-center gap-1.5 px-3 py-1 rounded text-[10px] font-bold transition-all duration-200 border ${
+                                        mapSide === 'red' 
+                                        ? 'bg-red-900/60 border-red-500 text-red-300 shadow-[0_0_8px_rgba(239,68,68,0.3)]' 
+                                        : 'bg-transparent border-transparent text-slate-600 hover:text-slate-400 hover:bg-white/5'
+                                    }`}
+                                >
+                                    <div className={`w-1.5 h-1.5 rounded-full ${mapSide === 'red' ? 'bg-red-400' : 'bg-slate-700'}`}></div>
+                                    我是红方 (右上)
+                                </button>
+                            </div>
+
                             <div className="p-1 space-y-1 bg-black/30">
                                 {blueTeam.map((c, i) => (
                                     <div 
@@ -138,7 +213,7 @@ export default function MainConsole({ state, actions }) {
                                 isAnalyzing={isModeAnalyzing(analyzeType)} 
                             />
                         </div>
-                        {/* Tab - 🔴 移除了 lg:sticky lg:top-[80px] */}
+                        {/* Tab */}
                         <div className="grid grid-cols-3 gap-0 bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg overflow-hidden relative z-30 shadow-2xl">
                             {[
                                 { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
@@ -189,7 +264,10 @@ export default function MainConsole({ state, actions }) {
                             <div className="flex items-center justify-between px-3 py-2 bg-[#2a0a0a]/50 border-b border-red-900/20">
                                 <div className="flex items-center gap-2 text-red-500">
                                     <Crosshair size={14} />
-                                    <span className="text-xs font-bold tracking-[0.15em] text-red-200 uppercase">敌方阵容</span>
+                                    <span className="text-xs font-bold tracking-[0.15em] text-red-200 uppercase">
+                                        敌方阵容
+                                        <span className="ml-2 text-[10px] opacity-70">{getEnemySideLabel()}</span>
+                                    </span>
                                 </div>
                             </div>
                             <div className="p-1 space-y-1 bg-black/20">
@@ -236,7 +314,8 @@ export default function MainConsole({ state, actions }) {
                         </div>
                         
                         {/* 社区 Tips */}
-                        <div className="flex-1 min-h-[300px] bg-[#091428] border border-[#C8AA6E]/20 rounded shadow-xl overflow-hidden flex flex-col">
+                        <div id="community-section" className="flex-1 min-h-[300px] bg-[#091428] border border-[#C8AA6E]/20 rounded shadow-xl overflow-hidden flex flex-col scroll-mt-28">
+                            {/* 🔥 ID 用于滚动跳转 */}
                             <CommunityTips
                                 tips={tips}
                                 currentUser={currentUser}

@@ -1,8 +1,6 @@
-import React from 'react';
-import { Link, Unplug, User, LogOut, Download, Zap, Brain, Diamond, Crown, Infinity as InfinityIcon, Trophy, Wifi, WifiOff, ChevronDown, Gem, Activity } from 'lucide-react';
+import React, { useState } from 'react';
+import { User, LogOut, Crown, Download, Zap, Brain, Infinity as InfinityIcon, Trophy, ChevronDown, Settings, ShieldAlert, Home, LayoutDashboard, Globe, Diamond } from 'lucide-react';
 import HexCoreIcon from './HexCoreIcon';
-// 你的常量配置
-import { ROLES } from '../config/constants';
 
 // 定义段位列表
 const RANKS = [
@@ -21,56 +19,69 @@ const RANKS = [
 const Header = ({ 
     version = "15.24.1", lcuStatus, userRole, setUserRole, currentUser, logout, setShowLoginModal,
     useThinkingModel, setUseThinkingModel,
-    setShowPricingModal,
-    accountInfo,
+    setShowPricingModal, accountInfo,
     userRank, setUserRank,
-    onGoHome // 🟢 接收返回主页的回调
+    onGoHome, onShowCommunity, onShowDownload, // 接收回调
+    onShowSettings, onShowAdmin
 }) => {
   
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const isPro = accountInfo?.is_pro === true;
   const r1Remaining = accountInfo?.r1_remaining;
-  const r1Limit = accountInfo?.r1_limit || 10;
 
-  // 辅助函数：根据段位ID获取颜色对象
   const getCurrentRankObj = () => RANKS.find(r => r.id === userRank) || RANKS[3];
 
   return (
-    // 📱 容器调整：减小移动端底部 padding (pb-4)
+    // 恢复原来的容器样式
     <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8 border-b border-slate-800/60 pb-4 md:pb-6 relative">
       
-      {/* ================= 左侧 Logo & 标题区域 ================= */}
+      {/* ================= 🔥 [新增] 中间导航栏 (绝对定位居中) ================= */}
+      <div className="absolute left-1/2 top-0 -translate-x-1/2 hidden xl:flex items-center gap-8 bg-[#010A13]/80 border border-white/5 px-6 py-2 rounded-full backdrop-blur-md shadow-lg z-20">
+          <button 
+              onClick={onGoHome} 
+              className="flex items-center gap-2 text-slate-400 hover:text-white font-bold text-xs transition-colors"
+          >
+              <Home size={14}/> 首页
+          </button>
+          
+          <button className="flex items-center gap-2 text-[#C8AA6E] font-bold text-xs transition-colors relative cursor-default">
+              <LayoutDashboard size={14}/> 主控台
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-[2px] bg-[#C8AA6E] rounded-full"></div>
+          </button>
+          
+          <button 
+              onClick={onShowCommunity} 
+              className="flex items-center gap-2 text-slate-400 hover:text-white font-bold text-xs transition-colors"
+          >
+              <Globe size={14}/> 绝活社区
+          </button>
+      </div>
+
+      {/* ================= 左侧 Logo & 标题区域 (恢复原样) ================= */}
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-4">
-                {/* 🟢 修改：点击 Logo 返回主页 */}
                 <div 
                     onClick={onGoHome}
                     className="flex items-center gap-4 cursor-pointer select-none group"
                     title="点击返回主页"
                 >
-                    {/* 🌀 Logo 图标 */}
                     <div className="relative">
                         <HexCoreIcon className="w-12 h-12 md:w-14 md:h-14 text-[#0AC8B9] group-hover:rotate-180 transition-transform duration-700 filter drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]" />
                         <div className="absolute inset-0 bg-[#0AC8B9] blur-xl opacity-20 group-hover:opacity-40 transition-opacity"></div>
                     </div>
                     
-                    {/* 🏆 标题区域 (优化字体科技感) */}
                     <div className="hidden md:flex flex-col justify-center">
                         <div className="flex items-baseline gap-2">
-                            {/* 主标题：海克斯 (科技蓝 + 硬朗无衬线) */}
                             <h1 className="text-3xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-blue-400 to-blue-500 filter drop-shadow-[0_0_10px_rgba(34,211,238,0.3)]">
                                 海克斯
                             </h1>
-                            {/* 副标题：教练 (金色 + 宽字距) */}
                             <h1 className="text-3xl font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-yellow-500 filter drop-shadow-[0_0_5px_rgba(234,179,8,0.3)]">
                                 教练
                             </h1>
-                            {/* 版本角标 */}
                             <span className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/30 text-[10px] font-mono font-bold text-blue-300 transform -translate-y-2">
                                 PRO
                             </span>
                         </div>
-                        
-                        {/* 英文底座 */}
                         <div className="flex items-center gap-2 mt-1">
                             <span className="text-[10px] font-mono font-bold tracking-[0.3em] text-slate-500 uppercase group-hover:text-cyan-400 transition-colors pl-0.5">
                                 HEX TACTICAL ENGINE
@@ -79,9 +90,7 @@ const Header = ({
                     </div>
                 </div>
 
-                {/* 状态指示器与下载按钮 (修复缺失的10行代码) */}
                 <div className="hidden md:flex flex-col gap-1.5 border-l border-white/10 pl-4 ml-2">
-                    {/* LCU 状态 */}
                     <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[9px] font-bold tracking-wider transition-all w-fit
                         ${lcuStatus === 'connected' 
                             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
@@ -92,21 +101,20 @@ const Header = ({
                         <span>{lcuStatus === 'connected' ? 'SYSTEM LINKED' : 'LCU OFFLINE'}</span>
                     </div>
 
-                    {/* 下载助手 (仅未连接时显示) */}
+                    {/* 🔥 这里的下载按钮现在绑定了 onShowDownload */}
                     {lcuStatus !== 'connected' && (
-                        <a 
-                            href="/download/HexCoach-Lite-1.0.0.exe" 
-                            download="HexCoach-Lite-1.0.0.exe"
+                        <button 
+                            onClick={onShowDownload}
                             className="flex items-center gap-1 text-[9px] text-[#C8AA6E] hover:text-white hover:underline transition-colors cursor-pointer"
                         >
                             <Download size={10} /> 下载连接助手
-                        </a>
+                        </button>
                     )}
                 </div>
             </div>
         </div>
       
-      {/* ================= 右侧功能区 (保持不变) ================= */}
+      {/* ================= 右侧功能区 (恢复原样) ================= */}
       <div className="flex flex-row flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3 w-full md:w-auto">
 
           {/* 1. 段位选择器 */}
@@ -117,7 +125,6 @@ const Header = ({
                     value={userRank} 
                     onChange={(e) => setUserRank(e.target.value)}
                     className={`bg-transparent text-xs outline-none border-none font-bold cursor-pointer min-w-[80px] md:min-w-[100px] ${getCurrentRankObj().color}`}
-                    title="选择你的段位，AI将根据段位调整推荐算法"
                 >
                     {RANKS.map(r => (
                         <option key={r.id} value={r.id} className="bg-slate-900 text-slate-300">
@@ -166,7 +173,6 @@ const Header = ({
               >
                   <Brain size={12} className={useThinkingModel ? "fill-current" : ""}/>
                   <span>深度</span>
-                  {/* 次数提示角标 */}
                   {!isPro && currentUser && r1Remaining !== undefined && (
                       <span className={`absolute -top-1 -right-1 px-1 h-3 flex items-center justify-center rounded-full text-[8px] border ${r1Remaining > 0 ? 'bg-purple-900 border-purple-500 text-purple-200' : 'bg-red-900 border-red-500 text-red-200'}`}>
                           {r1Remaining}
@@ -180,15 +186,38 @@ const Header = ({
 
           {/* 4. 用户信息 & 登录登出 */}
           {currentUser ? (
-              <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 rounded-full pl-3 pr-2 py-1.5 ml-auto md:ml-0">
-                  <span className={`flex items-center gap-1.5 ${isPro ? 'text-yellow-400 font-bold' : 'text-slate-300'}`}>
-                      <User size={14} className={isPro ? "fill-current" : ""}/> 
-                      <span className="max-w-[80px] md:max-w-none truncate">{currentUser}</span>
-                  </span>
-                  <div className="w-px h-3 bg-slate-700 mx-1"></div>
-                  <button onClick={logout} className="p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors" title="登出">
-                      <LogOut size={12}/>
+              <div className="relative">
+                  <button 
+                      onClick={() => setShowUserMenu(!showUserMenu)}
+                      className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 rounded-full pl-3 pr-2 py-1.5 ml-auto md:ml-0 hover:border-slate-600 transition-colors"
+                  >
+                      <span className={`flex items-center gap-1.5 ${isPro ? 'text-yellow-400 font-bold' : 'text-slate-300'}`}>
+                          <User size={14} className={isPro ? "fill-current" : ""}/> 
+                          <span className="max-w-[80px] md:max-w-none truncate">{currentUser}</span>
+                      </span>
+                      <ChevronDown size={10} className="text-slate-500" />
                   </button>
+
+                  {/* Dropdown Menu */}
+                  {showUserMenu && (
+                      <>
+                          <div className="fixed inset-0 z-30" onClick={() => setShowUserMenu(false)}></div>
+                          <div className="absolute top-full right-0 mt-2 w-48 bg-[#091428] border border-[#C8AA6E]/30 rounded-xl shadow-2xl py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                              <button onClick={() => {if(onShowSettings) onShowSettings(); setShowUserMenu(false);}} className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-white/5 flex items-center gap-2">
+                                  <Settings size={14} /> 设置
+                              </button>
+                              {onShowAdmin && (
+                                  <button onClick={() => {onShowAdmin(); setShowUserMenu(false);}} className="w-full text-left px-4 py-2 text-xs text-red-400 hover:bg-red-900/20 flex items-center gap-2">
+                                      <ShieldAlert size={14} /> 管理后台
+                                  </button>
+                              )}
+                              <div className="h-[1px] bg-white/5 my-1"></div>
+                              <button onClick={logout} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-white/5 flex items-center gap-2">
+                                  <LogOut size={14} /> 退出登录
+                              </button>
+                          </div>
+                      </>
+                  )}
               </div>
           ) : (
               <button 
