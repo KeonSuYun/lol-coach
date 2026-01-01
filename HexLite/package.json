@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "HexCoach Light Client",
   "main": "main.js",
+  "author": "HexCoach",
+  "license": "ISC",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder"
   },
-  "author": "HexCoach",
-  "license": "ISC",
   "dependencies": {
     "axios": "^1.6.0",
     "find-process": "^1.4.7",
@@ -24,10 +24,33 @@
   "build": {
     "appId": "com.hexcoach.lite",
     "productName": "HexCoach Lite",
+    "compression": "maximum",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "lcu.js",
+      "package.json",
+      "dist/**/*",        
+      "resources/**/*"
+    ],
     "win": {
-      "icon": "assets/icon.ico",
+      "icon": "resources/icon.ico",
       "target": "nsis",
       "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "deleteAppDataOnUninstall": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "installerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico"
     }
   }
 }

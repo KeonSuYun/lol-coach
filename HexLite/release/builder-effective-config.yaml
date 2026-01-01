@@ -1,0 +1,29 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.hexcoach.lite
+productName: HexCoach Lite
+compression: maximum
+asar: true
+files:
+  - filter:
+      - main.js
+      - lcu.js
+      - package.json
+      - dist/**/*
+      - resources/**/*
+win:
+  icon: resources/icon.ico
+  target: nsis
+  requestedExecutionLevel: requireAdministrator
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
+  deleteAppDataOnUninstall: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  installerIcon: resources/icon.ico
+  installerHeaderIcon: resources/icon.ico
+electronVersion: 28.3.3
