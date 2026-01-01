@@ -1,259 +1,356 @@
-const { app, BrowserWindow, screen, ipcMain, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, clipboard, dialog, globalShortcut, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const koffi = require('koffi'); // 必须依赖
+const koffi = require('koffi');
+const WebSocket = require('ws'); 
 const { connectToLCU } = require('./lcu');
+const { pathToFileURL } = require('url');
 
 // === 全局变量 ===
 let dashboardWindow;
 let overlayWindow;
 let pollingInterval;
+let wssInstance = null; 
+let isMouseIgnored = true; 
+let tray = null;
 
-// 你的网页端地址 (开发时用 localhost, 生产环境可以用 file:// 或部署的 URL)
-const WEB_APP_URL = 'http://localhost:5173?overlay=true'; 
+// 🔥🔥🔥【新增】数据缓存，防止前端加载慢丢失数据 🔥🔥🔥
+let lastLcuData = null;
+
+const WSS_PORT = 29150; 
+const isDev = !app.isPackaged;
+const WEB_APP_URL = isDev 
+    ? 'http://localhost:5173?overlay=true' 
+    : 'https://www.hexcoach.gg?overlay=true';
+
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
-// ==========================================
-// 🎮 1. 键位配置
-// ==========================================
-// 虚拟键码表
-const VK_CODES = {
+// ==========================================\r
+// 🌐 1. WebSocket 服务\r
+// ==========================================\r
+function startWebSocketServer() {
+    try {
+        wssInstance = new WebSocket.Server({ port: WSS_PORT });
+        
+        wssInstance.on('connection', (ws) => {
+            ws.send(JSON.stringify({ type: 'STATUS', data: 'connected' }));
+
+            setTimeout(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'REQUEST_SYNC' }));
+                }
+            }, 1000);
+
+            ws.on('message', (message) => {
+                try {
+                    const rawMsg = message.toString();
+                    const parsed = JSON.parse(rawMsg);
+
+                    if (parsed.type === 'REQUEST_SYNC') {
+                        broadcast(rawMsg); 
+                    }
+                    else if (parsed.type === 'SYNC_AI_RESULT' && parsed.data) {
+                        if (overlayWindow && !overlayWindow.isDestroyed()) {
+                            overlayWindow.webContents.send('sync-analysis', parsed.data);
+                        }
+                    }
+                } catch (e) {}
+            });
+        });
+    } catch (e) {}
+}
+
+function broadcast(message) {
+    if (!wssInstance) return;
+    wssInstance.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            const payload = typeof message === 'string' ? message : JSON.stringify(message);
+            client.send(payload);
+        }
+    });
+}
+
+// ==========================================\r
+// 🎮 2. 全键位映射表\r
+// ==========================================\r
+const VK_MAP = {
+    // 鼠标
+    'LBtn': 0x01, 'RBtn': 0x02, 'MBtn': 0x04,
+    // 功能
+    'Back': 0x08, 'Tab': 0x09, 'Enter': 0x0D, 'Shift': 0x10, 'Ctrl': 0x11, 'Alt': 0x12,
+    'Esc': 0x1B, 'Space': 0x20, 'PgUp': 0x21, 'PgDn': 0x22, 'End': 0x23, 'Home': 0x24,
+    'Left': 0x25, 'Up': 0x26, 'Right': 0x27, 'Down': 0x28,
+    'Insert': 0x2D, 'Delete': 0x2E,
+    // 数字 & 字母
+    '0': 0x30, '1': 0x31, '2': 0x32, '3': 0x33, '4': 0x34, '5': 0x35, '6': 0x36, '7': 0x37, '8': 0x38, '9': 0x39,
+    'A': 0x41, 'B': 0x42, 'C': 0x43, 'D': 0x44, 'E': 0x45, 'F': 0x46, 'G': 0x47, 'H': 0x48, 'I': 0x49, 'J': 0x4A,
+    'K': 0x4B, 'L': 0x4C, 'M': 0x4D, 'N': 0x4E, 'O': 0x4F, 'P': 0x50, 'Q': 0x51, 'R': 0x52, 'S': 0x53, 'T': 0x54,
+    'U': 0x55, 'V': 0x56, 'W': 0x57, 'X': 0x58, 'Y': 0x59, 'Z': 0x5A,
+    // 符号 & F区
+    'Tilde': 0xC0, 'Minus': 0xBD, 'Plus': 0xBB,
     'F1': 0x70, 'F2': 0x71, 'F3': 0x72, 'F4': 0x73, 'F5': 0x74, 'F6': 0x75,
-    'F7': 0x76, 'F8': 0x77, 'F9': 0x78, 'F10': 0x79, 'F11': 0x7A, 'F12': 0x7B,
-    'Insert': 0x2D, 'Home': 0x24, 'End': 0x23, 'Delete': 0x2E, 
-    'PageUp': 0x21, 'PageDown': 0x22, 'Right': 0x27
+    'F7': 0x76, 'F8': 0x77, 'F9': 0x78, 'F10': 0x79, 'F11': 0x7A, 'F12': 0x7B
 };
 
-// 默认配置
-let shortcuts = {
-    toggle: 0x71, // F2 (主开关 - 本地处理)
-    prev: 0x72,   // F3 (上一页 - 发送给网页)
-    next: 0x73,   // F4 (下一页 - 发送给网页)
-    refresh: 0x74 // F5 (刷新 - 发送给网页)
+// 🟢 默认配置 (Alt+S/X 滚动)
+let activeConfig = {
+    // === 单键触发 ===
+    toggle: 'Home',      // 显隐
+    mouseMode: 'Tilde',  // ~ 键呼出鼠标
+    
+    // === Alt 组合键 ===
+    refresh: 'D',        // Alt+D (Refresh) - 避开S/X
+    
+    modePrev: 'Z',       // Alt+Z (切模式)
+    modeNext: 'C',       // Alt+C
+    
+    prevPage: 'LBtn',    // Alt+左键
+    nextPage: 'RBtn',    // Alt+右键
+    
+    scrollUp: 'S',       // Alt+S (向上滚)
+    scrollDown: 'X'      // Alt+X (向下滚)
 };
-let currentToggleName = 'F2';
 
-// ==========================================
-// 🛡️ 2. 底层轮询系统 (Koffi / User32)
-// ==========================================
-let user32;
-let GetAsyncKeyState;
+let user32, GetAsyncKeyState;
 
 try {
     user32 = koffi.load('user32.dll');
     GetAsyncKeyState = user32.func('GetAsyncKeyState', 'short', ['int']);
-} catch (e) {
-    console.error('Koffi 加载失败 (非 Windows 环境?):', e);
-}
+} catch (e) { }
 
 function startKeyboardPolling() {
     if (!GetAsyncKeyState) return;
-
-    // 状态记录，防止连发 { code: boolean }
-    let keyStates = {}; 
+    let keyLocks = {}; 
 
     if (pollingInterval) clearInterval(pollingInterval);
 
+    // 100ms 轮询 (保证滚动流畅)
     pollingInterval = setInterval(() => {
-        // 定义要监听的按键及其对应的动作指令
-        const keysToCheck = [
-            { code: shortcuts.toggle,  action: 'toggle' },      // 本地动作
-            { code: shortcuts.prev,    action: 'nav_prev' },    // 发送给 React: 上一页
-            { code: shortcuts.next,    action: 'nav_next' },    // 发送给 React: 下一页
-            { code: shortcuts.refresh, action: 'refresh' }      // 发送给 React: 刷新/重新分析
-        ];
+        // 1. 单键检测
+        checkSingleKey(activeConfig.toggle, () => toggleOverlay());
+        checkSingleKey(activeConfig.mouseMode, () => switchMouseMode());
 
-        keysToCheck.forEach(({ code, action }) => {
-            if (!code) return;
-
-            const state = GetAsyncKeyState(code);
-            // 0x8000 位表示按键当前是否按下
-            const isPressed = (state & 0x8000) !== 0;
-            const wasPressed = keyStates[code] || false;
-
-            // 上升沿触发 (按下瞬间)
-            if (isPressed && !wasPressed) {
-                console.log(`>>> 按键触发: ${action}`);
-                handleAction(action);
+        // 2. 组合键检测 (Alt)
+        const altCode = VK_MAP['Alt'];
+        if (altCode) {
+            const altState = GetAsyncKeyState(altCode);
+            const altPressed = (altState & 0x8000) !== 0;
+            
+            if (altPressed) {
+                checkSingleKey(activeConfig.refresh, () => sendToOverlay('shortcut-triggered', 'refresh'), true);
+                
+                checkSingleKey(activeConfig.modePrev, () => sendToOverlay('shortcut-triggered', 'mode_prev'), true);
+                checkSingleKey(activeConfig.modeNext, () => sendToOverlay('shortcut-triggered', 'mode_next'), true);
+                
+                checkSingleKey(activeConfig.prevPage, () => sendToOverlay('shortcut-triggered', 'nav_prev'), true);
+                checkSingleKey(activeConfig.nextPage, () => sendToOverlay('shortcut-triggered', 'nav_next'), true);
+                
+                // 🔥 滚动
+                checkSingleKey(activeConfig.scrollUp, () => sendToOverlay('scroll-action', 'up'), true);
+                checkSingleKey(activeConfig.scrollDown, () => sendToOverlay('scroll-action', 'down'), true);
             }
-
-            // 更新状态
-            keyStates[code] = isPressed;
-        });
-    }, 50); // 50ms 轮询间隔
-}
-
-// 统一动作分发
-function handleAction(action) {
-    if (action === 'toggle') {
-        toggleOverlay();
-    } else {
-        // 将动作转发给网页端 (useGameCore.js 会监听 'shortcut-triggered')
-        if (overlayWindow && !overlayWindow.isDestroyed()) {
-            overlayWindow.webContents.send('shortcut-triggered', action);
         }
-        
-        // 也可以发给 Dashboard (如果需要在控制台显示反馈)
-        if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-            dashboardWindow.webContents.send('shortcut-log', action);
+    }, 100);
+
+    function checkSingleKey(keyName, callback, isCombo = false) {
+        const code = VK_MAP[keyName];
+        if (!code) return;
+        const state = GetAsyncKeyState(code);
+        const isPressed = (state & 0x8000) !== 0;
+        const lockId = isCombo ? `combo_${keyName}` : `single_${keyName}`;
+
+        if (isPressed) {
+            if (!keyLocks[lockId]) {
+                callback();
+                keyLocks[lockId] = true;
+            }
+        } else {
+            keyLocks[lockId] = false;
         }
     }
 }
 
-// ==========================================
-// 💾 3. 设置读写
-// ==========================================
+function switchMouseMode() {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    isMouseIgnored = !isMouseIgnored;
+    
+    if (isMouseIgnored) {
+        overlayWindow.setResizable(false);
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+        overlayWindow.setFocusable(false);
+        overlayWindow.webContents.send('mouse-ignore-status', true);
+    } else {
+        overlayWindow.setResizable(true); 
+        overlayWindow.setIgnoreMouseEvents(false);
+        overlayWindow.setFocusable(true);
+        overlayWindow.focus();
+        overlayWindow.webContents.send('mouse-ignore-status', false);
+    }
+}
+
+function sendToOverlay(channel, data) {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send(channel, data);
+    }
+}
+
 function loadSettings() {
     try {
         if (fs.existsSync(SETTINGS_PATH)) {
             const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-            if (data.shortcuts && data.shortcuts.toggle && VK_CODES[data.shortcuts.toggle]) {
-                currentToggleName = data.shortcuts.toggle;
-                shortcuts.toggle = VK_CODES[currentToggleName];
-            }
+            if (data.shortcuts) activeConfig = { ...activeConfig, ...data.shortcuts };
         }
-    } catch (e) { console.error('读取设置失败', e); }
+    } catch (e) {}
 }
 
-function saveSettings(keyName) {
+function saveSettings(newShortcuts) {
     try {
-        const data = { shortcuts: { toggle: keyName } };
+        const data = { shortcuts: { ...activeConfig, ...newShortcuts } };
         fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2));
-    } catch (e) { console.error('保存设置失败', e); }
+    } catch (e) {}
 }
 
-// ==========================================
-// 🪟 4. 窗口管理
-// ==========================================
+function createTray() {
+    const iconPath = path.join(__dirname, 'resources', 'icon.ico'); 
+    try {
+        tray = new Tray(iconPath); 
+        const contextMenu = Menu.buildFromTemplate([
+            { label: 'HexLite 运行中', enabled: false },
+            { type: 'separator' },
+            { label: '退出', click: () => app.quit() }
+        ]);
+        tray.setToolTip('HexLite Client');
+        tray.setContextMenu(contextMenu);
+        tray.on('double-click', () => switchMouseMode());
+    } catch (e) {}
+}
+
 function createWindows() {
     loadSettings();
-    
-    // 简单的权限检查提示
-    try { require('child_process').execSync('net session', { stdio: 'ignore' }); } catch (e) { 
-        setTimeout(() => dialog.showErrorBox('权限警告', '建议右键以【管理员身份运行】，否则可能无法读取游戏数据！'), 1000); 
-    }
-
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
-    // --- 1. 控制台窗口 (Dashboard) ---
     dashboardWindow = new BrowserWindow({
-        width: 320, height: 450, // 稍微加大一点尺寸以容纳更多按钮
-        show: true, 
-        frame: false,            // 无边框
-        backgroundColor: '#010A13',
-        webPreferences: { 
-            nodeIntegration: true, 
-            contextIsolation: false 
-        }
+        width: 320, height: 480, show: false, 
+        frame: false, backgroundColor: '#010A13',
+        webPreferences: { nodeIntegration: true, contextIsolation: false }
     });
-    dashboardWindow.loadFile('dashboard.html');
+    if (isDev) {
+        // 开发模式：加载 Vite 服务地址 (确保能收到热更新，且修复 404 问题)
+        // 注意：如果你的 dashboard 是通过路由区分的，这里可能需要加路径
+        // 假设 dashboard 就是主页，只是没有 overlay 参数
+        dashboardWindow.loadURL('http://localhost:5173'); 
+        
+        // 这里的 console 是为了方便你调试 Dashboard
+        dashboardWindow.webContents.openDevTools({ mode: 'detach' }); 
+        console.log("🐛 Dashboard loaded from Localhost (Dev Mode)");
+    } else {
+        // 生产模式：加载打包文件
+        // 注意：确保 build 后 dist 目录下有这个文件，或者加载 index.html
+        // 如果你的项目是单页应用(SPA)，通常也是加载 index.html
+        const indexPath = path.join(__dirname, 'dist', 'index.html');
+        dashboardWindow.loadFile(indexPath); 
+    }
 
-    // --- 2. 游戏悬浮窗 (Overlay) ---
     overlayWindow = new BrowserWindow({
-        width: width, height: height,
+        width: 350, height: 300, 
+        x: width - 370, y: 120,
         transparent: true, 
         frame: false,
         alwaysOnTop: true, 
-        skipTaskbar: true,       // 不在任务栏显示
+        skipTaskbar: true, 
         hasShadow: false, 
-        resizable: false,
-        focusable: false,        // 🔥 关键：不可聚焦，保证不抢游戏操作
-        backgroundColor: '#00000000', // 完全透明
-        webPreferences: { 
-            nodeIntegration: true, 
-            contextIsolation: false 
+        resizable: true, 
+        focusable: false,
+        minWidth: 200, minHeight: 40,
+        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
+    });
+
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    overlayWindow.setResizable(false);
+
+    if (isDev) {
+        overlayWindow.loadURL(WEB_APP_URL);
+    } else {
+        const indexPath = path.join(__dirname, 'dist', 'index.html');
+        const fileUrl = pathToFileURL(indexPath).href;
+        overlayWindow.loadURL(`${fileUrl}?overlay=true`);
+    }
+
+    overlayWindow.webContents.on('did-finish-load', () => {
+        broadcast(JSON.stringify({ type: 'REQUEST_SYNC' }));
+        // 🔥 窗口加载完毕后，立刻发送缓存的数据
+        if (lastLcuData) {
+            overlayWindow.webContents.send('lcu-update', lastLcuData);
         }
     });
 
-    overlayWindow.setAlwaysOnTop(true, 'screen-saver'); // 极高层级
-    overlayWindow.setVisibleOnAllWorkspaces(true);
-    overlayWindow.setIgnoreMouseEvents(true, { forward: true }); // 鼠标穿透
-
-    overlayWindow.loadURL(WEB_APP_URL);
-
-    // --- 3. 启动 LCU 连接 ---
     connectToLCU((data) => {
-        // 当 LCU 数据更新时...
-        
-        const isConnected = data.myTeam && data.myTeam.length > 0;
-        
-        // 1. 通知 Dashboard 更新状态灯
-        if (!dashboardWindow.isDestroyed()) {
-            dashboardWindow.webContents.send('lcu-status', isConnected ? 'connected' : 'waiting');
-        }
+        // 🔥 1. 先缓存最新数据
+        lastLcuData = data;
 
-        // 2. 🔥 核心：将数据转发给网页端进行分析
-        if (!overlayWindow.isDestroyed()) {
-            overlayWindow.webContents.send('lcu-update', data);
+        const isConnected = data.myTeam && data.myTeam.length > 0;
+        const statusMsg = isConnected ? 'connected' : 'waiting';
+        if (data.mapSide) {
+            console.log(`📡 [Main] 准备发送给 Dashboard，方位: ${data.mapSide}`);
         }
+        if (!dashboardWindow.isDestroyed()) {
+            dashboardWindow.webContents.send('lcu-status', statusMsg);
+            // 🔥🔥🔥【核心修复】必须把数据发给 Dashboard，否则主界面无法获取 mapSide 🔥🔥🔥
+            dashboardWindow.webContents.send('lcu-update', data); 
+        }
+        
+        // 2. 发送给 Overlay
+        if (!overlayWindow.isDestroyed()) overlayWindow.webContents.send('lcu-update', data);
+        
+        broadcast({ type: 'CHAMP_SELECT', data: data });
+        broadcast({ type: 'STATUS', data: statusMsg });
     });
 }
 
 function toggleOverlay() {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
-
-    if (overlayWindow.isVisible()) {
-        overlayWindow.hide(); // 隐藏
-        console.log('[Overlay] Hidden');
-    } else {
-        overlayWindow.show(); // 显示
-        // 重新确保穿透和置顶属性，防止被游戏覆盖
-        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    if (overlayWindow.isVisible()) overlayWindow.hide();
+    else {
+        overlayWindow.show();
+        if (isMouseIgnored) overlayWindow.setIgnoreMouseEvents(true, { forward: true });
         overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-        console.log('[Overlay] Shown');
     }
 }
 
-// ==========================================
-// 🚀 5. App 生命周期
-// ==========================================
 app.whenReady().then(() => {
+    startWebSocketServer();
     createWindows();
     startKeyboardPolling();
+    createTray();
 });
 
 app.on('will-quit', () => { 
     if (pollingInterval) clearInterval(pollingInterval); 
+    globalShortcut.unregisterAll();
 });
+app.on('window-all-closed', () => app.quit());
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-});
-
-// ==========================================
-// 📡 6. IPC 接口 (前后端通信)
-// ==========================================
-
-// 获取快捷键设置
-ipcMain.handle('get-shortcuts', () => ({ toggle: currentToggleName }));
-
-// 更新快捷键设置
+ipcMain.handle('get-shortcuts', () => activeConfig);
 ipcMain.on('update-shortcuts', (event, newShortcuts) => {
-    const newKey = newShortcuts.toggle;
-    if (VK_CODES[newKey]) {
-        currentToggleName = newKey;
-        shortcuts.toggle = VK_CODES[newKey];
-        saveSettings(newKey);
-        // 通知 Overlay 更新（如果需要显示提示）
-        if (overlayWindow) overlayWindow.webContents.send('shortcuts-updated', { toggle: newKey });
+    let validUpdates = {};
+    Object.keys(newShortcuts).forEach(key => {
+        if (VK_MAP[newShortcuts[key]]) validUpdates[key] = newShortcuts[key];
+    });
+    if (Object.keys(validUpdates).length > 0) {
+        activeConfig = { ...activeConfig, ...validUpdates };
+        saveSettings(validUpdates);
+        if (overlayWindow) overlayWindow.webContents.send('shortcuts-updated', activeConfig);
     }
 });
+ipcMain.handle('get-mouse-status', () => isMouseIgnored);
+ipcMain.on('minimize-app', () => dashboardWindow?.minimize());
+ipcMain.on('close-app', () => app.quit());
+ipcMain.on('copy-and-lock', (e, t) => clipboard.writeText(t));
 
-// 基础窗口控制
-ipcMain.on('minimize-app', () => dashboardWindow.minimize());
-
-// 🔥 新增：彻底关闭应用
-ipcMain.on('close-app', () => {
-    app.quit();
-});
-
-// 其他辅助
-ipcMain.on('copy-and-lock', (event, text) => clipboard.writeText(text));
-
-// 🔥 新增：接收网页端的分析结果，转发给 Dashboard (可选)
-ipcMain.on('analysis-result', (event, result) => {
-    console.log('[IPC] 收到分析结果');
-    if(dashboardWindow && !dashboardWindow.isDestroyed()) {
-        dashboardWindow.webContents.send('sync-analysis', result);
+// 🔥🔥🔥【新增】响应前端的主动索取请求 🔥🔥🔥
+ipcMain.on('fetch-lcu-data', (event) => {
+    if (lastLcuData) {
+        event.sender.send('lcu-update', lastLcuData);
     }
 });

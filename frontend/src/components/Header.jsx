@@ -95,8 +95,8 @@ const Header = ({
                     {/* 下载助手 (仅未连接时显示) */}
                     {lcuStatus !== 'connected' && (
                         <a 
-                            href="/download/DeepCoach-Helper.exe" 
-                            download="DeepCoach-Helper.exe"
+                            href="/download/HexCoach-Lite-1.0.0.exe" 
+                            download="HexCoach-Lite-1.0.0.exe"
                             className="flex items-center gap-1 text-[9px] text-[#C8AA6E] hover:text-white hover:underline transition-colors cursor-pointer"
                         >
                             <Download size={10} /> 下载连接助手

@@ -45,9 +45,9 @@ except ImportError:
 
 # ================= 🔧 强制加载根目录 .env =================
 RATE_LIMIT_STORE = {}      # 邮件发送频控
-LOGIN_LIMIT_STORE = {}     # 🟢 [新增] 登录接口频控
+LOGIN_LIMIT_STORE = {}     # 登录接口频控
 ANALYZE_LIMIT_STORE = {}   # AI分析频控
-CHAMPION_CACHE = {}        # 🟢 全局英雄缓存
+CHAMPION_CACHE = {}        # 全局英雄缓存
 # 🟢 1. 新增：全局英雄名称映射表 (用于自动纠错)
 CHAMPION_NAME_MAP = {}
 
@@ -255,10 +255,15 @@ class AnalyzeRequest(BaseModel):
     
     # ✨ 新增段位字段，默认为黄金/白金
     rank: str = "Gold"
-    
+    # 🔥🔥🔥 [关键修复] 添加 mapSide 字段，否则后端接不到前端数据！
+    mapSide: str = "unknown" # 'blue' or 'red'
     myLaneAssignments: Optional[Dict[str, str]] = None 
     enemyLaneAssignments: Optional[Dict[str, str]] = None
     model_type: str = "chat" # 'chat' or 'reasoner'
+    
+    # 🔥🔥🔥 [关键修复] 添加 extraMechanics 字段
+    # 允许接收 HexLite 发送的实时技能包 (Dict: 英雄名 -> 技能描述文本)
+    extraMechanics: Optional[Dict[str, str]] = {} 
 
 # ================= 🔐 核心权限逻辑 =================
 
@@ -949,15 +954,17 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         async def limit_err(): 
             yield json.dumps({
                 "concise": {
-                    "title": "请求被拒绝", 
+                    "title": "请求拒绝", 
                     "content": msg + ("\n💡 升级 Pro 可解锁无限次使用！" if remaining == -1 else "")
                 }
             })
         return StreamingResponse(limit_err(), media_type="application/json")
-
+    print(f"📥 [调试日志] 用户:{username} | 英雄:{data.myHero} | 方位:{data.mapSide}")
     # 🟢 5. 输入自动纠错 (JarvanIV -> Jarvan IV)
     def fix_name(n):
         if not n: return ""
+        # 🔥 关键：放行 None，允许未选英雄
+        if n == "None": return "None"
         # 优先查表修正，如果没查到则尝试归一化查，最后保留原值
         return CHAMPION_NAME_MAP.get(n) or CHAMPION_NAME_MAP.get(normalize_simple(n)) or n
 
@@ -973,13 +980,14 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         data.enemyLaneAssignments = {k: fix_name(v) for k, v in data.enemyLaneAssignments.items()}
 
     # 3. Input Sanitization (输入清洗 - 验证清洗后的名称)
-    if data.myHero:
+    # 🔥 关键修改：如果是 "None"，跳过数据库校验
+    if data.myHero and data.myHero != "None":
         hero_info = db.get_champion_info(data.myHero)
         if not hero_info:
             async def attack_err(): yield json.dumps({"concise": {"title": "输入错误", "content": f"系统未识别英雄 '{data.myHero}'。"}})
             return StreamingResponse(attack_err(), media_type="application/json")
 
-    if data.enemyHero:
+    if data.enemyHero and data.enemyHero != "None":
         hero_info = db.get_champion_info(data.enemyHero)
         if not hero_info:
             async def attack_err(): yield json.dumps({"concise": {"title": "输入错误", "content": f"系统未识别英雄 '{data.enemyHero}'。"}})
@@ -1006,7 +1014,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # =========================================================
     def get_hero_cn_name(hero_id):
         """优先提取中文名 (Alias > Name)"""
-        if not hero_id or hero_id == "Unknown": return hero_id
+        if not hero_id or hero_id == "Unknown" or hero_id == "None": return hero_id
         
         info = CHAMPION_CACHE.get(hero_id) or db.get_champion_info(hero_id)
         if not info: return hero_id
@@ -1058,14 +1066,14 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     if data.userRole and data.userRole.upper() in ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]:
         user_role_key = data.userRole.upper()
         manual_role_set = True
-    # 优先级 2: 根据选择的英雄在己方阵容中的位置推断
-    elif data.myHero:
+    # 优先级 2: 根据选择的英雄在己方阵容中的位置推断 (仅当已选英雄时)
+    elif data.myHero and data.myHero != "None":
         for r, h in my_roles_map.items():
             if h == data.myHero: user_role_key = r; break
 
     # ⚡ 修正：如果用户没手动指定，且推断出的位置很奇怪（比如盲僧上单）
     # 我们查库看看这个英雄的"本命位置"是不是打野
-    if not manual_role_set and data.myHero:
+    if not manual_role_set and data.myHero and data.myHero != "None":
         hero_info_doc = db.get_champion_info(data.myHero)
         if hero_info_doc and hero_info_doc.get('role') == 'jungle':
             # 检查队友里有没有更像打野的人
@@ -1141,7 +1149,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         【博弈定性】：
         这是一场 [{my_mid_t}+{my_jg_t}] VS [{en_mid_t}+{en_jg_t}] 的节奏对抗。
         请在【前期博弈】中明确回答：
-        1. 河道主权：3分15秒河蟹刷新时，哪边中野更强？
+        1. 河道主权：3分30秒河蟹刷新时，哪边中野更强？
         2. 先手权：谁拥有推线游走的主动权？
         -------------------------------------------------------------
         """
@@ -1151,7 +1159,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     elif user_role_key == "JUNGLE":
         primary_enemy = enemy_roles_map.get("JUNGLE", "Unknown")
         # 如果打野针对的是线上英雄
-        if primary_enemy == "Unknown" and data.enemyHero:
+        if primary_enemy == "Unknown" and data.enemyHero and data.enemyHero != "None":
             primary_enemy = data.enemyHero
             
         # ⚠️ 关键点：留空 Context，让 JSON 里的 personal_jungle 模板完全接管
@@ -1161,14 +1169,14 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     else:
         primary_enemy = enemy_roles_map.get("TOP", "Unknown")
         # 兜底
-        if primary_enemy == "Unknown" and data.enemyHero: 
+        if primary_enemy == "Unknown" and data.enemyHero and data.enemyHero != "None": 
             primary_enemy = data.enemyHero
             
         # 简单的上路 Context
         lane_matchup_context = "(上路是孤岛，请专注于 1v1 兵线与换血细节分析)"
 
     # 兜底：如果没找到对位，尝试使用前端传来的 enemyHero
-    if primary_enemy == "Unknown" and data.enemyHero: 
+    if primary_enemy == "Unknown" and data.enemyHero and data.enemyHero != "None": 
         primary_enemy = data.enemyHero
 
     # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
@@ -1185,7 +1193,17 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 7. RAG 检索 (防止打野被线上Tips误导)
     top_tips = []
     corrections = []
-    if data.myHero:
+
+    ROLE_STRATEGY_MAP = {
+        "TOP": "role_top",
+        "JUNGLE": "role_jungle",
+        "MID": "role_mid",
+        "ADC": "role_adc",
+        "SUPPORT": "role_support"
+    }
+
+    # 🔥 关键修改：只有在已选英雄且不为 None 时才进行 RAG 检索
+    if data.myHero and data.myHero != "None":
         rag_enemy = primary_enemy
         # 如果我是打野，且目标不是对面打野，强制查通用技巧，不查对线技巧
         if user_role_key == "JUNGLE":
@@ -1198,10 +1216,21 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             top_tips = knowledge.get("general", [])
         else:
             top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
+        
+        # 🔥🔥🔥 通用分路策略注入 🔥🔥🔥
+        strategy_key = ROLE_STRATEGY_MAP.get(user_role_key)
+        if strategy_key:
+            role_knowledge = await run_in_threadpool(db.get_top_knowledge_for_ai, strategy_key, "general")
+            special_role_tips = role_knowledge.get("general", [])
             
+            if special_role_tips:
+                print(f"✨ [RAG] 已为 {user_role_key} 玩家注入 {len(special_role_tips)} 条位置专属博弈策略")
+                # 将位置策略插入到列表最前面，确保 AI 优先看到
+                top_tips = special_role_tips + top_tips
+
         corrections = db.get_corrections(data.myHero, rag_enemy)
 
-# 🛡️ 安全修改：使用 XML 标签隔离不可信内容
+    # 🛡️ 安全修改：使用 XML 标签隔离不可信内容
     if top_tips:
         safe_tips = []
         for t in top_tips:
@@ -1213,10 +1242,43 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         tips_text = "(暂无社区数据)"
     correction_prompt = f"修正: {'; '.join(corrections)}" if corrections else ""
 
-    # 8. Prompt 构建
-    # 确定模板 ID
+    # 8. Prompt 构建 (⚡️ 缓存优化版)
+    # =========================================================================
+    # 🟢 核心修改：构建静态上下文 (Static Context) 以命中 DeepSeek 缓存
+    # =========================================================================
+    
+    # 1. 处理前端传来的实时技能数据
+    live_mechanics_str = ""
+    if data.extraMechanics:
+        # ⚠️ 关键：必须排序！确保每次生成的字符串顺序一致，否则缓存会失效
+        sorted_mechanics = sorted(data.extraMechanics.items())
+        
+        mechanics_list = []
+        for hero_name, mech_desc in sorted_mechanics:
+            # 简单清洗，防止过长
+            clean_desc = str(mech_desc).strip()[:800] 
+            mechanics_list.append(f"【{hero_name} 关键机制/CD】:\n{clean_desc}")
+        
+        if mechanics_list:
+            live_mechanics_str = "\n".join(mechanics_list)
+
+    # 2. 组合“超级系统提示词” (S15机制 + 实时技能)
+    # 只要这部分内容不变（同局游戏），DeepSeek 就会命中缓存，费用打 1 折，速度极快
+    # 这里的技巧是把 s15_context 扩展，包含了实时技能数据
+    full_s15_context_with_skills = f"""
+    {s15_context}
+
+    ====== 🚨 实时英雄技能情报 (Live LCU Data) ======
+    {live_mechanics_str or "暂无特定技能数据"}
+    """
+
+    # 3. 确定模板
     target_mode = data.mode
-    if data.mode == "personal":
+    
+    # 🔥 关键修改：如果英雄未选，强制切换到 BP 模式
+    if data.myHero == "None":
+        target_mode = "bp"
+    elif data.mode == "personal":
         if user_role_key == "JUNGLE": target_mode = "personal_jungle"
         else: target_mode = "personal_lane"
     
@@ -1238,7 +1300,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     my_hero_cn = get_hero_cn_name(data.myHero)
     
     enemy_hero_cn = "未知"
-    if primary_enemy != "Unknown":
+    if primary_enemy != "Unknown" and primary_enemy != "None":
         enemy_hero_cn = get_hero_cn_name(primary_enemy)
         # 如果打野针对非对位，加备注
         real_jg = enemy_roles_map.get("JUNGLE")
@@ -1248,23 +1310,70 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     def format_roles_str(role_map):
         return " | ".join([f"{k}: {v}" for k, v in role_map.items()])
 
-    # 填充 User Prompt (包含 compInfo 修复)
-    user_content = tpl['user_template'].format(
-        mode=data.mode,
-        user_rank=data.rank,        
-        db_suggestions=rec_str,     
-        myTeam=format_roles_str(my_roles_cn),       # ✅ 中文阵容 (别名)
-        enemyTeam=format_roles_str(enemy_roles_cn), # ✅ 中文阵容 (别名)
-        myHero=my_hero_cn,          # ✅ 中文名 (别名)
-        enemyHero=enemy_hero_cn,    # ✅ 中文名 (别名)
-        userRole=user_role_key,    
-        s15_context=s15_context,
-        compInfo=lane_matchup_context,  # ✅ 智能生态 (含别名)
-        tips_text=tips_text,
-        correction_prompt=correction_prompt
-    )
+    # A. 组装 System Content (静态部分 - 命中缓存)
+    sys_tpl_str = tpl['system_template']
     
-    system_content = tpl['system_template'] + ' Output JSON only.'
+    # 尝试将所有静态知识注入 System 模板
+    # 注意：我们把你上传的 JSON 模板里的 {s15_context} 替换为 (s15 + 实时技能)
+    try:
+        # 如果模板支持占位符，直接填充
+        if "{s15_context}" in sys_tpl_str:
+            system_content = sys_tpl_str.format(
+                s15_context=full_s15_context_with_skills, # 🔥 注入点
+                tips_text=tips_text,
+                correction_prompt=correction_prompt,
+                userRole=user_role_key # 👈 补上了！
+            )
+        else:
+            # 兜底：如果模板里没有占位符，强行拼接到最后
+            system_content = (
+                f"{sys_tpl_str}\n\n"
+                f"=== 🌍 S15 Context ===\n{full_s15_context_with_skills}\n\n"
+                f"=== 📚 Community Tips ===\n{tips_text}\n\n"
+                f"{correction_prompt}"
+            )
+    except Exception as e:
+        print(f"⚠️ System Prompt Format Error: {e}")
+        system_content = sys_tpl_str + f"\n\nContext: {full_s15_context_with_skills}\nTips: {tips_text}"
+
+    if "Output JSON only" not in system_content:
+        system_content += "\n⚠️ IMPORTANT: You must return PURE JSON only."
+
+    # B. 组装 User Content (动态部分)
+    # 因为 System 里已经包含了 s15_context，这里我们不需要再传一次巨大的文本
+    # 但为了兼容 prompts.json 里的 {s15_context} 占位符，我们传一个简短的引用
+    
+    # 🔥🔥🔥 关键修复：翻译地图方位 🔥🔥🔥
+    map_side_cn = "未知方位"
+    if data.mapSide == "blue":
+        map_side_cn = "蓝色方 (Blue Side)"
+    elif data.mapSide == "red":
+        map_side_cn = "红色方 (Red Side)"
+
+    # B. 组装 User Content (动态部分)
+    try:
+        user_content = tpl['user_template'].format(
+            mode=data.mode,
+            user_rank=data.rank,        
+            db_suggestions=rec_str,     
+            myTeam=format_roles_str(my_roles_cn),       
+            enemyTeam=format_roles_str(enemy_roles_cn), 
+            myHero=my_hero_cn,          
+            enemyHero=enemy_hero_cn,    
+            userRole=user_role_key,    
+            
+            # 🔥🔥🔥 这里补上了 mapSide 参数 🔥🔥🔥
+            mapSide=map_side_cn,
+            
+            s15_context="(机制库已加载至 System Context，请基于该知识库分析)", 
+            compInfo=lane_matchup_context,
+            tips_text="(已加载至System)", 
+            correction_prompt=""          
+        )
+    except KeyError as e:
+        print(f"❌ Template Key Error: {e}")
+        # 兜底防止崩溃：如果模板里还有其他未知的 {key}，回退到安全模式
+        user_content = f"模板渲染出错 (缺参数 {e})。请检查 prompts.json。\n\n当前参数:\n英雄: {my_hero_cn}\n位置: {user_role_key}"
 
     # 9. AI 调用
     if data.model_type == "reasoner":
@@ -1324,15 +1433,15 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-        self.tracker = None
+        self.tracker = None  # 🟢 修复：初始化 tracker，避免 AttributeError
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
         print("🔗 [WS] 前端已连接")
         
-        # 当有第一个客户端连接时，启动 CV 引擎
-        if not self.tracker and JungleTracker:
+        # 当有第一个客户端连接时，尝试启动 CV 引擎 (如果存在 JungleTracker 类)
+        if not self.tracker and 'JungleTracker' in globals():
             print("👁️ [CV] 正在启动打野追踪引擎...")
             try:
                 self.tracker = JungleTracker(self.broadcast_sync)
@@ -1344,12 +1453,6 @@ class ConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         
-        # 当所有客户端断开时，关闭 CV 引擎以节省资源
-        if len(self.active_connections) == 0 and self.tracker:
-            print("💤 [CV] 所有前端已断开，暂停 CV 引擎")
-            self.tracker.stop()
-            self.tracker = None
-
     # 异步发送消息 (给 FastAPI 用)
     async def broadcast(self, message: dict):
         # 复制一份列表进行遍历，防止迭代时修改报错

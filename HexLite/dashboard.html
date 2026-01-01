@@ -49,7 +49,7 @@
             font-size: 20px; font-weight: 900; font-style: italic;
             background: linear-gradient(to right, #C8AA6E, #F0E6D2);
             -webkit-background-clip: text; color: transparent;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
 
         .status-text {
@@ -60,12 +60,17 @@
             transition: color 0.3s;
         }
         
+        .sub-status {
+            font-size: 9px; color: #444; margin-top: 5px; height: 12px;
+            font-weight: bold; letter-spacing: 1px;
+        }
+        
         body.connected .status-text { color: #0AC8B9; }
         
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         .controls {
-            margin-top: 40px; display: flex; gap: 8px;
+            margin-top: 30px; display: flex; gap: 8px;
             -webkit-app-region: no-drag; /* 按钮区域不可拖动 */
         }
         
@@ -104,9 +109,10 @@
     </div>
 
     <div class="status-text" id="status">WAITING FOR CLIENT...</div>
+    <div class="sub-status" id="mechanics-status"></div>
 
     <div class="controls">
-        <button class="shortcut-tip">F2: 开关界面</button>
+        <button class="shortcut-tip">F2: 显示</button>
         <button onclick="window.electron.minimize()">最小化</button>
         <button class="btn-close" onclick="window.electron.close()">退出</button>
     </div>
@@ -114,29 +120,39 @@
     <script>
         const { ipcRenderer } = require('electron');
         
-        // 监听 LCU 连接状态 (来自 main.js)
+        const body = document.body;
+        const statusText = document.getElementById('status');
+        const mechText = document.getElementById('mechanics-status');
+        const indicator = document.getElementById('indicator');
+
+        // 监听 LCU 连接状态
         ipcRenderer.on('lcu-status', (e, status) => {
-            const body = document.body;
-            const text = document.getElementById('status');
-            const indicator = document.getElementById('indicator');
-            
             if (status === 'connected') {
                 body.classList.add('connected');
-                text.innerText = "SYSTEM ONLINE";
+                statusText.innerText = "SYSTEM ONLINE";
                 // 切换为绿色勾选图标
                 indicator.innerHTML = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#0AC8B9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
             } else {
                 body.classList.remove('connected');
-                text.innerText = "WAITING FOR CLIENT...";
+                statusText.innerText = "WAITING FOR CLIENT...";
+                mechText.innerText = "";
                 // 切换为灰色等待箭头
                 indicator.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
             }
         });
 
-        // 可选：监听分析结果并显示日志 (如果在 main.js 中开启了转发)
+        // 监听技能库同步数据
+        ipcRenderer.on('mechanics-update', (e, count) => {
+            if (count > 0) {
+                mechText.innerText = `DATA SYNCED: ${count} CHAMPS`;
+                mechText.style.color = '#0AC8B9';
+            }
+        });
+
+        // 监听分析结果同步 (可选，用于在控制台打日志)
         ipcRenderer.on('sync-analysis', (e, result) => {
-            console.log("Analysis synced:", result);
-            // 这里可以添加逻辑让圆环闪烁一下，表示数据已处理
+            console.log('Dashboard received analysis update');
+            // 这里可以加一个小的闪烁动画来提示数据已更新
         });
 
         // 绑定按钮事件到 Electron IPC

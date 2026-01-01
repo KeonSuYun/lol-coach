@@ -361,10 +361,32 @@ class KnowledgeBase:
             "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
         }
 
-    def get_corrections(self, hero, enemy):
-        """获取历史纠错数据"""
-        query = {"hero": hero, "$or": [{"enemy": enemy}, {"enemy": "general"}]}
-        return [c['content'] for c in self.corrections_col.find(query)]
+    def get_corrections(self, my_hero, enemy_hero):
+        """
+        获取修正数据，并按优先级排序 (Priority High -> Low)
+        """
+        if self.corrections_col is None:
+            return []
+            
+        # 1. 查询匹配的条目 (双向匹配已经在 seed_data 处理过了，这里直接查即可)
+        query = {
+            "hero": {"$in": [my_hero, "general", "General"]},
+            "enemy": {"$in": [enemy_hero, "general", "General"]}
+        }
+        
+        try:
+            results = list(self.corrections_col.find(query))
+            
+            # 2. 🔥 核心修改：按 priority 字段倒序排列 (100 -> 0)
+            # 如果没有 priority 字段，默认给 50
+            results.sort(key=lambda x: x.get('priority', 50), reverse=True)
+            
+            # 3. 提取内容返回
+            return [r['content'] for r in results]
+            
+        except Exception as e:
+            print(f"Error fetching corrections: {e}")
+            return []
 
     def create_user(self, username, hashed_password, role="user", email=None, device_id=None, ip=None):
         """创建用户并执行多重限制检查"""

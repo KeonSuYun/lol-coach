@@ -45,10 +45,14 @@ async function fetchChampionDetail(creds, championId) {
         // 提取 Q W E R 的关键信息
         // spells[0]=Q, 1=W, 2=E, 3=R
         const spellsInfo = data.spells.map(s => {
-            return `【${s.spellKey.toUpperCase()} - ${s.name}】CD: ${s.cooldownBurn}s | 效果: ${s.description.replace(/<[^>]+>/g, '').substring(0, 100)}...`;
+            // 🟢 修改：将长度限制提升至 300，防止关键数值被截断
+            // 🟢 移除所有 <tags> 保持纯文本
+            const cleanDesc = s.description.replace(/<[^>]+>/g, '').substring(0, 300);
+            return `【${s.spellKey.toUpperCase()} - ${s.name}】CD:${s.cooldownBurn}s | ${cleanDesc}`;
         });
 
-        const passiveInfo = `【被动 - ${data.passive.name}】${data.passive.description.replace(/<[^>]+>/g, '').substring(0, 100)}...`;
+        const cleanPassive = data.passive.description.replace(/<[^>]+>/g, '').substring(0, 300);
+        const passiveInfo = `【被动 - ${data.passive.name}】${cleanPassive}`;
 
         // 组合成一段 AI 可读的文本
         const rawText = `${passiveInfo}\n${spellsInfo.join('\n')}`;
@@ -56,7 +60,7 @@ async function fetchChampionDetail(creds, championId) {
         championDetailsCache[championId] = {
             name: data.name,
             alias: data.alias,
-            fullMechanics: rawText // 这里包含了 QWER 的 CD 和描述
+            fullMechanics: rawText 
         };
         return championDetailsCache[championId];
     } catch (e) {
@@ -103,15 +107,26 @@ async function processSession(session, creds, callback) {
         if (detail) {
             // Key 用英雄的英文 Alias (如 "Aatrox")，这是 AI 最熟悉的 ID
             extraMechanics[detail.alias] = detail.fullMechanics;
-            extraMechanics[detail.name] = detail.fullMechanics; // 兼容中文名
+            // 同时也存一份中文名的引用，防止匹配失败
+            extraMechanics[detail.name] = detail.fullMechanics; 
         }
     }));
 
+    // 🔥🔥🔥【新增逻辑：判断红蓝方】🔥🔥🔥
+    // 逻辑：如果我方第一个人的 cellId 是 0-4，就是蓝色方；否则是红色方
+    // mapSide 只有两个值: 'blue' or 'red'
+    let mapSide = 'unknown';
+    if (myTeam && myTeam.length > 0) {
+        const firstMemberCellId = myTeam[0].cellId;
+        mapSide = firstMemberCellId < 5 ? 'blue' : 'red';
+    }
+    console.log(`🗺️ [LCU] 地图方位分析结果: ${mapSide} (基准ID: ${myTeam[0]?.cellId})`);
     // 4. 回调发送完整数据给前端/Electron
     callback({ 
         myTeam, 
         enemyTeam, 
-        extraMechanics // 🟢 这里把抓到的技能包传出去
+        extraMechanics, // 🟢 这里把抓到的技能包传出去
+        mapSide // 🟢 把算好的红蓝方传出去
     });
 }
 

@@ -68,49 +68,71 @@ def get_utc_now():
 def sync_corrections_from_json(db):
     print("\n🚀 [6/6] 同步 RAG 修正数据 (Corrections)...")
     
-    data = load_json("corrections.json")
-    if not data:
-        print("⚠️ 未找到 corrections.json，跳过修正数据同步。")
+    collection = db['corrections']
+    all_data = []
+    
+    # 1. 定义文件夹路径
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    corrections_dir = os.path.join(base_dir, "secure_data", "corrections")
+    
+    # 2. 尝试从文件夹读取 (新模式)
+    if os.path.exists(corrections_dir) and os.path.isdir(corrections_dir):
+        print(f"📂 发现修正数据文件夹: {corrections_dir}")
+        for filename in os.listdir(corrections_dir):
+            if filename.endswith(".json"):
+                file_path = os.path.join(corrections_dir, filename)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_data = json.load(f)
+                        if isinstance(file_data, list):
+                            all_data.extend(file_data)
+                            print(f"   - 已加载: {filename} ({len(file_data)} 条)")
+                        else:
+                            print(f"⚠️  跳过 {filename}: 格式必须是列表数组 []")
+                except Exception as e:
+                    print(f"❌ 读取 {filename} 失败: {e}")
+    else:
+        # 3. 降级回退 (旧模式)
+        print("⚠️ 未找到 corrections/ 文件夹，尝试读取单个 corrections.json...")
+        single_data = load_json("corrections.json")
+        if single_data:
+            all_data = single_data
+
+    if not all_data:
+        print("⚠️ 没有找到任何修正数据，跳过同步。")
         return
 
-    collection = db['corrections']
-    
-    # 清空旧数据以防止重复
+    # 4. 清空旧数据
     delete_res = collection.delete_many({})
     print(f"🧹 已清空旧修正数据 (删除了 {delete_res.deleted_count} 条)")
     
-    if data:
-        final_docs = []
-        
-        # 🔄 自动裂变逻辑
-        for item in data:
-            # 1. 加入原始条目
-            final_docs.append(item)
+    # 5. 处理数据 (含自动裂变)
+    final_docs = []
+    for item in all_data:
+        # 补全默认优先级 (如果没写的话)
+        if "priority" not in item:
+            if item.get("type") == "RULE": item["priority"] = 100
+            elif item.get("type") == "GUIDE": item["priority"] = 75
+            else: item["priority"] = 50
             
-            # 2. 检查是否有双向标记 (mutual: true)
-            if item.get("mutual") is True:
-                # 创建镜像副本
-                mirror_item = item.copy()
-                
-                # 核心操作：交换 hero 和 enemy
-                original_hero = item.get("hero", "general")
-                original_enemy = item.get("enemy", "general")
-                
-                mirror_item["hero"] = original_enemy
-                mirror_item["enemy"] = original_hero
-                
-                # 标记这是自动生成的（方便调试，可选）
-                mirror_item["_is_auto_mirror"] = True
-                
-                final_docs.append(mirror_item)
+        final_docs.append(item)
+        
+        # 镜像处理
+        if item.get("mutual") is True:
+            mirror_item = item.copy()
+            original_hero = item.get("hero", "general")
+            original_enemy = item.get("enemy", "general")
+            mirror_item["hero"] = original_enemy
+            mirror_item["enemy"] = original_hero
+            mirror_item["_is_auto_mirror"] = True
+            final_docs.append(mirror_item)
 
-        try:
-            collection.insert_many(final_docs)
-            print(f"✅ 成功写入 {len(final_docs)} 条修正数据 (含自动裂变)！")
-        except Exception as e:
-            print(f"❌ 修正数据写入失败: {e}")
-    else:
-        print("⚠️ JSON 文件为空，未写入数据。")
+    # 6. 写入数据库
+    try:
+        collection.insert_many(final_docs)
+        print(f"✅ 成功写入 {len(final_docs)} 条修正数据！")
+    except Exception as e:
+        print(f"❌ 写入失败: {e}")
 
 
 def seed_data():

@@ -39,6 +39,10 @@ export function useGameCore() {
     const [userSlot, setUserSlot] = useState(0);
     const [lcuStatus, setLcuStatus] = useState("disconnected");
     const [userRank, setUserRank] = useState(() => loadState('userRank', 'Gold'));
+    const [extraMechanics, setExtraMechanics] = useState({});
+    
+    // 🔥🔥🔥【关键修复1】增加持久化，防止刷新后丢失方位 🔥🔥🔥
+    const [mapSide, setMapSide] = useState(() => loadState('mapSide', "unknown")); 
 
     // 选人弹窗
     const [showChampSelector, setShowChampSelector] = useState(false);
@@ -92,58 +96,127 @@ export function useGameCore() {
             try {
                 const { ipcRenderer } = window.require('electron');
                 
-                // 1. 获取初始快捷键
-                ipcRenderer.invoke('get-shortcuts').then(saved => {
-                    if (saved) setCurrentShortcuts(saved);
+                // 初始化获取快捷键
+                ipcRenderer.invoke('get-shortcuts').then(savedConfig => {
+                    if (savedConfig) setCurrentShortcuts(savedConfig);
                 });
 
-                // 2. 监听快捷键命令 (来自 main.js 的转发)
-                const handleCommand = (event, command) => {
-                    console.log("[IPC] Shortcut:", command);
-                    if (command === 'tab_bp') handleTabClick('bp');
-                    if (command === 'tab_personal') handleTabClick('personal');
-                    if (command === 'tab_team') handleTabClick('team');
-                    
-                    // 翻页控制 (对应 F3 / F4)
-                    if (command === 'nav_next') setActiveTab(prev => prev + 1);
-                    if (command === 'nav_prev') setActiveTab(prev => Math.max(0, prev - 1));
-                    
-                    // 刷新/重新分析 (对应 F5)
-                    if (command === 'refresh') {
-                        handleAnalyze(analyzeTypeRef.current, true);
-                    }
-                    if (command === 'send_chat') setSendChatTrigger(prev => prev + 1);
-                };
-
-                // 3. 监听 LCU 数据更新 (替代 WebSocket)
                 const handleElectronLcuUpdate = (event, data) => {
-                    // Electron 传来的 data 格式为 { myTeam: [...], enemyTeam: [...] }
-                    // 我们需要将其适配为 handleLcuUpdate 能识别的 session 格式
-                    if (data && championList.length > 0) {
-                        // 构造临时 session 对象
+                    if (!data) return;
+
+                    // 🔥🔥🔥【关键修复2】独立接收方位，不再受 championList 为空的影响 🔥🔥🔥
+                    if (data.mapSide && data.mapSide !== "unknown") {
+                        console.log("📍 前端收到方位更新:", data.mapSide);
+                        setMapSide(data.mapSide);
+                    }
+
+                    if (data.extraMechanics) {
+                        setExtraMechanics(data.extraMechanics);
+                    }
+
+                    // 只有当英雄列表加载完毕后，才处理阵容数据
+                    if (championList.length > 0) {
                         const adaptedSession = {
-                            myTeam: data.myTeam || [],
-                            theirTeam: data.enemyTeam || [],
-                            // 注意：Electron 版 lcu.js 可能未传 localPlayerCellId，如需自动定位用户位置需修改 lcu.js
-                            localPlayerCellId: data.localPlayerCellId || -1 
+                            // 1. 处理我方数据
+                            myTeam: (data.myTeam || []).map(p => ({
+                                cellId: p.cellId,
+                                championId: p.championId, 
+                                championName: (p.championId === 0 || !p.championId) ? "未选" : (p.championName || "未知英雄"),
+                                summonerName: p.summonerName || "",
+                                assignedPosition: p.assignedPosition || "" // 确保有位置信息 (top, jungle 等)
+                            })),
+                            // 2. 处理敌方数据
+                            theirTeam: (data.enemyTeam || []).map(p => ({
+                                cellId: p.cellId,
+                                championId: p.championId,
+                                championName: (p.championId === 0 || !p.championId) ? "未选" : (p.championName || "未知英雄"),
+                                summonerName: p.summonerName || "",
+                                assignedPosition: p.assignedPosition || ""
+                            })),
+                            
+                            localPlayerCellId: data.localPlayerCellId || -1
                         };
                         handleLcuUpdate(adaptedSession);
                         setLcuStatus("connected");
                     }
                 };
 
-                ipcRenderer.on('shortcut-triggered', handleCommand);
+                const handleRemoteSync = (event, remoteData) => {
+                    if (remoteData && remoteData.results) {
+                        setAiResults(remoteData.results);
+                        if (remoteData.currentMode) {
+                            setAnalyzeType(remoteData.currentMode);
+                        }
+                    }
+                };
+
+                const handleCommand = (event, command) => {
+                    const MODES = ['bp', 'personal', 'team'];
+
+                    // 1. 模式切换 (静默循环)
+                    if (command === 'mode_prev') {
+                        const currentIndex = MODES.indexOf(analyzeTypeRef.current);
+                        const prevIndex = (currentIndex - 1 + MODES.length) % MODES.length;
+                        handleTabClick(MODES[prevIndex]);
+                    }
+                    if (command === 'mode_next') {
+                        const currentIndex = MODES.indexOf(analyzeTypeRef.current);
+                        const nextIndex = (currentIndex + 1) % MODES.length;
+                        handleTabClick(MODES[nextIndex]);
+                    }
+                    
+                    // 2. 内容翻页 (修复双重弹窗问题)
+                    if (command === 'nav_next') {
+                        setActiveTab(prev => {
+                            if (prev >= 3) {
+                                // 🔥 加上 id: 'nav-limit'，防止 React 严格模式下弹出两次
+                                toast("已是最后一页", { icon: '🛑', duration: 800, id: 'nav-limit' });
+                                return 3; 
+                            }
+                            return prev + 1; 
+                        }); 
+                    }
+                    if (command === 'nav_prev') {
+                        setActiveTab(prev => {
+                            if (prev <= 0) {
+                                // 🔥 加上 id: 'nav-limit'，防止 React 严格模式下弹出两次
+                                toast("已是第一页", { icon: '🛑', duration: 800, id: 'nav-limit' });
+                                return 0; 
+                            }
+                            return prev - 1; 
+                        });
+                    }
+                    
+                    // 3. 刷新
+                    if (command === 'refresh') {
+                        handleAnalyze(analyzeTypeRef.current, true);
+                        toast("正在刷新...", { icon: '⏳', duration: 800, id: 'refresh-toast' });
+                    }
+                };
+
+                const handleShortcutsUpdated = (event, newConfig) => {
+                    setCurrentShortcuts(newConfig);
+                };
+
                 ipcRenderer.on('lcu-update', handleElectronLcuUpdate);
+                ipcRenderer.on('sync-analysis', handleRemoteSync);
+                ipcRenderer.on('shortcut-triggered', handleCommand);
+                ipcRenderer.on('shortcuts-updated', handleShortcutsUpdated);
                 
+                // 🔥🔥🔥【关键修复3】主动向主进程索要缓存数据 🔥🔥🔥
+                ipcRenderer.send('fetch-lcu-data');
+
                 return () => {
-                    ipcRenderer.removeListener('shortcut-triggered', handleCommand);
                     ipcRenderer.removeListener('lcu-update', handleElectronLcuUpdate);
+                    ipcRenderer.removeListener('sync-analysis', handleRemoteSync);
+                    ipcRenderer.removeListener('shortcut-triggered', handleCommand);
+                    ipcRenderer.removeListener('shortcuts-updated', handleShortcutsUpdated);
                 };
             } catch (e) {
                 console.error("Electron IPC init failed:", e);
             }
         }
-    }, [championList, activeTab]); // 依赖项：确保 handleLcuUpdate 能访问到最新的 championList
+    }, [championList]); // 依赖 championList，确保列表加载后能处理积压的 update
 
     const handleSaveShortcuts = (newShortcuts) => {
         setCurrentShortcuts(newShortcuts);
@@ -164,6 +237,8 @@ export function useGameCore() {
     useEffect(() => { localStorage.setItem('analyzeType', JSON.stringify(analyzeType)); }, [analyzeType]);
     useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
     useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
+    // 🔥 缓存方位，防止刷新后丢失
+    useEffect(() => { localStorage.setItem('mapSide', mapSide); }, [mapSide]);
 
     useEffect(() => {
         axios.get(`${API_BASE_URL}/champions/roles`)
@@ -271,7 +346,14 @@ export function useGameCore() {
     // LCU 数据处理逻辑
     const handleLcuUpdate = (session) => {
         if (!session || championList.length === 0) return;
-        
+        if (session.mapSide && session.mapSide !== "unknown") {
+            console.log("🌐 [Web] WebSocket 收到方位更新:", session.mapSide);
+            setMapSide(session.mapSide);
+        }
+
+        if (session.extraMechanics) {
+            setExtraMechanics(session.extraMechanics);
+        }
         // 映射队伍 ID 到英雄对象
         const mapTeam = (teamArr) => {
             const result = Array(5).fill(null);
@@ -456,7 +538,6 @@ export function useGameCore() {
     const handleTabClick = (mode) => {
         setAnalyzeType(mode);
         setActiveTab(0);
-        if (!aiResults[mode] && !analyzingStatus[mode]) handleAnalyze(mode);
     };
 
     const handleCardClick = (idx, isEnemy) => {
@@ -480,7 +561,8 @@ export function useGameCore() {
         setEnemyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" });
         setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" });
         setAiResults({ bp: null, personal: null, team: null });
-        ['blueTeam','redTeam','myTeamRoles','enemyLaneAssignments','myLaneAssignments','aiResults'].forEach(k => localStorage.removeItem(k));
+        setMapSide("unknown"); // 重置方位
+        ['blueTeam','redTeam','myTeamRoles','enemyLaneAssignments','myLaneAssignments','aiResults', 'mapSide'].forEach(k => localStorage.removeItem(k));
     };
 
     // 核心分析逻辑 (包含流式读取和广播)
@@ -523,7 +605,9 @@ export function useGameCore() {
                 myTeam: blueTeam.map(c => c?.key || ""),
                 enemyTeam: redTeam.map(c => c?.key || ""),
                 userRole: finalUserRole,
+                mapSide: mapSide, // 🔥🔥🔥【修改】直接使用 state 变量，而不是未定义的 lcuData 🔥🔥🔥
                 rank: userRank,
+                extraMechanics: extraMechanics,
                 myLaneAssignments: Object.keys(payloadAssignments).length > 0 ? payloadAssignments : null,
                 enemyLaneAssignments: (() => {
                     const clean = {};

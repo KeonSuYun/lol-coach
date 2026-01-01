@@ -644,7 +644,7 @@
     "alias": ["狂野女猎手"],
     "role": "jungle",
     "tier": "T1",
-    "tags": ["assassin", "mage"],
+    "tags": ["assassin", "mage","early_invader"],
     "win_rate": "51.36%",
     "pick_rate": "6.93%",
     "ban_rate": "9.49%"

@@ -149,4 +149,17 @@ body.transparent-mode {
       -ms-overflow-style: none;
       scrollbar-width: none;
   }
+  /* 或者做一个极细的滚动条 */
+
+  .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(200, 170, 110, 0.3);
+      border-radius: 2px;
+  }
+
 }
