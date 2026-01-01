@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
 import shutil
-
+app = FastAPI()
 # ✨ 关键修改：引入异步客户端，解决排队问题
 from bson import ObjectId
 from openai import AsyncOpenAI, APIError
@@ -177,6 +177,13 @@ db = KnowledgeBase()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # OAuth2 方案
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+@app.get("/download/client")
+async def download_client():
+    url = os.getenv("CLIENT_DOWNLOAD_URL")
+    if not url:
+        return {"error": "Download URL not configured"}
+    return RedirectResponse(url=url)
 
 # 挂载静态资源
 if os.path.exists("frontend/dist/assets"):
