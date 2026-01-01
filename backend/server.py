@@ -1345,10 +1345,17 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     
     # 🔥🔥🔥 关键修复：翻译地图方位 🔥🔥🔥
     map_side_cn = "未知方位"
+    enemy_side_cn = "未知方位"
+    
     if data.mapSide == "blue":
-        map_side_cn = "蓝色方 (Blue Side)"
+        map_side_cn = "蓝色方 (Blue Side - 基地在左下)"
+        enemy_side_cn = "红色方 (Red Side - 基地在右上)"
     elif data.mapSide == "red":
-        map_side_cn = "红色方 (Red Side)"
+        map_side_cn = "红色方 (Red Side - 基地在右上)"
+        enemy_side_cn = "蓝色方 (Blue Side - 基地在左下)"
+    
+    # 打印日志确认
+    print(f"🗺️ [Map] 我方: {map_side_cn} | 敌方: {enemy_side_cn}")
 
     # B. 组装 User Content (动态部分)
     try:
@@ -1364,7 +1371,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             
             # 🔥🔥🔥 这里补上了 mapSide 参数 🔥🔥🔥
             mapSide=map_side_cn,
-            
+            enemySide=enemy_side_cn,
             s15_context="(机制库已加载至 System Context，请基于该知识库分析)", 
             compInfo=lane_matchup_context,
             tips_text="(已加载至System)", 
