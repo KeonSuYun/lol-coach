@@ -13,7 +13,7 @@ let pollingInterval;
 let wssInstance = null; 
 let isMouseIgnored = true; 
 let tray = null;
-
+let hasWarnedAdmin = false;
 // 🔥🔥🔥【新增】数据缓存，防止前端加载慢丢失数据 🔥🔥🔥
 let lastLcuData = null;
 
@@ -229,28 +229,28 @@ function createWindows() {
     loadSettings();
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
+    // ==========================================
+    // 🪟 1. Dashboard 主窗口 (控制台)
+    // ==========================================
     dashboardWindow = new BrowserWindow({
         width: 320, height: 480, show: false, 
         frame: false, backgroundColor: '#010A13',
         webPreferences: { nodeIntegration: true, contextIsolation: false }
     });
+
+    // 生产环境适配：根据环境自动切换加载方式
     if (isDev) {
-        // 开发模式：加载 Vite 服务地址 (确保能收到热更新，且修复 404 问题)
-        // 注意：如果你的 dashboard 是通过路由区分的，这里可能需要加路径
-        // 假设 dashboard 就是主页，只是没有 overlay 参数
+        // 开发环境：加载 localhost 以支持热更新
         dashboardWindow.loadURL('http://localhost:5173'); 
-        
-        // 这里的 console 是为了方便你调试 Dashboard
-        dashboardWindow.webContents.openDevTools({ mode: 'detach' }); 
-        console.log("🐛 Dashboard loaded from Localhost (Dev Mode)");
     } else {
-        // 生产模式：加载打包文件
-        // 注意：确保 build 后 dist 目录下有这个文件，或者加载 index.html
-        // 如果你的项目是单页应用(SPA)，通常也是加载 index.html
+        // 生产环境：加载打包后的静态文件
         const indexPath = path.join(__dirname, 'dist', 'index.html');
-        dashboardWindow.loadFile(indexPath); 
+        dashboardWindow.loadURL(pathToFileURL(indexPath).href); 
     }
 
+    // ==========================================
+    // 👻 2. Overlay 窗口 (游戏内覆盖层)
+    // ==========================================
     overlayWindow = new BrowserWindow({
         width: 350, height: 300, 
         x: width - 370, y: 120,
@@ -273,38 +273,56 @@ function createWindows() {
         overlayWindow.loadURL(WEB_APP_URL);
     } else {
         const indexPath = path.join(__dirname, 'dist', 'index.html');
-        const fileUrl = pathToFileURL(indexPath).href;
-        overlayWindow.loadURL(`${fileUrl}?overlay=true`);
+        overlayWindow.loadURL(`${pathToFileURL(indexPath).href}?overlay=true`);
     }
 
     overlayWindow.webContents.on('did-finish-load', () => {
         broadcast(JSON.stringify({ type: 'REQUEST_SYNC' }));
-        // 🔥 窗口加载完毕后，立刻发送缓存的数据
+        // 窗口加载完毕后，立刻发送缓存的数据
         if (lastLcuData) {
             overlayWindow.webContents.send('lcu-update', lastLcuData);
         }
     });
 
-    connectToLCU((data) => {
-        // 🔥 1. 先缓存最新数据
-        lastLcuData = data;
+    // ==========================================
+    // 🔌 3. LCU 连接与数据分发 (含权限检查)
+    // ==========================================
+    let hasWarnedAdmin = false; // 防抖变量，防止弹窗重复
 
+    // 注意：这里的 connectToLCU 已经适配了两个回调参数 (数据回调, 警告回调)
+    connectToLCU((data) => {
+        // --- ✅ 成功获取数据的回调 ---
+        lastLcuData = data;
+        
         const isConnected = data.myTeam && data.myTeam.length > 0;
         const statusMsg = isConnected ? 'connected' : 'waiting';
-        if (data.mapSide) {
-            console.log(`📡 [Main] 准备发送给 Dashboard，方位: ${data.mapSide}`);
-        }
-        if (!dashboardWindow.isDestroyed()) {
+        
+        // 1. 发送给 Dashboard (包含方位修复)
+        if (dashboardWindow && !dashboardWindow.isDestroyed()) {
             dashboardWindow.webContents.send('lcu-status', statusMsg);
-            // 🔥🔥🔥【核心修复】必须把数据发给 Dashboard，否则主界面无法获取 mapSide 🔥🔥🔥
-            dashboardWindow.webContents.send('lcu-update', data); 
+            dashboardWindow.webContents.send('lcu-update', data);
         }
         
         // 2. 发送给 Overlay
-        if (!overlayWindow.isDestroyed()) overlayWindow.webContents.send('lcu-update', data);
+        if (overlayWindow && !overlayWindow.isDestroyed()) {
+            overlayWindow.webContents.send('lcu-update', data);
+        }
         
+        // 3. 广播给网页端 (WebSocket)
         broadcast({ type: 'CHAMP_SELECT', data: data });
         broadcast({ type: 'STATUS', data: statusMsg });
+
+    }, (warningType) => { 
+        // --- ⚠️ 错误/警告回调 ---
+        if (warningType === 'permission-denied' && !hasWarnedAdmin) {
+            hasWarnedAdmin = true;
+            
+            // 使用 Electron 原生弹窗提示用户
+            dialog.showErrorBox(
+                '权限不足提醒', 
+                '检测到《英雄联盟》正在运行，但 HexLite 无法读取游戏数据。\n\n请【退出本软件】，右键选择【以管理员身份运行】再试。'
+            );
+        }
     });
 }
 

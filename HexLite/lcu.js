@@ -12,19 +12,37 @@ const championDetailsCache = {};
 async function getCredentials() {
     try {
         const list = await find('name', 'LeagueClientUx.exe', true);
-        if (list.length === 0) return null;
-        const cmd = list[0].cmd;
-        if (!cmd) return null;
+        
+        // 情况 A: 游戏完全没开
+        if (list.length === 0) return { status: 'not-found' };
+        
+        const processInfo = list[0];
+        const cmd = processInfo.cmd;
+
+        // 🔥 情况 B: 游戏开了，但是读取不到 cmd (通常是权限不足)
+        if (!cmd) {
+            return { status: 'permission-denied' };
+        }
+
         const portMatch = cmd.match(/--app-port=["']?(\d+)["']?/);
         const passwordMatch = cmd.match(/--remoting-auth-token=["']?([\w-]+)["']?/);
-        if (!portMatch || !passwordMatch) return null;
+
+        // 情况 C: 读到了 cmd 但没找到 token (极其罕见，可能是游戏刚启动还没准备好)
+        if (!portMatch || !passwordMatch) {
+            return { status: 'no-credentials' };
+        }
+
         return {
+            status: 'success',
             port: portMatch[1],
             password: passwordMatch[1],
             url: `https://127.0.0.1:${portMatch[1]}`,
             auth: 'Basic ' + Buffer.from(`riot:${passwordMatch[1]}`).toString('base64')
         };
-    } catch (e) { return null; }
+    } catch (e) { 
+        console.log('LCU Process Check Error');
+        return { status: 'error' }; 
+    }
 }
 
 // 🔥 新增：获取单个英雄的详细技能信息 (带CD)
@@ -130,13 +148,28 @@ async function processSession(session, creds, callback) {
     });
 }
 
-async function connectToLCU(callback) {
-    console.log('🔍 [Lite] 正在寻找游戏进程...');
-    const creds = await getCredentials();
-    if (!creds) {
-        console.log('⚠️ 未找到游戏，请管理员运行');
+async function connectToLCU(callback, onWarning) {
+    
+    const result = await getCredentials();
+    
+    // 🔥 处理各种失败情况
+    if (result.status === 'not-found') {
         return;
     }
+    
+    if (result.status === 'permission-denied') {
+        console.log('🚫 检测到游戏进程，但无权限读取 (需管理员启动)');
+        // 触发警告回调
+        if (onWarning) onWarning('permission-denied');
+        return;
+    }
+    
+    if (result.status !== 'success') {
+        console.log('⚠️ 无法获取连接凭据，原因:', result.status);
+        return;
+    }
+
+    const creds = result; // 成功拿到凭据
 
     // 初始化获取一次
     const initialData = await fetchSession(creds);
@@ -155,7 +188,6 @@ async function connectToLCU(callback) {
             const json = JSON.parse(data);
             if (json[2] && json[2].uri === '/lol-champ-select/v1/session') {
                 if (json[2].eventType === 'Delete') { callback({ myTeam: [], enemyTeam: [] }); return; }
-                // 变成异步调用
                 await processSession(json[2].data, creds, callback);
             }
         } catch (e) {}

@@ -322,5 +322,29 @@
     "mutual": false,
     "content": "⚠️ **动态决策模型 (Decision Tree)**：男枪是野区霸主，核心是“压榨”。\n1. **推塔节奏**：Gank成功后，**必须**帮队友一起推线吃镀层，快速拉开经济差。\n2. **入侵逻辑**：只要线权在手，你的家就是对面野区。时刻计算对面野怪刷新时间，反烂他的野区。\n3. **原则**：你的经济必须领先全场，不用让人头，你就是C位。",
     "type": "GUIDE"
+  },
+  {
+    "hero": "Nidalee",
+    "enemy": "Amumu",
+    "mutual": false,
+    "content": "⚠️ **对位核心策略**：\n1. **绝对压制**：阿木木在 1-3 级战斗力极低。奈德丽**严禁**和平发育。\n2. **入侵逻辑**：必须规划【入侵野区】路线。如果阿木木蓝开，直接去反他的红；如果红开，直接找他在野区打架。",
+    "type": "GUIDE", 
+    "priority": 200
+  },
+  {
+    "hero": "role_jungle_farming",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **发育型打野通则 (Scaling Jungler)**：\n适用英雄：卡尔萨斯、格雷福斯、希瓦娜、赫卡里姆\n1. **原则**：你的时间 = 金钱。除非成功率 > 80%，否则不要去线上“赌博”Gank。\n2. **路线**：默认【全刷 (Full Clear)】速4。被反野时，果断【换野区 (Vertical Jungling)】，不要纠缠。",
+    "type": "GUIDE",
+    "priority": 50
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **节奏型打野通则 (Tempo Jungler)**：\n适用英雄：李青、伊莉丝、赵信、嘉文四世\n1. **原则**：你的时间 = 节奏。刷野只是为了回血回蓝，人头才是经验来源。\n2. **路线**：默认【速3 (3 Camp Rush)】。双Buff+蛤蟆/小怪 -> 只有一种情况全刷：三路都没线权且对面是强反野英雄。",
+    "type": "GUIDE",
+    "priority": 50
   }
 ]

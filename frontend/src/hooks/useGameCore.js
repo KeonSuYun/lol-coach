@@ -346,8 +346,9 @@ export function useGameCore() {
     // LCU 数据处理逻辑
     const handleLcuUpdate = (session) => {
         if (!session || championList.length === 0) return;
+
+        // ✅ 保留这行核心修复
         if (session.mapSide && session.mapSide !== "unknown") {
-            console.log("🌐 [Web] WebSocket 收到方位更新:", session.mapSide);
             setMapSide(session.mapSide);
         }
 

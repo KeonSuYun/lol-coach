@@ -1250,27 +1250,32 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 1. 处理前端传来的实时技能数据
     live_mechanics_str = ""
     if data.extraMechanics:
-        # ⚠️ 关键：必须排序！确保每次生成的字符串顺序一致，否则缓存会失效
-        sorted_mechanics = sorted(data.extraMechanics.items())
-        
         mechanics_list = []
-        for hero_name, mech_desc in sorted_mechanics:
-            # 简单清洗，防止过长
-            clean_desc = str(mech_desc).strip()[:800] 
-            mechanics_list.append(f"【{hero_name} 关键机制/CD】:\n{clean_desc}")
+        
+        # 1. 定义“白名单”：只关心自己和主要敌人
+        # normalize_simple 是前面定义的去空格转小写函数
+        target_keys = {normalize_simple(data.myHero), normalize_simple(primary_enemy)}
+        
+        # 记录已添加的英雄，防止 lcu.js 发送的 Alias 和 Name 重复添加
+        added_keys = set() 
+
+        # 2. 遍历前端发来的技能包
+        for h_key, h_desc in data.extraMechanics.items():
+            # 归一化 key (比如 "Lee Sin" -> "leesin")
+            simple_key = normalize_simple(h_key)
+            
+            # 如果这个英雄在我们的关注列表里
+            if simple_key in target_keys and simple_key not in added_keys:
+                # 放宽单个英雄的字数限制 (因为总数少了，可以让 AI 看得更细)
+                clean_desc = str(h_desc).strip()[:1500] 
+                mechanics_list.append(f"【{h_key} 实时机制/CD数值】:\n{clean_desc}")
+                added_keys.add(simple_key)
         
         if mechanics_list:
             live_mechanics_str = "\n".join(mechanics_list)
+            print(f"✨ [Context] 已注入 {len(mechanics_list)} 个核心英雄的实时技能数据")
 
-    # 2. 组合“超级系统提示词” (S15机制 + 实时技能)
-    # 只要这部分内容不变（同局游戏），DeepSeek 就会命中缓存，费用打 1 折，速度极快
-    # 这里的技巧是把 s15_context 扩展，包含了实时技能数据
-    full_s15_context_with_skills = f"""
-    {s15_context}
-
-    ====== 🚨 实时英雄技能情报 (Live LCU Data) ======
-    {live_mechanics_str or "暂无特定技能数据"}
-    """
+    full_s15_context_with_skills = f"{s15_context}\n\n====== 🚨 重点英雄实时数据 (Live LCU) ======\n{live_mechanics_str or '暂无 (使用通用知识库)'}"
 
     # 3. 确定模板
     target_mode = data.mode
@@ -1312,30 +1317,24 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # A. 组装 System Content (静态部分 - 命中缓存)
     sys_tpl_str = tpl['system_template']
-    
-    # 尝试将所有静态知识注入 System 模板
-    # 注意：我们把你上传的 JSON 模板里的 {s15_context} 替换为 (s15 + 实时技能)
-    try:
-        # 如果模板支持占位符，直接填充
-        if "{s15_context}" in sys_tpl_str:
-            system_content = sys_tpl_str.format(
-                s15_context=full_s15_context_with_skills, # 🔥 注入点
-                tips_text=tips_text,
-                correction_prompt=correction_prompt,
-                userRole=user_role_key # 👈 补上了！
-            )
-        else:
-            # 兜底：如果模板里没有占位符，强行拼接到最后
-            system_content = (
-                f"{sys_tpl_str}\n\n"
-                f"=== 🌍 S15 Context ===\n{full_s15_context_with_skills}\n\n"
-                f"=== 📚 Community Tips ===\n{tips_text}\n\n"
-                f"{correction_prompt}"
-            )
-    except Exception as e:
-        print(f"⚠️ System Prompt Format Error: {e}")
-        system_content = sys_tpl_str + f"\n\nContext: {full_s15_context_with_skills}\nTips: {tips_text}"
+    system_content = sys_tpl_str
 
+    # 使用 replace 替代 format，避免 {} 冲突报错
+    if "{s15_context}" in system_content:
+        system_content = system_content.replace("{s15_context}", full_s15_context_with_skills)
+    else:
+        system_content += f"\n\n=== 🌍 S15 Context ===\n{full_s15_context_with_skills}"
+
+    if "{tips_text}" in system_content:
+        system_content = system_content.replace("{tips_text}", tips_text)
+    else:
+        system_content += f"\n\n=== 📚 Community Tips ===\n{tips_text}"
+
+    # 替换其他变量
+    system_content = system_content.replace("{correction_prompt}", correction_prompt)
+    system_content = system_content.replace("{userRole}", user_role_key)
+
+    # 强制 JSON 约束
     if "Output JSON only" not in system_content:
         system_content += "\n⚠️ IMPORTANT: You must return PURE JSON only."
 
