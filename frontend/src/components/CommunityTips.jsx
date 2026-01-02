@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Plus, ThumbsUp, Trash2, Swords, Handshake, ChevronDown, User, Crown, Globe } from 'lucide-react';
+import { MessageSquare, Plus, ThumbsUp, Trash2, Swords, Handshake, ChevronDown, User, Crown, Globe, Crosshair } from 'lucide-react';
 
 const CommunityTips = ({ tips, currentUser, currentHero, currentTarget, allies, enemies, onTargetChange, onOpenPostModal, onLike, onDelete }) => {
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);

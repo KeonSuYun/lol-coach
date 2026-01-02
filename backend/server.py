@@ -618,6 +618,29 @@ def get_champion_roles():
         print(f"❌ Role Load Error: {e}")
         return {}
 
+async def polish_tip_content(tip_id: str, content: str):
+    """后台任务：使用 AI 为玩家攻略生成标题和标签"""
+    try:
+        # 使用更便宜、更快的 V3 模型
+        prompt = f"请为这条LOL攻略生成一个6-10字的吸引人标题和2个分类标签（如：对线、团战、出装）。攻略内容：{content}"
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"} # 强制输出 JSON
+        )
+        res = json.loads(response.choices[0].message.content)
+        
+        # 更新数据库
+        db.tips_col.update_one(
+            {"_id": ObjectId(tip_id)},
+            {"$set": {
+                "title": res.get("title"),
+                "tags": res.get("tags"),
+                "is_polished": True
+            }}
+        )
+    except Exception as e:
+        print(f"AI Polishing Error: {e}")
 
 @app.post("/tips")
 async def add_tip_endpoint(data: TipInput, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):

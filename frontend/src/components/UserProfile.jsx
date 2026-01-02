@@ -379,6 +379,7 @@ const UserProfile = ({ onBack, onOpenAdmin, accountInfo, currentUser, token, lcu
                 gameName: lcuProfile.gameName || prev.gameName,
                 tag: lcuProfile.tagLine || prev.tag,
                 rank: lcuProfile.rank || prev.rank,
+                lp: lcuProfile.lp !== undefined ? lcuProfile.lp : prev.lp, // ✨ 修复：同步 LCU 的胜点
                 level: lcuProfile.level || prev.level,
                 avatarUrl: lcuProfile.profileIconId 
                     ? `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${lcuProfile.profileIconId}.png`
@@ -393,6 +394,7 @@ const UserProfile = ({ onBack, onOpenAdmin, accountInfo, currentUser, token, lcu
                 gameName: saved.gameName || prev.gameName,
                 tag: saved.tagLine || prev.tag,
                 rank: saved.rank || prev.rank,
+                lp: saved.lp !== undefined ? saved.lp : prev.lp, // ✨ 修复：同步数据库的胜点
                 level: saved.level || prev.level,
                 avatarUrl: saved.profileIconId 
                     ? `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${saved.profileIconId}.png`
@@ -755,7 +757,9 @@ const UserProfile = ({ onBack, onOpenAdmin, accountInfo, currentUser, token, lcu
             <div className="flex flex-wrap gap-3">
               <div className={`flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium shadow-sm border transition-colors ${rankTheme.bg} ${rankTheme.border} ${rankTheme.text} ${rankTheme.shadow}`}>
                 <Trophy size={15} className={rankTheme.accent} />
-                <span className="font-bold tracking-wide">{profile.rank} {profile.lp}</span>
+                <span className="font-bold tracking-wide">
+                    {profile.rank} {profile.rank !== 'Unranked' && profile.rank !== 'UNRANKED' ? `${profile.lp} LP` : ''}
+                </span>
               </div>
               
               {isEditing ? (
