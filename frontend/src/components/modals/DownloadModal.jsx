@@ -5,12 +5,26 @@ import { API_BASE_URL } from '../../config/constants';
 const DownloadModal = ({ isOpen, onClose }) => {
     if (!isOpen) return null;
 
-    // 🔥 全员开放的直链地址 (后端会负责重定向到对象存储)
+    // 🔥 全员开放的直链地址 (后端会负责重定向到对象存储) - 现作为备用
     const DIRECT_LINK = `${API_BASE_URL}/download/client`;
 
-    // 🔗 您提供的真实网盘链接
-    const LANZOU_LINK = "https://wwauw.lanzouu.com/icEiM3ezythi";
-    const PAN123_LINK = "https://www.123865.com/s/aIapjv-PvFih?pwd=AKgq#";
+    // 🛠️ 环境变量读取逻辑
+    // 既支持 Vite (import.meta.env) 也支持 Webpack/CRA (process.env)
+    // 如果未配置环境变量，则使用默认的硬编码链接和密码
+    const getEnv = (key) => {
+        try {
+            return (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) 
+                || (typeof process !== 'undefined' && process.env && process.env[key]);
+        } catch (e) {
+            return undefined;
+        }
+    };
+
+    // 🔗 123云盘配置 (最高优先级)
+    // 优先读取 VITE_PAN_LINK 或 REACT_APP_PAN_LINK，否则使用默认链接
+    const PAN123_LINK = getEnv('VITE_PAN_LINK') || getEnv('REACT_APP_PAN_LINK') || "https://www.123865.com/s/aIapjv-kdFih?pwd=mYMT#";
+    // 优先读取 VITE_PAN_PWD 或 REACT_APP_PAN_PWD，否则使用默认提取码
+    const PAN123_PWD = getEnv('VITE_PAN_PWD') || getEnv('REACT_APP_PAN_PWD') || "mYMT";
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -79,14 +93,23 @@ const DownloadModal = ({ isOpen, onClose }) => {
                                 </span>
                             </div>
 
-                            {/* 1. 官方高速直连 */}
+                            {/* 1. 123云盘 (主推荐 - 最高优先级) */}
                             <a 
-                                href={DIRECT_LINK}
+                                href={PAN123_LINK}
                                 target="_blank"
-                                className="group relative w-full py-4 bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2] hover:from-[#d9b877] hover:to-[#fff] text-[#091428] font-black text-lg rounded-lg shadow-[0_0_20px_rgba(200,170,110,0.3)] hover:scale-[1.02] transition-all flex items-center justify-center gap-2 overflow-hidden"
+                                rel="noopener noreferrer"
+                                className="group relative w-full py-4 bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2] hover:from-[#d9b877] hover:to-[#fff] text-[#091428] font-black text-lg rounded-lg shadow-[0_0_20px_rgba(200,170,110,0.3)] hover:scale-[1.02] transition-all flex flex-col items-center justify-center gap-1 overflow-hidden"
                             >
-                                <Server size={20} className="relative z-10" />
-                                <span className="relative z-10">官方高速直连 (推荐)</span>
+                                <div className="flex items-center gap-2 relative z-10">
+                                    <Cloud size={22} className="relative z-10" />
+                                    <span className="relative z-10">123 云盘下载 (推荐)</span>
+                                </div>
+                                
+                                {/* 提取码显示 */}
+                                <div className="relative z-10 text-xs font-mono font-normal bg-[#091428]/10 px-2 py-0.5 rounded border border-[#091428]/20 mt-1">
+                                    提取码: {PAN123_PWD}
+                                </div>
+
                                 <div className="absolute inset-0 bg-white/30 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
                             </a>
 
@@ -96,35 +119,17 @@ const DownloadModal = ({ isOpen, onClose }) => {
                                 <div className="flex-grow border-t border-slate-800"></div>
                             </div>
 
-                            {/* 2. 蓝奏云 */}
+                            {/* 2. 官方直链 (副选) */}
                             <a 
-                                href={LANZOU_LINK} 
+                                href={DIRECT_LINK} 
                                 target="_blank" 
-                                rel="noopener noreferrer"
                                 className="flex items-center justify-between px-4 py-3 bg-[#010A13] border border-slate-700 rounded hover:border-[#0AC8B9] hover:text-[#0AC8B9] transition-colors group"
                             >
                                 <div className="flex items-center gap-3">
-                                    <Cloud size={18} className="text-blue-400 group-hover:text-[#0AC8B9]" />
+                                    <Server size={18} className="text-blue-500 group-hover:text-[#0AC8B9]" />
                                     <div className="flex flex-col items-start">
-                                        <span className="text-sm font-bold text-slate-300 group-hover:text-white">蓝奏云下载</span>
-                                        <span className="text-[10px] text-slate-500">密码: <span className="text-[#C8AA6E] font-mono">e7p9</span></span>
-                                    </div>
-                                </div>
-                                <ExternalLink size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </a>
-
-                            {/* 3. 123云盘 */}
-                            <a 
-                                href={PAN123_LINK} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="flex items-center justify-between px-4 py-3 bg-[#010A13] border border-slate-700 rounded hover:border-green-500 hover:text-green-400 transition-colors group"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <Cloud size={18} className="text-green-600 group-hover:text-green-400" />
-                                    <div className="flex flex-col items-start">
-                                        <span className="text-sm font-bold text-slate-300 group-hover:text-white">123 云盘下载</span>
-                                        <span className="text-[10px] text-slate-500">提取码: <span className="text-[#C8AA6E] font-mono">AKgq</span></span>
+                                        <span className="text-sm font-bold text-slate-300 group-hover:text-white">官方高速直连</span>
+                                        <span className="text-[10px] text-slate-500">如云盘无法访问请点此</span>
                                     </div>
                                 </div>
                                 <ExternalLink size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />
