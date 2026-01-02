@@ -164,51 +164,84 @@ def seed_data():
 
         for hero in champs_data:
             try:
-                hero_id = hero.get("name") 
-                if not hero_id: continue
+                # 在 champions.json 中，"name" 是英文ID (如 "Malphite")
+                hero_english_id = hero.get("name") 
+                if not hero_english_id: continue
                 
-                # 这里会直接使用 champions.json 里的 role，不再被其他文件覆盖
-                role = hero.get("role", "MID").upper()
+                # 🛠️ 关键修复：同时准备大小写
+                # backend/server.py 依赖大写 (TOP) 做推荐算法
+                # frontend/ChampSelectModal.jsx 依赖小写 (top) 做筛选 (虽然它兼容性好，但保持一致更安全)
+                role_raw = hero.get("role", "mid")
+                role_upper = role_raw.upper() # "TOP"
+                role_lower = role_raw.lower() # "top"
                 
                 stats_block = {
-                    "role": role,
+                    "role": role_lower, # 存小写
                     "tier": parse_tier(hero.get("tier")),
                     "win_rate": parse_percent(hero.get("win_rate")),
                     "pick_rate": parse_percent(hero.get("pick_rate")),
                     "ban_rate": parse_percent(hero.get("ban_rate"))
                 }
 
-                if hero_id not in hero_map:
-                    display_name = hero_id
+                if hero_english_id not in hero_map:
+                    # 处理中文名显示
                     alias_list = hero.get("alias", [])
                     chinese_aliases = [a for a in alias_list if has_chinese(a)]
+                    
+                    # 默认使用英文ID，如果有中文名则优先用中文名作为显示名称
+                    display_name_cn = hero_english_id
                     if chinese_aliases:
-                        chinese_aliases.sort(key=len)
-                        display_name = chinese_aliases[0]
+                        # 优先取列表第一个中文作为主要名字
+                        display_name_cn = chinese_aliases[0]
 
-                    hero_map[hero_id] = {
-                        "id": str(hero_id),
-                        "_id": str(hero_id),
-                        "name": display_name,
-                        "alias": alias_list,
+                    hero_map[hero_english_id] = {
+                        "id": str(hero_english_id),      # 英文ID: "Malphite"
+                        "_id": str(hero_english_id),     # 数据库主键
+                        
+                        # 🛠️ 兼容性修复 1: 前端图片
+                        # 前端 <img src={alias}.png> -> 需要英文 "Malphite"
+                        "alias": str(hero_english_id),   
+                        
+                        # 🛠️ 兼容性修复 2: 后端 server.py 的 get_hero_cn_name
+                        # 后端虽然优先读 alias 列表，但失败后会读 title
+                        # 所以我们把中文名存入 title，保证后端翻译正常
+                        "title": display_name_cn,        # "石头人"
+                        "name": display_name_cn,         # "石头人"
+                        
+                        "key": str(hero_english_id),     # 冗余英文字段，双重保险
                         "tags": [t.capitalize() for t in hero.get("tags", [])],
                         "updated_at": get_utc_now(),
+                        
                         "positions": {},
-                        # 移除 roles 字段的初始化，完全依赖 champions.json 的 role
+                        
+                        # 列表初始化
+                        "roles": [role_lower],
+                        
+                        # 主数据初始化
                         "tier": stats_block["tier"],
                         "win_rate": stats_block["win_rate"],
-                        "role": role 
+                        "pick_rate": stats_block["pick_rate"],
+                        "ban_rate": stats_block["ban_rate"],
+                        "role": role_lower 
                     }
                 
-                hero_map[hero_id]["positions"][role] = stats_block
+                # 🛠️ 兼容性修复 3: 后端 server.py 的 recommend_heroes_algo
+                # 后端强制使用大写 KEY: positions_data.get(current_role.upper())
+                # 所以这里的 Key 必须是 "TOP", "MID"...
+                hero_map[hero_english_id]["positions"][role_upper] = stats_block
                 
-                current_main_pick = hero_map[hero_id].get("pick_rate", 0)
+                # 维护 roles 数组 (去重)
+                if role_lower not in hero_map[hero_english_id]["roles"]:
+                    hero_map[hero_english_id]["roles"].append(role_lower)
+
+                # 更新主显示数据 (通常取 Pick 率最高的位置作为主数据)
+                current_main_pick = hero_map[hero_english_id].get("pick_rate", 0)
                 if stats_block["pick_rate"] > current_main_pick:
-                     hero_map[hero_id]["tier"] = stats_block["tier"]
-                     hero_map[hero_id]["win_rate"] = stats_block["win_rate"]
-                     hero_map[hero_id]["pick_rate"] = stats_block["pick_rate"]
-                     hero_map[hero_id]["ban_rate"] = stats_block["ban_rate"]
-                     hero_map[hero_id]["role"] = role 
+                     hero_map[hero_english_id]["tier"] = stats_block["tier"]
+                     hero_map[hero_english_id]["win_rate"] = stats_block["win_rate"]
+                     hero_map[hero_english_id]["pick_rate"] = stats_block["pick_rate"]
+                     hero_map[hero_english_id]["ban_rate"] = stats_block["ban_rate"]
+                     hero_map[hero_english_id]["role"] = role_lower 
 
             except Exception as e:
                 print(f"⚠️ 数据格式错误: {hero.get('name')} - {e}")
@@ -225,13 +258,12 @@ def seed_data():
         print("⚠️ 未找到 champions.json，跳过更新")
 
     # =====================================================
-    # 2. 同步 Prompts (严格从文件读取)
+    # 2. 同步 Prompts
     # =====================================================
     print("\n🚀 [2/5] 更新 Prompt 模板...")
     prompts_data = load_json("prompts.json")
     
     if prompts_data:
-        # 清空旧模板
         db.prompt_templates.delete_many({}) 
         items = prompts_data if isinstance(prompts_data, list) else list(prompts_data.values())
         for item in items:
@@ -241,7 +273,7 @@ def seed_data():
                 db.prompt_templates.replace_one({"_id": p_id}, item, upsert=True)
         print("✅ Prompts 已根据文件更新")
     else:
-        print("❌ 严重警告：未找到 prompts.json 文件！数据库 Prompt 未更新，可能导致报错。")
+        print("❌ 严重警告：未找到 prompts.json 文件！")
 
     # =====================================================
     # 3. 同步 S15 机制
@@ -254,30 +286,7 @@ def seed_data():
         print("✅ S15 规则已更新")
 
     # =====================================================
-    # 4. 管理员账号
-    # =====================================================
-    # print("\n🚀 [4/5] 强制更新管理员账号...")
-    # admin_pass = os.getenv("ADMIN_PASSWORD")
-    # if admin_pass:
-    #     admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    #     hashed = pwd_context.hash(admin_pass)
-        
-    #     db.users.update_one(
-    #         {"username": admin_user},
-    #         {
-    #             "$set": {
-    #                 "password": hashed, 
-    #                 "role": "admin", 
-    #                 "is_pro": True
-    #             },
-    #             "$setOnInsert": {"created_at": get_utc_now()}
-    #         },
-    #         upsert=True
-    #     )
-    #     print(f"✅ 管理员 {admin_user} 密码已强制重置！")
-
-    # =====================================================
-    # 5. 调用修正数据 (corrections.json)
+    # 5. 调用修正数据
     # =====================================================
     sync_corrections_from_json(db)
 

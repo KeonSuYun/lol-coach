@@ -33,8 +33,36 @@ const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 // ==========================================
 function startWebSocketServer() {
     try {
-        wssInstance = new WebSocket.Server({ port: WSS_PORT });
-        
+        wssInstance = new WebSocket.Server({ 
+            port: WSS_PORT,
+            verifyClient: (info) => {
+                const origin = info.origin;
+                
+                // 1. 允许无 Origin 的连接 (通常是本地非浏览器应用，如 Python 脚本或 Node 进程)
+                // 注意：某些浏览器环境 'null' 表示本地文件或沙盒 iframe，视情况决定是否放行，为了 Electron 内部通常放行 file://
+                if (!origin || origin === 'null') return true;
+
+                // 2. 定义允许的域名白名单 (生产环境 + 本地开发)
+                const ALLOWED_ORIGINS = [
+                    "https://www.hexcoach.gg", 
+                    "https://www.haxcoach.com",
+                    "https://haxcoach.com",
+                    "https://hexcoach.gg",
+                    "http://localhost:5173",  // 本地开发
+                    "http://127.0.0.1:5173",
+                    "file://"                 // Electron 内部页面
+                ];
+
+                // 3. 校验逻辑
+                const isAllowed = ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed));
+                
+                if (!isAllowed) {
+                    console.warn(`🛑 [Security] 拦截了非法来源的 WebSocket 连接: ${origin}`);
+                }
+                
+                return isAllowed;
+            }
+        });
         wssInstance.on('connection', (ws) => {
             ws.send(JSON.stringify({ type: 'STATUS', data: 'connected' }));
 

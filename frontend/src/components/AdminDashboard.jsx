@@ -132,6 +132,32 @@ const AdminDashboard = ({ token, onClose }) => {
 
     const { cost, profit, margin } = calculateProfit();
 
+    // 🔥🔥🔥 增强版：全方位获取显示名称 (兼容各种后端返回格式) 🔥🔥🔥
+    const getDisplayName = (user) => {
+        // 1. 尝试直接从根节点读取 (扁平化结构)
+        if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
+        if (user.game_name) return `${user.game_name} #${user.tag_line || 'HEX'}`;
+        if (user.summonerName) return `${user.summonerName} #${user.tagLine || 'HEX'}`;
+
+        // 2. 尝试从 game_profile 对象读取 (嵌套结构)
+        if (user.game_profile) {
+            let profile = user.game_profile;
+            
+            // 防御：如果是 JSON 字符串，先解析
+            if (typeof profile === 'string') {
+                try { profile = JSON.parse(profile); } catch(e) {}
+            }
+
+            if (typeof profile === 'object') {
+                const name = profile.gameName || profile.game_name || profile.summonerName || profile.name;
+                const tag = profile.tagLine || profile.tag_line || profile.tag || "HEX";
+                if (name) return `${name} #${tag}`;
+            }
+        }
+
+        return null;
+    };
+
     return (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
             {/* 主容器 */}
@@ -249,7 +275,7 @@ const AdminDashboard = ({ token, onClose }) => {
                                 </div>
                             </div>
 
-                            {/* 恢复了：最近活跃用户表格 */}
+                            {/* 最近活跃用户表格 */}
                             <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden">
                                 <div className="px-4 py-3 bg-[#010A13]/80 border-b border-[#C8AA6E]/10 flex justify-between items-center">
                                     <h3 className="text-sm font-bold text-[#C8AA6E] uppercase tracking-wider">Recent Activity</h3>
@@ -298,7 +324,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                         <span className="text-[10px] bg-red-900/20 text-red-400 px-2 py-1 rounded border border-red-900/30 uppercase font-bold tracking-wider">Bug Report</span>
                                     </div>
                                     <div className="pl-2 mb-4"><p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">{item.description}</p></div>
-                                    {/* 恢复了：Context JSON 展示 */}
                                     <div className="pl-2">
                                         <div className="bg-black/40 rounded p-3 font-mono text-[10px] border border-slate-800/50 text-[#0AC8B9]/70 overflow-x-auto custom-scrollbar">
                                             <div className="flex items-center gap-2 mb-1 text-slate-500 font-bold uppercase tracking-wider"><Terminal size={10}/> Context Snapshot</div>
@@ -333,67 +358,74 @@ const AdminDashboard = ({ token, onClose }) => {
                                 <table className="w-full text-left text-sm text-slate-400">
                                     <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
                                         <tr>
-                                            <th className="px-4 py-3">用户名</th>
+                                            <th className="px-4 py-3">用户名 / 昵称</th>
                                             <th className="px-4 py-3">角色</th>
                                             <th className="px-4 py-3">会员过期时间</th>
                                             <th className="px-4 py-3 text-right">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-[#C8AA6E]/5">
-                                        {users.map((user) => (
-                                            <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
-                                                <td className="px-4 py-3 font-bold text-slate-200">{user.username}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase
-                                                        ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : 
-                                                          user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 
-                                                          'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                                                        {user.role}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3 font-mono text-xs">
-                                                    {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() + ' ' + new Date(user.membership_expire).toLocaleTimeString() : '-'}
-                                                </td>
-                                                <td className="px-4 py-3 flex justify-end gap-2">
-                                                    
-                                                    {/* 🟢 1. 改名 (笔图标) */}
-                                                    <button 
-                                                        onClick={() => { setActionUser(user); setActionType('rename'); setActionValue(user.username); }}
-                                                        className="p-1.5 text-blue-400 bg-blue-900/10 border border-blue-500/20 rounded hover:bg-blue-900/30 transition"
-                                                        title="修改用户名"
-                                                    >
-                                                        <PenTool size={12}/>
-                                                    </button>
+                                        {users.map((user) => {
+                                            const gameName = getDisplayName(user);
+                                            return (
+                                                <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
+                                                    {/* 🔥 [修改] 同时显示用户名和游戏昵称 */}
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-bold text-slate-200">{user.username}</div>
+                                                        <div className="text-xs text-[#0AC8B9]">{gameName || "未同步"}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase
+                                                            ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : 
+                                                            user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 
+                                                            'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                                                            {user.role}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono text-xs">
+                                                        {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() + ' ' + new Date(user.membership_expire).toLocaleTimeString() : '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3 flex justify-end gap-2">
+                                                        
+                                                        {/* 改名 (笔图标) */}
+                                                        <button 
+                                                            onClick={() => { setActionUser(user); setActionType('rename'); setActionValue(user.username); }}
+                                                            className="p-1.5 text-blue-400 bg-blue-900/10 border border-blue-500/20 rounded hover:bg-blue-900/30 transition"
+                                                            title="修改用户名"
+                                                        >
+                                                            <PenTool size={12}/>
+                                                        </button>
 
-                                                    {/* 🟢 2. 补单 (加号图标 - 仅加时长) */}
-                                                    <button 
-                                                        onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }}
-                                                        className="flex items-center gap-1 bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition"
-                                                        title="增加会员天数"
-                                                    >
-                                                        <Plus size={12}/> 补单
-                                                    </button>
+                                                        {/* 补单 (加号图标 - 仅加时长) */}
+                                                        <button 
+                                                            onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }}
+                                                            className="flex items-center gap-1 bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition"
+                                                            title="增加会员天数"
+                                                        >
+                                                            <Plus size={12}/> 补单
+                                                        </button>
 
-                                                    {/* 🟢 3. 权限 (编辑图标) */}
-                                                    <button 
-                                                        onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }}
-                                                        className="flex items-center gap-1 bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition"
-                                                        title="修改权限"
-                                                    >
-                                                        <Edit size={12}/> 权限
-                                                    </button>
+                                                        {/* 权限 (编辑图标) */}
+                                                        <button 
+                                                            onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }}
+                                                            className="flex items-center gap-1 bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition"
+                                                            title="修改权限"
+                                                        >
+                                                            <Edit size={12}/> 权限
+                                                        </button>
 
-                                                    {/* 🟢 4. 删除 (垃圾桶图标) */}
-                                                    <button 
-                                                        onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }}
-                                                        className="p-1.5 text-red-400 bg-red-900/10 border border-red-500/20 rounded hover:bg-red-900/30 transition"
-                                                        title="删除用户"
-                                                    >
-                                                        <Trash2 size={12}/>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                        {/* 删除 (垃圾桶图标) */}
+                                                        <button 
+                                                            onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }}
+                                                            className="p-1.5 text-red-400 bg-red-900/10 border border-red-500/20 rounded hover:bg-red-900/30 transition"
+                                                            title="删除用户"
+                                                        >
+                                                            <Trash2 size={12}/>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                                 {users.length === 0 && <div className="text-center py-10 text-slate-500 text-xs">没有找到相关用户</div>}
@@ -418,6 +450,7 @@ const AdminDashboard = ({ token, onClose }) => {
                                         <div className="bg-[#010A13] p-3 rounded border border-slate-700 mb-4">
                                             <p className="text-slate-400 text-xs">目标用户</p>
                                             <p className="text-white font-bold text-lg">{actionUser.username}</p>
+                                            <p className="text-[#0AC8B9] text-xs">{getDisplayName(actionUser) || "无游戏信息"}</p>
                                         </div>
 
                                         {/* 补单时长 */}

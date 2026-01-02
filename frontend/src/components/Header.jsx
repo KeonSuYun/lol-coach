@@ -1,4 +1,3 @@
-// src/components/Header.jsx
 import React, { useState } from 'react';
 import { 
   LogOut, Download, Zap, Brain, 
@@ -22,29 +21,30 @@ const Header = ({
   const isPro = accountInfo?.is_pro === true;
   const r1Remaining = accountInfo?.r1_remaining;
 
-  // 🔥🔥🔥 核心修改：智能段位计算 🔥🔥🔥
-  // 1. 优先读取 profile 中的段位，其次是 props 传入的 userRank
+  // 智能段位计算
   const rawRank = accountInfo?.game_profile?.rank || userRank || "Unranked";
-  
-  // 2. 默认黄金逻辑：如果是未定级或无效值，强制显示 Gold
   const displayRank = (rawRank === "Unranked" || !rawRank) ? "Gold" : rawRank;
+
+  // 🔥 [修改] 优先显示游戏内昵称 (LCU GameName)，如果没有则显示登录用户名
+  // 这里的 username 字段仅用于 UI 展示，不影响逻辑上的 currentUser
+  const displayDisplayName = accountInfo?.game_profile?.gameName || currentUser;
 
   // 构造传递给 ConsoleHeaderUser 的数据对象
   const userData = {
-      username: currentUser,
-      tag: accountInfo?.tag || "#HEX", 
+      username: displayDisplayName, // 展示用的名字 (昵称优先)
+      tag: accountInfo?.game_profile?.tagLine || accountInfo?.tag || "#HEX", 
       avatarUrl: accountInfo?.game_profile?.profileIconId 
           ? `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${accountInfo.game_profile.profileIconId}.png`
           : `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/29.png`,
       activeTitle: accountInfo?.active_title || "社区成员",
-      rank: displayRank, // 使用计算好的 displayRank
+      rank: displayRank,
       isPro: isPro
   };
 
   return (
     <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8 border-b border-slate-800/60 pb-4 md:pb-6 relative">
       
-      {/* 中间导航栏 (保持不变) */}
+      {/* 中间导航栏 */}
       <div className="absolute left-1/2 top-0 -translate-x-1/2 hidden xl:flex items-center gap-8 bg-[#010A13]/80 border border-white/5 px-6 py-2 rounded-full backdrop-blur-md shadow-lg z-20">
           <button onClick={onGoHome} className="flex items-center gap-2 text-slate-400 hover:text-white font-bold text-xs transition-colors">
               <Home size={14}/> 首页
@@ -60,7 +60,7 @@ const Header = ({
           </button>
       </div>
 
-      {/* 左侧 Logo & 标题区域 (保持不变) */}
+      {/* 左侧 Logo & 标题区域 */}
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-4">
                 <div onClick={onGoHome} className="flex items-center gap-4 cursor-pointer select-none group" title="点击返回主页">
@@ -98,9 +98,7 @@ const Header = ({
       {/* ================= 右侧功能区 ================= */}
       <div className="flex flex-row flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3 w-full md:w-auto">
 
-          {/* 1. 段位选择器已移除 (Removed Rank Selector) */}
-          
-          {/* 2. 身份状态 (仅显示升级按钮) */}
+          {/* 身份状态 (仅显示升级按钮) */}
           {!isPro && currentUser && (
                   <button 
                       onClick={() => setShowPricingModal(true)}
@@ -111,7 +109,7 @@ const Header = ({
                   </button>
           )}
 
-          {/* 3. 模型切换 */}
+          {/* 模型切换 */}
           <div className="flex p-1 bg-slate-950 rounded-lg border border-slate-800">
               <button 
                   onClick={() => setUseThinkingModel(false)}
@@ -141,10 +139,10 @@ const Header = ({
               </button>
           </div>
 
-          {/* 4. 用户信息 & 登录登出 */}
+          {/* 用户信息 & 登录登出 */}
           {currentUser ? (
               <div className="relative">
-                  {/* 使用 ConsoleHeaderUser 展示信息 (头像、段位、头衔自动展示) */}
+                  {/* 使用 ConsoleHeaderUser 展示信息 */}
                   <ConsoleHeaderUser 
                       {...userData}
                       onClick={() => setShowUserMenu(!showUserMenu)}

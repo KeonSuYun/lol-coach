@@ -1,84 +1,107 @@
 import React from 'react';
+import { ShieldAlert } from 'lucide-react'; 
+import MainConsole from './pages/MainConsole';
+import OverlayConsole from './pages/OverlayConsole';
+import CommunityPage from './components/CommunityPage';
+import UserProfile from './components/UserProfile';
 import { useGameCore } from './hooks/useGameCore';
 
-// 页面组件引入
-import LandingPage from './components/LandingPage';
-import CommunityPage from './components/CommunityPage';
-import UserProfile from './components/UserProfile'; 
-import MainConsole from './pages/MainConsole';
-import OverlayConsole from './pages/OverlayConsole'; 
-import DownloadModal from './components/modals/DownloadModal'; 
+// 引入管理组件
+import AdminDashboard from './components/AdminDashboard';
+import AdminPanel from './components/AdminPanel';
 
-export default function App() {
-    const { state, actions } = useGameCore();
+function App() {
+  const { state, actions } = useGameCore();
+  
+  // 解构需要的状态和动作
+  const { showAdminPanel, adminView, token, currentUser, isOverlay, roleMapping } = state;
+  const { setShowAdminPanel, setAdminView } = actions;
 
+  // 渲染主内容的辅助函数
+  const renderContent = () => {
+    // 1. 游戏内覆盖模式 (优先级最高)
     if (state.isOverlay) {
-        return <OverlayConsole state={state} actions={actions} />;
+      return <OverlayConsole state={state} actions={actions} />;
     }
 
-    // 计算显示名称
-    const lcuName = state.accountInfo?.game_profile?.gameName;
-    const displayUser = (lcuName && lcuName !== "Unknown") ? lcuName : state.currentUser;
-
+    // 2. 个人主页 (优先级高于社区，这样在社区点头像能跳转过来)
     if (state.showProfile) {
         return (
             <UserProfile 
-                onBack={() => actions.setShowProfile(false)} 
+                onBack={() => actions.setShowProfile(false)}
                 accountInfo={state.accountInfo}
-                currentUser={state.currentUser}
                 token={state.token}
-                lcuProfile={state.lcuProfile}
-                handleSyncProfile={actions.handleSyncProfile} 
-                championList={state.championList}
-                onOpenAdmin={() => {
-                    actions.setAdminView('panel'); 
-                    actions.setShowProfile(false);   
-                    actions.setShowAdminPanel(true); 
-                }} 
             />
-        );
+        )
     }
 
+    // 3. 绝活社区
     if (state.showCommunity) {
-        return (
-            <CommunityPage 
-                onBack={() => actions.setShowCommunity(false)} 
-                championList={state.championList} 
-                currentUser={displayUser}
-                userRole={state.userRole} 
-                token={state.token}
-                
-                // 🔥 [新增] 传递个人菜单所需的所有数据和回调
-                accountInfo={state.accountInfo}
-                lcuStatus={state.lcuStatus}
-                onLogout={actions.logout}
-                onShowLogin={() => actions.setShowLoginModal(true)}
-                onShowPricing={() => actions.setShowPricingModal(true)}
-                onShowSettings={() => actions.setShowSettingsModal(true)}
-                onShowProfile={() => actions.setShowProfile(true)}
-                onShowAdmin={() => {
-                    actions.setAdminView('dashboard');
-                    actions.setShowAdminPanel(true);
-                }}
-            />
-        );
+      return (
+        <CommunityPage 
+          onBack={() => actions.setShowCommunity(false)}
+          
+          // 🔥 关键：传入导航和登出方法
+          onShowProfile={() => actions.setShowProfile(true)}
+          onLogout={actions.logout}
+          
+          // 🔥🔥🔥 [新增] 传入设置和管理面板的方法，以便在社区页调用
+          onShowSettings={() => actions.setShowSettingsModal(true)}
+          onShowAdmin={() => { 
+              actions.setAdminView('dashboard'); 
+              actions.setShowAdminPanel(true); 
+          }}
+          
+          // 数据透传
+          championList={state.championList} 
+          roleMapping={state.roleMapping} 
+          currentUser={state.currentUser}
+          token={state.token}
+          accountInfo={state.accountInfo}
+          userRank={state.userRank}
+        />
+      );
     }
 
-    if (!state.hasStarted) {
-        return (
-            <>
-                <DownloadModal 
-                    isOpen={state.showDownloadModal} 
-                    onClose={() => actions.setShowDownloadModal(false)} 
-                />
-                <LandingPage 
-                    onEnter={() => actions.setHasStarted(true)} 
-                    onOpenCommunity={() => actions.setShowCommunity(true)}
-                    onDownloadClick={() => actions.setShowDownloadModal(true)} 
-                />
-            </>
-        );
-    }
-
+    // 4. 主控台 (默认视图)
     return <MainConsole state={state} actions={actions} />;
+  };
+
+  return (
+    <>
+      {/* 1. 核心页面内容 */}
+      {renderContent()}
+
+      {/* 2. 全局挂载：管理员面板 (仅限管理员且已登录) */}
+      {showAdminPanel && token && (
+          adminView === 'panel' ? (
+              <AdminPanel 
+                  token={token} 
+                  onBack={() => setShowAdminPanel(false)} 
+              />
+          ) : (
+              <AdminDashboard 
+                  token={token} 
+                  onClose={() => setShowAdminPanel(false)} 
+              />
+          )
+      )}
+
+      {/* 3. 全局挂载：管理员悬浮球 (Overlay模式除外) */}
+      {currentUser && ["admin", "root"].includes(currentUser) && !isOverlay && (
+          <button 
+              onClick={() => {
+                  setAdminView('dashboard');
+                  setShowAdminPanel(true);
+              }} 
+              className="fixed bottom-6 left-6 z-[9999] bg-red-600/90 hover:bg-red-500 text-white p-3 rounded-full shadow-lg backdrop-blur hover:scale-110 transition-all animate-in fade-in zoom-in duration-300"
+              title="管理员控制台"
+          >
+              <ShieldAlert size={20} />
+          </button>
+      )}
+    </>
+  );
 }
+
+export default App;

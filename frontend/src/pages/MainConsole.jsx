@@ -333,11 +333,12 @@ export default function MainConsole({ state, actions }) {
                                 enemies={redTeam}
                                 onTargetChange={(newTarget) => setTipTarget(newTarget)}
                                 userRole={userRole}
-                                onOpenPostModal={(isGeneralIntent) => {
+                                onOpenPostModal={(target) => {
                                     if(!currentUser) setShowLoginModal(true);
                                     else {
-                                        const currentT = tipTarget || enemyLaneAssignments[userRole];
-                                        setTipTargetEnemy(isGeneralIntent ? null : currentT);
+                                        // 如果 target 是 null/undefined，说明是通用，tipTargetEnemy 设为 null
+                                        // 否则设为具体的英雄名
+                                        setTipTargetEnemy(target);
                                         setShowTipModal(true);
                                     }
                                 }}

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-// 🟢 [修复] 引入 Save 图标
-import { Shield, Search, User, Crown, XCircle, ChevronLeft, Tag, Plus, X, Trash2, Save } from 'lucide-react';
+import { Shield, Search, User, Crown, XCircle, ChevronLeft, Tag, Plus, X, Trash2, Save, AlertCircle } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
 
@@ -87,6 +86,32 @@ const AdminPanel = ({ onBack, token }) => {
     // 预设头衔 (点击直接加)
     const PRESETS = ["PRO 会员", "内测核心成员", "绝活哥", "金牌攻略作者", "职业选手", "峡谷之巅", "官方运营"];
 
+    // 🔥🔥🔥 增强版：全方位获取显示名称 (兼容各种后端返回格式) 🔥🔥🔥
+    const getDisplayName = (user) => {
+        // 1. 尝试直接从根节点读取 (扁平化结构)
+        if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
+        if (user.game_name) return `${user.game_name} #${user.tag_line || 'HEX'}`;
+        if (user.summonerName) return `${user.summonerName} #${user.tagLine || 'HEX'}`;
+
+        // 2. 尝试从 game_profile 对象读取 (嵌套结构)
+        if (user.game_profile) {
+            let profile = user.game_profile;
+            
+            // 防御：如果是 JSON 字符串，先解析
+            if (typeof profile === 'string') {
+                try { profile = JSON.parse(profile); } catch(e) {}
+            }
+
+            if (typeof profile === 'object') {
+                const name = profile.gameName || profile.game_name || profile.summonerName || profile.name;
+                const tag = profile.tagLine || profile.tag_line || profile.tag || "HEX";
+                if (name) return `${name} #${tag}`;
+            }
+        }
+
+        return null;
+    };
+
     return (
         <div className="fixed inset-0 z-[70] bg-slate-900 text-slate-100 overflow-y-auto font-sans animate-in slide-in-from-right duration-300">
             {/* 顶部导航栏 */}
@@ -121,8 +146,8 @@ const AdminPanel = ({ onBack, token }) => {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-slate-800/80 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-700">
-                                <th className="p-4 font-semibold">用户 (ID/邮箱)</th>
-                                <th className="p-4 font-semibold">当前佩戴头衔</th>
+                                <th className="p-4 font-semibold">用户 / 游戏ID</th>
+                                <th className="p-4 font-semibold">当前身份</th>
                                 <th className="p-4 font-semibold text-right">管理操作</th>
                             </tr>
                         </thead>
@@ -132,78 +157,102 @@ const AdminPanel = ({ onBack, token }) => {
                             ) : users.length === 0 ? (
                                 <tr><td colSpan="3" className="p-8 text-center text-slate-500">未找到匹配的用户</td></tr>
                             ) : (
-                                users.map(user => (
-                                    <tr key={user.username} className="hover:bg-slate-700/30 transition-colors group">
-                                        <td className="p-4">
-                                            <div className="font-bold text-white flex items-center gap-2">
-                                                {user.username}
-                                                {user.role === 'admin' && <Shield size={12} className="text-rose-500"/>}
-                                            </div>
-                                            <div className="text-xs text-slate-500 mt-0.5">{user.email || "无邮箱"}</div>
-                                        </td>
-                                        <td className="p-4">
-                                            {/* 显示当前正在佩戴的 active_title */}
-                                            <span className={`px-2 py-1 rounded text-xs border font-bold tracking-wide
-                                                ${user.active_title?.includes('Admin') || user.active_title?.includes('管理') 
-                                                    ? 'bg-rose-900/30 border-rose-500 text-rose-300' 
-                                                    : user.active_title?.includes('PRO') 
-                                                        ? 'bg-amber-900/30 border-amber-500 text-amber-300'
-                                                        : 'bg-slate-700 border-slate-600 text-slate-300'
-                                                }`}>
-                                                {user.active_title || "社区成员"}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <div className="flex items-center justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                                users.map(user => {
+                                    const gameInfo = getDisplayName(user);
+                                    return (
+                                        <tr key={user.username} className="hover:bg-slate-700/30 transition-colors group">
+                                            {/* 🔥 [修复] 同时显示用户名和游戏昵称 */}
+                                            <td className="p-4 align-top">
+                                                <div className="font-bold text-white flex items-center gap-2 text-base">
+                                                    {user.username}
+                                                    {user.role === 'admin' && <Shield size={14} className="text-rose-500"/>}
+                                                </div>
                                                 
-                                                {/* 🔥 按钮1：管理头衔 (打开弹窗) */}
-                                                <button 
-                                                    onClick={() => openTitleEditor(user)} 
-                                                    className="p-1.5 bg-slate-800 hover:bg-indigo-900/50 text-slate-400 hover:text-indigo-400 border border-slate-600 hover:border-indigo-500/50 rounded-lg transition-all" 
-                                                    title="管理头衔列表"
-                                                >
-                                                    <Tag size={16} />
-                                                </button>
-
-                                                {/* 按钮2：设为管理员 */}
-                                                {user.role !== 'admin' && user.role !== 'root' && (
+                                                <div className="mt-1 flex flex-col gap-0.5">
+                                                    {gameInfo ? (
+                                                        <span className="text-sm text-indigo-300 font-medium flex items-center gap-1">
+                                                            {gameInfo}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-500 italic flex items-center gap-1">
+                                                            <AlertCircle size={10}/> 未同步游戏信息
+                                                        </span>
+                                                    )}
+                                                    
+                                                    {user.email && <div className="text-[10px] text-slate-600">{user.email}</div>}
+                                                </div>
+                                            </td>
+                                            
+                                            <td className="p-4 align-middle">
+                                                <div className="flex flex-col gap-2 items-start">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase
+                                                        ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : 
+                                                          user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 
+                                                          'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                                                        {user.role}
+                                                    </span>
+                                                    
+                                                    {/* 显示头衔 */}
+                                                    {user.active_title && (
+                                                        <span className="px-2 py-0.5 rounded text-[10px] border border-slate-600 bg-slate-700/50 text-slate-300">
+                                                            {user.active_title}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            
+                                            <td className="p-4 text-right align-middle">
+                                                <div className="flex items-center justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                    
+                                                    {/* 按钮1：管理头衔 (打开弹窗) */}
                                                     <button 
-                                                        onClick={() => handleAction(user.username, 'set_role', 'admin', '设为管理员')}
-                                                        className="p-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 border border-slate-600 hover:border-rose-500/50 rounded-lg transition-all"
-                                                        title="设为管理员权限"
+                                                        onClick={() => openTitleEditor(user)} 
+                                                        className="p-1.5 bg-slate-800 hover:bg-indigo-900/50 text-slate-400 hover:text-indigo-400 border border-slate-600 hover:border-indigo-500/50 rounded-lg transition-all" 
+                                                        title="管理头衔列表"
                                                     >
-                                                        <Shield size={16} />
+                                                        <Tag size={16} />
                                                     </button>
-                                                )}
-                                                
-                                                {/* 按钮3：设为 PRO */}
-                                                <button 
-                                                    onClick={() => handleAction(user.username, 'set_role', 'pro', '设为 PRO 会员')}
-                                                    className="p-1.5 bg-slate-800 hover:bg-amber-900/50 text-slate-400 hover:text-amber-400 border border-slate-600 hover:border-amber-500/50 rounded-lg transition-all"
-                                                    title="设为 PRO 身份"
-                                                >
-                                                    <Crown size={16} />
-                                                </button>
 
-                                                {/* 按钮4：降级/重置 */}
-                                                <button 
-                                                    onClick={() => handleAction(user.username, 'set_role', 'user', '降级为普通用户')}
-                                                    className="p-1.5 bg-slate-800 hover:bg-red-900/50 text-slate-400 hover:text-red-400 border border-slate-600 hover:border-red-500/50 rounded-lg transition-all"
-                                                    title="重置为普通用户"
-                                                >
-                                                    <XCircle size={16} />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                                    {/* 按钮2：设为管理员 */}
+                                                    {user.role !== 'admin' && user.role !== 'root' && (
+                                                        <button 
+                                                            onClick={() => handleAction(user.username, 'set_role', 'admin', '设为管理员')}
+                                                            className="p-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 border border-slate-600 hover:border-rose-500/50 rounded-lg transition-all"
+                                                            title="设为管理员权限"
+                                                        >
+                                                            <Shield size={16} />
+                                                        </button>
+                                                    )}
+                                                    
+                                                    {/* 按钮3：设为 PRO */}
+                                                    <button 
+                                                        onClick={() => handleAction(user.username, 'set_role', 'pro', '设为 PRO 会员')}
+                                                        className="p-1.5 bg-slate-800 hover:bg-amber-900/50 text-slate-400 hover:text-amber-400 border border-slate-600 hover:border-amber-500/50 rounded-lg transition-all"
+                                                        title="设为 PRO 身份"
+                                                    >
+                                                        <Crown size={16} />
+                                                    </button>
+
+                                                    {/* 按钮4：降级/重置 */}
+                                                    <button 
+                                                        onClick={() => handleAction(user.username, 'set_role', 'user', '降级为普通用户')}
+                                                        className="p-1.5 bg-slate-800 hover:bg-red-900/50 text-slate-400 hover:text-red-400 border border-slate-600 hover:border-red-500/50 rounded-lg transition-all"
+                                                        title="重置为普通用户"
+                                                    >
+                                                        <XCircle size={16} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {/* 🔥🔥🔥 头衔编辑器模态窗 🔥🔥🔥 */}
+            {/* 头衔编辑器模态窗 */}
             {editingUser && (
                 <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-slate-900 border border-slate-600 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
