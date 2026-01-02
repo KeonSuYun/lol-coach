@@ -1,4 +1,4 @@
-# keonsuyun/lol-coach/lol-coach-d0f75bde0672be53f3ae70724a64a8292b64aea6/backend/core/database.py
+# backend/core/database.py
 
 import os
 import datetime
@@ -40,6 +40,11 @@ class KnowledgeBase:
             self.otps_col = self.db['otps']
             self.orders_col = self.db['orders']
 
+            # === 社区模块集合 (Wiki & Tavern) ===
+            self.wiki_posts = self.db['wiki_posts']          # 绝活攻略
+            self.tavern_posts = self.db['tavern_posts']      # 酒馆动态
+            self.wiki_summaries = self.db['wiki_summaries']  # 英雄Wiki摘要(机制/对位表)
+            self.comments_col = self.db['comments']
             # === 索引初始化 ===
             self._init_indexes()
 
@@ -73,9 +78,69 @@ class KnowledgeBase:
             self.users_col.create_index("ip")
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
             self.orders_col.create_index("order_no", unique=True)
+
+            # === 社区模块索引 ===
+            try:
+                self.wiki_posts.create_index([("hero_id", 1), ("category", 1)])
+                self.tavern_posts.create_index([("topic", 1), ("created_at", -1)])
+                self.comments_col.create_index([("post_id", 1), ("created_at", 1)]) # 🔥 [新增] 按帖子ID查评论
+            except Exception as e:
+                print(f"⚠️ [Community] 索引创建警告: {e}")
+
             print("✅ [Database] 索引检查完毕")
         except Exception as e:
             print(f"⚠️ [Database] 索引创建警告: {e}")
+
+# [新增] 获取单个攻略 (用于权限检查/编辑)
+    def get_wiki_post(self, post_id):
+        try:
+            post = self.wiki_posts.find_one({"_id": ObjectId(post_id)})
+            if post:
+                post["id"] = str(post["_id"])
+                del post["_id"]
+            return post
+        except:
+            return None
+
+    # [新增] 获取单个酒馆动态
+    def get_tavern_post(self, post_id):
+        try:
+            post = self.tavern_posts.find_one({"_id": ObjectId(post_id)})
+            if post:
+                post["id"] = str(post["_id"])
+                del post["_id"]
+            return post
+        except:
+            return None
+
+    # [新增] 更新攻略
+    def update_wiki_post(self, post_id, updates):
+        try:
+            # 移除不可更新的字段
+            for field in ["_id", "author_id", "created_at", "ref_id"]:
+                updates.pop(field, None)
+            
+            result = self.wiki_posts.update_one(
+                {"_id": ObjectId(post_id)},
+                {"$set": updates}
+            )
+            return result.modified_count > 0
+        except:
+            return False
+
+    # [新增] 更新酒馆动态
+    def update_tavern_post(self, post_id, updates):
+        try:
+            for field in ["_id", "author_id", "created_at"]:
+                updates.pop(field, None)
+                
+            result = self.tavern_posts.update_one(
+                {"_id": ObjectId(post_id)},
+                {"$set": updates}
+            )
+            return result.modified_count > 0
+        except:
+            return False
 
     # ==========================
     # 🔍 核心查询 (保留你原有的英雄名称模糊匹配逻辑)
@@ -464,3 +529,95 @@ class KnowledgeBase:
             self.users_col.delete_one({"username": username})
             return True, "用户已删除"
         return False, "未知操作"
+
+    # ==========================
+    # 📘 绝活社区 (Wiki & Tavern)
+    # ==========================
+
+    def get_wiki_posts(self, hero_id=None, category=None, limit=20):
+        """获取攻略列表"""
+        query = {}
+        if hero_id: query["hero_id"] = str(hero_id)
+        if category and category != "all": query["category"] = category
+        
+        # 按热度(点赞)和时间综合排序
+        posts = list(self.wiki_posts.find(query).sort([("is_ai_pick", -1), ("likes", -1)]).limit(limit))
+        
+        # 格式化 _id 为 id
+        for p in posts:
+            p["id"] = str(p["_id"])
+            del p["_id"]
+        return posts
+
+    def create_wiki_post(self, data):
+        """发布新攻略"""
+        data["created_at"] = datetime.datetime.utcnow()
+        data["likes"] = 0
+        data["views"] = 0
+        data["is_ai_pick"] = False # 默认为非 AI 推荐
+        # 生成唯一引用ID (RefID)
+        data["ref_id"] = f"#U-{int(time.time()) % 10000:04d}"
+        
+        res = self.wiki_posts.insert_one(data)
+        data["id"] = str(res.inserted_id)
+        del data["_id"]
+        return data
+
+    def get_tavern_posts(self, topic=None, limit=50):
+        """获取酒馆动态"""
+        query = {}
+        if topic and topic != "all": query["topic"] = topic
+        
+        posts = list(self.tavern_posts.find(query).sort("created_at", -1).limit(limit))
+        for p in posts:
+            p["id"] = str(p["_id"])
+            del p["_id"]
+        return posts
+
+    def create_tavern_post(self, data):
+        """发布酒馆动态"""
+        data["created_at"] = datetime.datetime.utcnow()
+        data["likes"] = 0
+        data["comments"] = 0
+        
+        res = self.tavern_posts.insert_one(data)
+        data["id"] = str(res.inserted_id)
+        del data["_id"]
+        return data
+
+    def get_wiki_summary(self, hero_id):
+        """获取英雄总览数据 (Overview, Mechanics)"""
+        # 优先查库，如果库里没有，返回 None (前端会显示默认或空状态)
+        summary = self.wiki_summaries.find_one({"hero_id": str(hero_id)})
+        if summary:
+            summary["id"] = str(summary["_id"])
+            del summary["_id"]
+        return summary
+    def add_comment(self, post_id, user_id, user_name, content):
+        comment = {
+            "post_id": str(post_id),
+            "user_id": str(user_id),
+            "user_name": user_name,
+            "content": content,
+            "likes": 0,
+            "created_at": datetime.datetime.utcnow()
+        }
+        res = self.comments_col.insert_one(comment)
+        
+        # 尝试增加对应帖子的评论数 (同时尝试 Wiki 和 Tavern，简单的做法)
+        self.wiki_posts.update_one({"_id": ObjectId(post_id)}, {"$inc": {"comments": 1}})
+        self.tavern_posts.update_one({"_id": ObjectId(post_id)}, {"$inc": {"comments": 1}})
+        
+        comment["id"] = str(res.inserted_id)
+        if "_id" in comment: del comment["_id"]
+        return comment
+
+    # [新增] 获取评论列表
+    def get_comments(self, post_id):
+        comments = list(self.comments_col.find({"post_id": str(post_id)}).sort("created_at", 1))
+        for c in comments:
+            c["id"] = str(c["_id"])
+            del c["_id"]
+            if c.get("created_at"):
+                c["created_at"] = c["created_at"].strftime("%Y-%m-%d %H:%M")
+        return comments

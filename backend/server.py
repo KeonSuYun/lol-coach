@@ -172,7 +172,11 @@ async def lifespan(app: FastAPI):
 # 🔒 生产环境关闭 Swagger UI，并注册 lifespan
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan) 
 db = KnowledgeBase()
-
+assets_path = current_dir / "assets"
+# 确保文件夹存在，防止报错
+if not assets_path.exists():
+    os.makedirs(assets_path, exist_ok=True)
+app.mount("/champion-icons", StaticFiles(directory=assets_path), name="champion-icons")
 # 密码哈希工具
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # OAuth2 方案
@@ -222,6 +226,20 @@ app.add_middleware(
 )
 
 # ================= 模型定义 =================
+
+class WikiPostCreate(BaseModel):
+    title: str
+    content: str
+    category: str
+    heroId: str
+    opponentId: Optional[str] = None
+    tags: List[str] = []
+
+class TavernPostCreate(BaseModel):
+    content: str
+    topic: str
+    heroId: str # 发帖人当前选择的英雄头像
+    image: Optional[str] = None
 
 class UserCreate(BaseModel):
     username: str
@@ -300,6 +318,21 @@ class UserProfileSync(BaseModel):
     mastery: List[int] = []
     matches: List[dict] = []
 
+class CommentCreate(BaseModel):
+    postId: str
+    content: str
+
+class WikiPostUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class TavernPostUpdate(BaseModel):
+    content: Optional[str] = None
+    topic: Optional[str] = None
+    image: Optional[str] = None
+
 # ================= 🔐 核心权限逻辑 =================
 
 def verify_password(plain_password, hashed_password):
@@ -333,6 +366,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise credentials_exception
     return user
+
+def get_author_name(user):
+    gn = user.get("game_name")
+    # 如果有游戏名且不为 Unknown，优先使用游戏名
+    if gn and gn != "Unknown": return gn
+    # 否则使用注册时的用户名
+    return user["username"]
 
 # ================= 🧠 智能分路与算法 =================
 
@@ -540,6 +580,14 @@ async def redeem_invite(
         "new_expire": new_expire_user.isoformat()
     }
 
+# 🔥 [修改 2] 直接读取本地 champions.json，复用主控台的数据源
+@app.get("/champions")
+def get_local_champions():
+    path = current_dir / "secure_data" / "champions.json"
+    if not path.exists():
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 # ================= 🚀 API 接口 =================
 
@@ -645,18 +693,28 @@ async def polish_tip_content(tip_id: str, content: str):
 @app.post("/tips")
 async def add_tip_endpoint(data: TipInput, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     """发布攻略并触发 AI 装修"""
-    # 🔥 [新增] 获取用户当前的头衔
+    # 1. 获取用户当前的头衔 (保留原逻辑)
     user_doc = db.users_col.find_one({"username": current_user['username']})
     user_title = user_doc.get("active_title", "社区成员")
+    
+    # 🔥 2. [新增] 获取显示名称 (游戏ID)
+    display_name = get_author_name(current_user)
 
-    # 存入帖子
+    # 3. 存入帖子
     res = db.add_tip(data.hero, data.enemy, data.content, current_user['username'], data.is_general)
     
-    # 🔥 [补救] 立即更新帖子，写入 author_title (确保不改动 database.py 也能生效)
+    # 4. 立即更新帖子
     if hasattr(res, 'inserted_id'):
-        db.tips_col.update_one({"_id": res.inserted_id}, {"$set": {"author_title": user_title}})
+        # 🔥 [修改] 同时写入 author_title 和 author_display_name
+        db.tips_col.update_one(
+            {"_id": res.inserted_id}, 
+            {"$set": {
+                "author_title": user_title,
+                "author_display_name": display_name 
+            }}
+        )
     
-    # 开启后台任务，不阻塞用户响应
+    # 5. 开启后台任务 (保留原逻辑)
     background_tasks.add_task(polish_tip_content, str(res.inserted_id), data.content)
     
     return {"status": "success", "msg": "发布成功，AI 正在为您优化排版..."}
@@ -1067,6 +1125,154 @@ def set_active_title(data: UserSetTitle, current_user: dict = Depends(get_curren
     )
     return {"status": "success", "msg": "佩戴成功"}
 
+# ==========================
+# 📘 绝活社区 API
+# ==========================
+
+@app.get("/community/posts")
+def get_community_posts(heroId: str = None, category: str = None):
+    # 转换字段以匹配前端驼峰命名
+    raw_posts = db.get_wiki_posts(hero_id=heroId, category=category)
+    return [
+        {
+            "id": p["id"],
+            "refId": p.get("ref_id"),
+            "title": p.get("title"),
+            "author": p.get("author_name", "匿名"),
+            "likes": p.get("likes", 0),
+            "views": p.get("views", 0),
+            "category": p.get("category"),
+            "heroId": p.get("hero_id"),
+            "opponentId": p.get("opponent_id"),
+            "isAiPick": p.get("is_ai_pick", False),
+            "date": p.get("created_at").strftime("%Y-%m-%d") if p.get("created_at") else "刚刚",
+            "content": p.get("content"),
+            "tags": p.get("tags", [])
+        }
+        for p in raw_posts
+    ]
+
+@app.post("/community/posts")
+def publish_community_post(data: WikiPostCreate, current_user: dict = Depends(get_current_user)):
+    # 🔥 [新增] 获取显示名称
+    display_name = get_author_name(current_user)
+
+    post_data = {
+        "title": data.title,
+        "content": data.content,
+        "category": data.category,
+        "hero_id": data.heroId,
+        "opponent_id": data.opponentId,
+        "tags": data.tags,
+        "author_id": str(current_user["_id"]),
+        "author_name": display_name # 🔥 使用游戏ID
+    }
+    new_post = db.create_wiki_post(post_data)
+    
+    # 返回前端需要的格式 (保留您原来的完整格式)
+    return {
+        "id": new_post["id"],
+        "refId": new_post["ref_id"],
+        "title": new_post["title"],
+        "author": new_post["author_name"],
+        "likes": 0,
+        "views": 0,
+        "date": "刚刚",
+        "content": new_post["content"],
+        "tags": new_post["tags"],
+        "isAiPick": False
+    }
+
+@app.get("/community/tavern")
+def get_tavern_posts(topic: str = None):
+    raw_posts = db.get_tavern_posts(topic=topic)
+    return [
+        {
+            "id": p["id"],
+            "author": p.get("author_name", "酒馆路人"),
+            "avatar": p.get("avatar_hero", "Teemo"), # 默认提莫头像
+            "heroId": p.get("hero_id"),
+            "content": p.get("content"),
+            "tags": [],
+            "likes": p.get("likes", 0),
+            "comments": p.get("comments", 0),
+            "time": p.get("created_at").strftime("%H:%M") if p.get("created_at") else "刚刚",
+            "topic": p.get("topic"),
+            "image": p.get("image")
+        }
+        for p in raw_posts
+    ]
+
+@app.post("/community/tavern")
+def publish_tavern_post(data: TavernPostCreate, current_user: dict = Depends(get_current_user)):
+    # 获取英雄别名作为头像 (保留原逻辑)
+    hero_info = db.get_champion_info(data.heroId)
+    avatar_alias = hero_info.get("alias", "Teemo") if hero_info else "Teemo"
+
+    # 🔥 [新增] 获取显示名称
+    display_name = get_author_name(current_user)
+
+    post_data = {
+        "content": data.content,
+        "topic": data.topic,
+        "hero_id": data.heroId,
+        "avatar_hero": avatar_alias,
+        "image": data.image,
+        "author_id": str(current_user["_id"]),
+        "author_name": display_name # 🔥 使用游戏ID
+    }
+    new_post = db.create_tavern_post(post_data)
+    
+    # (保留您原来的完整格式)
+    return {
+        "id": new_post["id"],
+        "author": new_post["author_name"],
+        "avatar": new_post["avatar_hero"],
+        "content": new_post["content"],
+        "likes": 0,
+        "comments": 0,
+        "time": "刚刚",
+        "tags": []
+    }
+
+@app.get("/community/wiki/{hero_id}")
+def get_wiki_summary_endpoint(hero_id: str):
+    summary = db.get_wiki_summary(hero_id)
+    if not summary:
+        # 如果数据库没有，返回一个默认空结构，防止前端报错
+        return {
+            "overview": "暂无该英雄的详细百科数据，快来贡献第一篇攻略吧！",
+            "keyMechanics": [],
+            "commonMatchups": [],
+            "buildPath": "暂无推荐"
+        }
+    return {
+        "overview": summary.get("overview"),
+        "keyMechanics": summary.get("key_mechanics", []),
+        "commonMatchups": summary.get("common_matchups", []),
+        "buildPath": summary.get("build_path", "")
+    }
+
+@app.get("/community/comments/{post_id}")
+def get_post_comments(post_id: str):
+    return db.get_comments(post_id)
+
+@app.post("/community/comments")
+def add_post_comment(data: CommentCreate, current_user: dict = Depends(get_current_user)):
+    # 保留您的非空检查
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="内容不能为空")
+    
+    # 🔥 [新增] 获取显示名称
+    display_name = get_author_name(current_user)
+
+    new_comment = db.add_comment(
+        data.postId, 
+        current_user["_id"], 
+        display_name, # 🔥 使用游戏ID
+        data.content
+    )
+    return new_comment
 # --- 4. AI 分析 (集成推荐算法) ---
 
 @app.post("/analyze")
@@ -1567,15 +1773,6 @@ class ConnectionManager:
         self.active_connections.append(websocket)
         print("🔗 [WS] 前端已连接")
         
-        # 当有第一个客户端连接时，启动 CV 引擎
-        if not self.tracker and JungleTracker:
-            print("👁️ [CV] 正在启动打野追踪引擎...")
-            try:
-                self.tracker = JungleTracker(self.broadcast_sync)
-                self.tracker.start()
-            except Exception as e:
-                print(f"❌ CV 引擎启动失败: {e}")
-
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
@@ -1755,6 +1952,114 @@ async def hot_update_config(
         raise HTTPException(status_code=500, detail=f"数据同步失败: {str(e)}")
 
     return {"status": "success", "msg": f"成功！{target_filename} 已更新并生效，无需重启。"}
+
+# --- Wiki 攻略管理 ---
+
+@app.delete("/community/posts/{post_id}")
+def delete_community_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    post = db.get_wiki_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+    
+    # 权限检查：管理员 或 作者本人
+    is_admin = current_user.get("role") in ["admin", "root"]
+    is_author = str(post.get("author_id")) == str(current_user["_id"])
+    
+    if not (is_admin or is_author):
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    if db.delete_wiki_post(post_id):
+        return {"status": "success", "msg": "攻略已删除"}
+    raise HTTPException(status_code=500, detail="删除失败")
+
+@app.put("/community/posts/{post_id}")
+def update_community_post(post_id: str, data: WikiPostUpdate, current_user: dict = Depends(get_current_user)):
+    post = db.get_wiki_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+        
+    # 🔥 [修改] 权限放开：作者本人 OR 管理员
+    is_author = str(post.get("author_id")) == str(current_user["_id"])
+    is_admin = current_user.get("role") in ["admin", "root"]
+    
+    if not (is_author or is_admin):
+        raise HTTPException(status_code=403, detail="权限不足")
+        
+    updates = {k: v for k, v in data.dict().items() if v is not None}
+    if db.update_wiki_post(post_id, updates):
+        return {"status": "success", "msg": "攻略已更新"}
+    raise HTTPException(status_code=500, detail="更新失败")
+
+@app.put("/community/tavern/{post_id}")
+def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict = Depends(get_current_user)):
+    post = db.get_tavern_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+        
+    # 🔥 [修改] 权限逻辑：作者本人 OR 管理员
+    is_author = str(post.get("author_id")) == str(current_user["_id"])
+    is_admin = current_user.get("role") in ["admin", "root"]
+
+    if not (is_author or is_admin):
+        raise HTTPException(status_code=403, detail="权限不足，只能编辑自己的动态")
+        
+    updates = {k: v for k, v in data.dict().items() if v is not None}
+    if db.update_tavern_post(post_id, updates):
+        return {"status": "success", "msg": "动态已更新"}
+    raise HTTPException(status_code=500, detail="更新失败")
+# --- 酒馆动态管理 ---
+
+@app.delete("/community/tavern/{post_id}")
+def delete_tavern_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    post = db.get_tavern_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+        
+    is_admin = current_user.get("role") in ["admin", "root"]
+    is_author = str(post.get("author_id")) == str(current_user["_id"])
+    
+    if not (is_admin or is_author):
+        raise HTTPException(status_code=403, detail="权限不足")
+        
+    if db.delete_tavern_post(post_id):
+        return {"status": "success", "msg": "动态已删除"}
+    raise HTTPException(status_code=500, detail="删除失败")
+
+@app.put("/community/posts/{post_id}")
+def update_community_post(post_id: str, data: WikiPostUpdate, current_user: dict = Depends(get_current_user)):
+    post = db.get_wiki_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+    
+    # 🔥 [修改] 权限逻辑
+    is_author = str(post.get("author_id")) == str(current_user["_id"])
+    is_admin = current_user.get("role") in ["admin", "root"]
+
+    if not (is_author or is_admin):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    updates = {k: v for k, v in data.dict().items() if v is not None}
+    if db.update_wiki_post(post_id, updates):
+        return {"status": "success", "msg": "攻略已更新"}
+    raise HTTPException(status_code=500, detail="更新失败")
+
+@app.put("/community/tavern/{post_id}")
+def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict = Depends(get_current_user)):
+    post = db.get_tavern_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+        
+    # 🔥 [修改] 权限逻辑：作者本人 OR 管理员
+    is_author = str(post.get("author_id")) == str(current_user["_id"])
+    is_admin = current_user.get("role") in ["admin", "root"]
+
+    if not (is_author or is_admin):
+        raise HTTPException(status_code=403, detail="权限不足，只能编辑自己的动态")
+        
+    updates = {k: v for k, v in data.dict().items() if v is not None}
+    if db.update_tavern_post(post_id, updates):
+        return {"status": "success", "msg": "动态已更新"}
+    raise HTTPException(status_code=500, detail="更新失败")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

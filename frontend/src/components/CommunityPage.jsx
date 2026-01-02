@@ -1,326 +1,406 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, ChevronLeft, BookOpen, Beer, Flame, ThumbsUp, Share2, PenTool, Clock, Grid3X3, FileText, User, Swords, Info } from 'lucide-react';
+import { Search, BookOpen, Layers, Beer, TrendingUp, Zap, Clock, ThumbsUp, X, Edit3, ChevronLeft, Edit } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { API_BASE_URL } from '../config/constants';
-import TipModal from './modals/TipModal'; 
-import ChampSelectModal from './modals/ChampSelectModal'; 
 
-const THEME = {
-    textMain: "text-[#C8AA6E]", 
-    accent: "text-[#0AC8B9]",
-    borderAccent: "border-[#C8AA6E]",
-    bgGradient: "bg-gradient-to-b from-[#091428] via-[#0A1428] to-[#050810]",
-    btnActive: "bg-[#C8AA6E]/10 text-[#C8AA6E] border-[#C8AA6E] shadow-[0_0_10px_rgba(200,170,110,0.2)]",
-    btnInactive: "bg-[#091428]/60 text-slate-500 border-white/5 hover:text-slate-300 hover:bg-[#091428]"
-};
+// 1. SDK 路径 (指向 api 目录)
+import { CommunitySDK } from './community/api/CommunitySDK';
 
-// 预定义分类
-const WIKI_CATEGORIES = ["全部", "上单对位", "打野联动", "团战处理", "出装流派"];
-const TAVERN_CATEGORIES = ["全部", "高光", "讨论", "求助", "吐槽"];
+// 2. 子组件路径 (指向 components 子目录)
+import GlassCard from './community/components/GlassCard.jsx';
+import PostDetailModal from './community/components/PostDetailModal.jsx';
+import PublishModal from './community/components/PublishModal.jsx';
+import WikiSection from './community/components/WikiSection.jsx';
+import TavernSection from './community/components/TavernSection.jsx';
+import MiniMasteryWidget from './community/components/MiniMasteryWidget.jsx';
 
-// 模拟长文数据 (Mock)
-const MOCK_ARTICLES = [
-    { id: 101, title: "S15 赛季上单生态报告", summary: "深度解析新版本地图改动对上路生态的影响...", author: "Bin导", rank: "王者", views: "10w+", likes: 5600, date: "2024-03-15", cover: "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Camille_1.jpg" },
-    { id: 102, title: "对抗诺手的100个细节", summary: "如何规避外圈刮？什么血量可以斩杀？", author: "上单老祖", rank: "宗师", views: "4.5w", likes: 2300, date: "2024-02-20", cover: "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Darius_2.jpg" }
-];
+// 3. 复用组件导入
+import ChampSelectModal from './modals/ChampSelectModal.jsx';
+import ConsoleHeaderUser from './ConsoleHeaderUser.jsx';
 
-export default function CommunityPage({ onBack, championList = [], currentUser, token }) {
-    const [currentHeroId, setCurrentHeroId] = useState("Camille");
-    const [activeTab, setActiveTab] = useState("wiki");
-    const [activeCategory, setActiveCategory] = useState("全部");
-    const [sortBy, setSortBy] = useState("new");
+export default function CommunityPage({ onBack, championList: propChampList, currentUser, token, accountInfo, userRank }) {
+    const [currentHeroId, setCurrentHeroId] = useState("1"); // 默认为 "1" (安妮)
+    const [opponentHeroId, setOpponentHeroId] = useState(null);
+    const [viewMode, setViewMode] = useState('wiki'); 
+    const [selectedPost, setSelectedPost] = useState(null);
+    const [championList, setChampionList] = useState([]);
     
-    const [tips, setTips] = useState([]);
-    const [loading, setLoading] = useState(false);
-
-    const [showChampSelector, setShowChampSelector] = useState(false);
-    // 新增 roleMapping 状态，用于支持高级选择器的分类功能
-    const [roleMapping, setRoleMapping] = useState({});
+    // UI States
+    const [isSelectorOpen, setIsSelectorOpen] = useState(false); // 控制复用弹窗
+    const [showPublishModal, setShowPublishModal] = useState(false);
     
-    const [showPostModal, setShowPostModal] = useState(false);
-    const [postContent, setPostContent] = useState("");
-    const [postTarget, setPostTarget] = useState(""); 
+    // 🔥 [新增] 编辑状态
+    const [editingPost, setEditingPost] = useState(null);
+    
+    // Data States
+    const [posts, setPosts] = useState([]);
+    const [tavernPosts, setTavernPosts] = useState([]);
+    const [wikiSummary, setWikiSummary] = useState(null); // 使用 State 管理异步数据
 
-    // 注意：useGameCore 中 key 是英文名(如Camille)，id 是数字字符串
-    // 这里做个兼容查找，优先匹配 key (英文ID)
-    const currentHeroInfo = championList.find(c => c.key === currentHeroId || c.id === currentHeroId) || { name: currentHeroId, title: "英雄" };
+    // 🔥 权限判断
+    const isAdmin = accountInfo?.role === 'admin' || accountInfo?.role === 'root';
 
-    const fetchTips = async () => {
-        setLoading(true);
-        try {
-            // 请求 ALL_MATCHUPS 以获取所有类型数据
-            const res = await axios.get(`${API_BASE_URL}/tips`, { 
-                params: { hero: currentHeroInfo.name, enemy: "ALL_MATCHUPS" } 
-            });
-            setTips(res.data);
-        } catch (e) {
-            setTips([]); 
-        } finally {
-            setLoading(false);
-        }
+    // 辅助：数据清洗函数 (适配 ChampSelectModal)
+    const adaptChampionData = (rawList) => {
+        if (!Array.isArray(rawList)) return [];
+        return rawList.map(h => ({
+            ...h,
+            // 核心适配：ChampSelectModal 期望 key 为英文名(用于搜索)，id 为数字ID
+            key: h.alias,  // e.g. "Annie"
+            id: h.heroId,  // e.g. "1"
+            name: h.name,  // e.g. "安妮"
+            title: h.title,// e.g. "黑暗之女"
+            image_url: `https://game.gtimg.cn/images/lol/act/img/champion/${h.alias}.png`,
+            roles: h.roles || [] // 确保有 roles 数组
+        }));
     };
-
-    // 初始化时获取英雄定位数据
-    useEffect(() => {
-        axios.get(`${API_BASE_URL}/champions/roles`)
-            .then(res => setRoleMapping(res.data))
-            .catch(e => console.error("Failed to load roles", e));
-    }, []);
 
     useEffect(() => {
-        fetchTips();
-        setActiveCategory("全部");
-    }, [currentHeroId]);
-
-    const handlePostSubmit = async (finalTarget, selectedCategory) => {
-        if (!currentUser) return toast.error("请先登录");
-        if (!postContent.trim()) return toast.error("内容不能为空");
-
-        try {
-            // 优化发布逻辑：如果目标是"通用"或者在酒馆板块，则标记为 is_general
-            const isGeneralPost = activeTab === 'tavern' || !finalTarget || finalTarget === "通用";
-
-            await axios.post(`${API_BASE_URL}/tips`, {
-                hero: currentHeroInfo.name,
-                enemy: finalTarget,
-                content: postContent,
-                is_general: isGeneralPost
-            }, { headers: { Authorization: `Bearer ${token}` } });
-            
-            toast.success("发布成功！");
-            setShowPostModal(false);
-            setPostContent("");
-            await fetchTips();
-            setSortBy("new");
-            setActiveCategory("全部");
-        } catch (e) { 
-            toast.error("发布失败"); 
-        }
-    };
-
-    const handleLike = async (tipId) => {
-        if (!currentUser) return toast.error("请先登录");
-        try {
-            await axios.post(`${API_BASE_URL}/like`, { tip_id: tipId }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setTips(prev => prev.map(t => t.id === tipId ? { ...t, like_count: (t.like_count || 0) + 1, has_liked: true } : t));
-            toast.success("点赞成功");
-        } catch (e) { 
-            toast.error("操作失败"); 
-        }
-    };
-
-    const displayItems = useMemo(() => {
-        let items = [...tips];
-
-        if (activeTab === 'wiki') {
-            // 绝活兵法板块
-            if (activeCategory === "全部") {
-                // 🔥 修改点：在“全部”分类下，保留通用和对位所有内容
-            } else if (activeCategory === "上单对位") {
-                const keywords = ["打野联动", "团战处理", "出装流派", "通用"];
-                items = items.filter(t => t.enemy && !keywords.includes(t.enemy) && !t.is_general);
-            } else {
-                items = items.filter(t => t.enemy === activeCategory);
+        // 1. 加载英雄列表 (优先使用 props 传入的列表，如果没有则自行获取)
+        const fetchChampions = async () => {
+            if (propChampList && propChampList.length > 0) {
+                setChampionList(adaptChampionData(propChampList));
+                return;
             }
-        } else if (activeTab === 'tavern') {
-            items = items.filter(t => t.is_general);
-            if (activeCategory !== "全部") {
-                items = items.filter(t => t.enemy === activeCategory);
+
+            try {
+                // 优先读缓存
+                const stored = localStorage.getItem('champions_data_v2'); 
+                if (stored) {
+                    setChampionList(JSON.parse(stored));
+                    return;
+                }
+
+                const res = await axios.get('https://game.gtimg.cn/images/lol/act/img/js/heroList/hero_list.js');
+                if (res.data && res.data.hero) {
+                    // 数据转换：适配通用组件格式
+                    const adaptedList = adaptChampionData(res.data.hero);
+                    setChampionList(adaptedList);
+                    localStorage.setItem('champions_data_v2', JSON.stringify(adaptedList));
+                }
+            } catch (err) { console.error(err); }
+        };
+        fetchChampions();
+
+        // 2. 异步加载社区数据 (使用 Promise.all 并行请求)
+        const fetchCommunityData = async () => {
+            setWikiSummary(null); // 切换英雄时先清空，防止显示旧数据
+            
+            try {
+                const [guidesData, tavernData, wikiData] = await Promise.all([
+                    CommunitySDK.getHeroGuides(currentHeroId),
+                    CommunitySDK.getTavernPosts(currentHeroId),
+                    CommunitySDK.getHeroWikiSummary(currentHeroId)
+                ]);
+
+                setPosts(guidesData || []);
+                setTavernPosts(tavernData || []);
+                // 确保 wikiData 不是 undefined，防止后续报错
+                setWikiSummary(wikiData || {}); 
+            } catch (error) {
+                console.error("Failed to load community data", error);
+            }
+        };
+
+        if (currentHeroId) {
+            fetchCommunityData();
+        }
+
+    }, [currentHeroId, propChampList]);
+
+    // 查找当前英雄信息 (注意：使用 id 查找，因为做了数据适配)
+    const currentHeroInfo = championList.find(c => c.id === currentHeroId) || { 
+        name: "安妮", 
+        title: "黑暗之女", 
+        alias: "Annie", 
+        key: "Annie", 
+        id: "1", 
+        image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Annie.png" 
+    };
+    
+    const opponentHeroInfo = championList.find(c => c.id === opponentHeroId) || null;
+
+    const handleLinkClick = (refId) => {
+        if (!refId) return;
+        const targetPost = posts.find(p => p.refId === refId);
+        if (targetPost) setSelectedPost(targetPost);
+        else toast.error(`暂未收录该条目: ${refId}`);
+    };
+
+    const handleTavernLike = (postId) => {
+        setTavernPosts(prev => prev.map(p => p.id === postId ? { ...p, liked: !p.liked, likes: p.likes + (p.liked ? -1 : 1) } : p));
+        toast.success("点赞成功");
+    };
+
+    // 🔥 [修改] 发布成功回调：区分是新建还是编辑
+    const handlePublishSuccess = (newItem, type) => {
+        if (editingPost) {
+            toast.success("更新成功！");
+            if (type === 'wiki') {
+                setPosts(prev => prev.map(p => p.id === newItem.id ? newItem : p));
+            } else {
+                setTavernPosts(prev => prev.map(p => p.id === newItem.id ? newItem : p));
             }
         } else {
-            return [];
+            toast.success("发布成功！");
+            if (type === 'wiki') setPosts([newItem, ...posts]);
+            else setTavernPosts([newItem, ...tavernPosts]);
         }
+    };
 
-        return items.sort((a, b) => {
-            if (sortBy === 'hot') return (b.like_count || 0) - (a.like_count || 0);
-            return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-        });
-    }, [tips, activeTab, activeCategory, sortBy]);
+    // 🔥 新增：删除攻略贴
+    const handleDeletePost = async (postId) => {
+        if (!window.confirm("确定要删除这条攻略吗？操作不可逆。")) return;
+        try {
+            await CommunitySDK.deletePost(postId);
+            setPosts(prev => prev.filter(p => p.id !== postId));
+            setSelectedPost(null); // 如果正在查看该帖，关闭详情
+            toast.success("删除成功");
+        } catch (e) {
+            toast.error("删除失败");
+        }
+    };
+
+    // 🔥 新增：删除酒馆动态
+    const handleDeleteTavern = async (postId) => {
+        if (!window.confirm("确定要删除这条动态吗？")) return;
+        try {
+            await CommunitySDK.deleteTavernPost(postId);
+            setTavernPosts(prev => prev.filter(p => p.id !== postId));
+            toast.success("删除成功");
+        } catch (e) {
+            toast.error("删除失败");
+        }
+    };
+
+    // 🔥 [新增] 处理点击编辑
+    const handleEditPost = (post) => {
+        setEditingPost(post);
+        setShowPublishModal(true);
+    };
+
+    // 构造右上角用户数据 (适配 ConsoleHeaderUser)
+    const userData = {
+        username: currentUser || "Guest",
+        tag: accountInfo?.tag || "#HEX",
+        avatarUrl: accountInfo?.game_profile?.profileIconId 
+            ? `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${accountInfo.game_profile.profileIconId}.png`
+            : `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/29.png`,
+        activeTitle: accountInfo?.active_title || "社区成员",
+        rank: accountInfo?.game_profile?.rank || userRank || "Unranked",
+        isPro: accountInfo?.is_pro
+    };
 
     return (
-        <div className={`fixed inset-0 z-50 flex flex-col ${THEME.bgGradient} text-slate-200 overflow-hidden transition-colors duration-700`}>
-            
+        <div className="min-h-screen font-sans text-slate-300 bg-[#010A13] selection:bg-[#C8AA6E]/30 pb-20">
+            {/* Background */}
+            <div className="fixed inset-0 pointer-events-none z-0">
+                <div className="absolute top-0 left-0 w-full h-[600px] bg-gradient-to-b from-[#091428] via-[#010A13]/80 to-[#010A13]" />
+                {currentHeroInfo.alias && (
+                    <img 
+                        src={`https://game.gtimg.cn/images/lol/act/img/skin/big${currentHeroId}000.jpg`} 
+                        className="fixed top-0 left-0 w-full h-[600px] object-cover opacity-20 mask-image-gradient z-[-1]" 
+                        alt=""
+                        onError={(e) => e.target.style.display = 'none'}
+                    />
+                )}
+            </div>
+
             {/* Header */}
-            <div className="relative z-20 px-4 py-4 flex items-center justify-between bg-[#091428]/90 backdrop-blur-md border-b border-white/5">
-                <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full transition-colors flex items-center gap-2 text-slate-400 hover:text-white">
-                    <ChevronLeft size={24} />
-                    <span className="text-sm font-bold hidden md:inline">返回大厅</span>
-                </button>
-                <button onClick={() => setShowChampSelector(true)} className="flex items-center gap-3 group px-4 py-2 rounded-lg hover:bg-white/5 transition-all">
-                    <div className="text-right">
-                        <div className={`text-sm font-black tracking-widest ${THEME.textMain} group-hover:brightness-125 transition-all`}>{currentHeroInfo.name}</div>
-                        <div className="text-[10px] uppercase tracking-widest opacity-50 group-hover:opacity-80">点击切换英雄</div>
+            <header className="sticky top-0 z-40 bg-[#010A13]/80 backdrop-blur-md border-b border-[#C8AA6E]/10">
+                <div className="max-w-[1800px] mx-auto px-6 h-16 flex items-center justify-between">
+                    
+                    {/* Left: Navigation & Hero Selector */}
+                    <div className="flex items-center gap-4">
+                        {/* 返回按钮 */}
+                        <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors">
+                            <ChevronLeft size={20} />
+                        </button>
+
+                        <div className="h-6 w-[1px] bg-white/10 mx-1" />
+
+                        {/* 触发器：点击头像打开选择器 */}
+                        <div onClick={() => setIsSelectorOpen(true)} className="flex items-center gap-3 cursor-pointer group">
+                            <div className="w-10 h-10 rounded-full border border-[#C8AA6E]/50 p-0.5 group-hover:border-[#0AC8B9] transition-colors relative overflow-hidden bg-black">
+                                <img src={currentHeroInfo.image_url || ""} className="w-full h-full rounded-full object-cover transform group-hover:scale-110 transition-transform" alt=""/>
+                            </div>
+                            <div>
+                                <h1 className="text-lg font-bold text-[#F0E6D2] leading-none group-hover:text-[#0AC8B9] transition-colors">{currentHeroInfo.name || "Loading..."}</h1>
+                                <span className="text-[10px] text-[#C8AA6E] tracking-widest uppercase group-hover:text-white transition-colors">点击切换英雄</span>
+                            </div>
+                        </div>
+
+                        <div className="h-6 w-[1px] bg-white/10 mx-2 hidden md:block" />
+                        
+                        <nav className="hidden md:flex gap-1">
+                            {[
+                                { id: 'wiki', label: '英雄总览', icon: BookOpen },
+                                { id: 'feed', label: '攻略动态', icon: Layers },
+                                { id: 'tavern', label: '酒馆闲聊', icon: Beer }, 
+                            ].map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setViewMode(tab.id)}
+                                    className={`flex items-center gap-2 px-4 py-1.5 rounded-sm text-sm font-medium transition-all ${viewMode === tab.id ? 'bg-[#C8AA6E] text-[#091428] shadow-[0_0_15px_rgba(200,170,110,0.3)]' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                                >
+                                    <tab.icon size={14} /> {tab.label}
+                                </button>
+                            ))}
+                        </nav>
                     </div>
-                    <Grid3X3 size={20} className={`${THEME.textMain} opacity-70 group-hover:scale-110 transition-transform`}/>
-                </button>
-                <div className="w-10"></div>
-            </div>
 
-            {/* Banner */}
-            <div className="relative h-48 md:h-64 shrink-0 flex items-center justify-center overflow-hidden group border-b border-[#C8AA6E]/20">
-                <div className="absolute inset-0 z-0 opacity-40 mix-blend-overlay">
-                    <img src={`https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${currentHeroId}_0.jpg`} className="w-full h-full object-cover object-top transform group-hover:scale-105 transition-transform duration-[10s]" onError={(e) => e.target.src = "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Aatrox_0.jpg"} />
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-[#091428] via-[#091428]/50 to-transparent z-10"></div>
-                <div className="relative z-20 text-center transform translate-y-2">
-                    <h1 className={`text-4xl md:text-6xl font-black tracking-tighter italic ${THEME.textMain} drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)]`}>{currentHeroInfo.name.split(' ')[0]}</h1>
-                    <p className="text-xs font-bold tracking-[0.5em] text-slate-400 uppercase mt-2">{currentHeroInfo.title}</p>
-                </div>
-            </div>
+                    {/* Right: Tools & User Profile */}
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                            <button className="p-2 text-slate-400 hover:text-[#C8AA6E] hover:bg-white/5 rounded-full transition-colors">
+                                <Search size={20} />
+                            </button>
+                            <button 
+                                onClick={() => setShowPublishModal(true)}
+                                className="bg-[#0AC8B9]/10 border border-[#0AC8B9]/50 text-[#0AC8B9] px-4 py-1.5 rounded-sm text-xs font-bold uppercase hover:bg-[#0AC8B9]/20 transition-all flex items-center gap-2"
+                            >
+                                <Edit3 size={14} /> 发布 / 贡献
+                            </button>
+                        </div>
 
-            {/* Tabs */}
-            <div className="flex items-center justify-center gap-4 px-4 -mt-6 relative z-30">
-                {[{ id: 'wiki', label: '绝活兵法', icon: <BookOpen size={16}/> }, { id: 'discuss', label: '深度长文', icon: <FileText size={16}/> }, { id: 'tavern', label: '酒馆吹水', icon: <Beer size={16}/> }].map(tab => (
-                    <button key={tab.id} onClick={() => { setActiveTab(tab.id); setActiveCategory("全部"); }} className={`relative px-6 py-3 rounded-lg border flex items-center justify-center gap-2 transition-all duration-300 shadow-lg backdrop-blur-md ${activeTab === tab.id ? `${THEME.btnActive} transform -translate-y-1` : THEME.btnInactive}`}>
-                        <div className={activeTab === tab.id ? THEME.textMain : ''}>{tab.icon}</div>
-                        <span className="text-sm font-bold tracking-wider">{tab.label}</span>
+                        {/* 分隔线 */}
+                        <div className="h-8 w-[1px] bg-white/10 mx-1"></div>
+
+                        {/* 复用：右上角个人信息卡片 */}
+                        <ConsoleHeaderUser 
+                            {...userData}
+                            onClick={() => toast("如需修改资料，请前往个人主页")}
+                        />
+                    </div>
+                </div>
+            </header>
+
+            {/* Mobile Nav (仅在移动端显示 Tab) */}
+            <div className="md:hidden flex justify-between px-6 py-2 border-b border-white/5 bg-[#010A13]/95 backdrop-blur sticky top-16 z-30">
+                {[
+                    { id: 'wiki', label: '总览', icon: BookOpen },
+                    { id: 'feed', label: '攻略', icon: Layers },
+                    { id: 'tavern', label: '酒馆', icon: Beer }, 
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setViewMode(tab.id)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium transition-all ${viewMode === tab.id ? 'text-[#C8AA6E] bg-[#C8AA6E]/10' : 'text-slate-400'}`}
+                    >
+                        <tab.icon size={14} /> {tab.label}
                     </button>
                 ))}
             </div>
 
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8">
+            {/* Content */}
+            <main className="max-w-[1800px] mx-auto px-6 py-8 relative z-10 min-h-[80vh]">
+                {/* 传入 Wiki 数据状态，解决 undefined map 报错 */}
+                {viewMode === 'wiki' && <WikiSection heroInfo={currentHeroInfo} summary={wikiSummary} onLinkClick={handleLinkClick} />}
                 
-                {/* 1. Wiki & Tavern (共享列表逻辑) */}
-                {(activeTab === 'wiki' || activeTab === 'tavern') && (
-                    <div className="max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
-                        {/* Filters */}
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 sticky top-0 z-20 bg-[#091428]/95 backdrop-blur-md p-3 rounded-xl border border-white/5 shadow-xl">
-                            <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-                                {(activeTab === 'wiki' ? WIKI_CATEGORIES : TAVERN_CATEGORIES).map(category => (
-                                    <button key={category} onClick={() => setActiveCategory(category)} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${activeCategory === category ? THEME.btnActive : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10'}`}>{category}</button>
-                                ))}
-                            </div>
-                            <div className="flex items-center gap-3 shrink-0">
-                                <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
-                                    <button onClick={() => setSortBy('hot')} className={`px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition-all ${sortBy === 'hot' ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'}`}><Flame size={12}/> 热度</button>
-                                    <button onClick={() => setSortBy('new')} className={`px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition-all ${sortBy === 'new' ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'}`}><Clock size={12}/> 最新</button>
-                                </div>
-                                <button onClick={() => { setPostTarget(""); setShowPostModal(true); }} className="flex items-center gap-1.5 px-4 py-2 bg-[#0AC8B9] hover:bg-[#08998C] text-[#091428] text-xs font-bold rounded-lg shadow-[0_0_15px_rgba(10,200,185,0.4)] transition-all">
-                                    <PenTool size={14}/> 发布
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* List */}
-                        <div className="space-y-4">
-                            {loading ? <div className="text-center py-10 text-slate-500">加载中...</div> : 
-                             displayItems.length > 0 ? displayItems.map((m) => {
-                                // 判断是否是对线技巧
-                                const isMatchup = m.enemy && !["通用", "全部"].includes(m.enemy) && !m.is_general;
-                                
-                                return (
-                                <div key={m.id} className="bg-[#121b29]/60 border border-white/5 rounded-xl overflow-hidden hover:border-[#C8AA6E]/30 transition-all flex flex-col md:flex-row group">
-                                    <div className="p-4 md:w-40 bg-black/20 border-b md:border-b-0 md:border-r border-white/5 flex flex-row md:flex-col items-center justify-between md:justify-center gap-4 text-center shrink-0">
-                                        <div className="flex items-center gap-2">
-                                            {isMatchup ? (
-                                                <div className="relative group/avatar cursor-help">
-                                                    <div className="w-12 h-12 rounded-lg bg-red-900/20 border border-red-900/50 flex items-center justify-center text-xs font-bold text-red-400 overflow-hidden">{m.enemy[0]}</div>
-                                                    <div className="absolute -bottom-2 -right-2 bg-red-600 text-[8px] px-1 rounded border border-black font-bold text-white shadow-sm">VS</div>
-                                                </div>
-                                            ) : (
-                                                <div className={`w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center border border-white/10 ${activeTab === 'tavern' ? 'text-blue-400' : 'text-[#0AC8B9]'}`}>
-                                                    {activeTab === 'tavern' ? <User size={20}/> : <Info size={20}/>}
-                                                </div>
-                                            )}
+                {/* 🔥 传入权限、删除、编辑处理函数给酒馆 */}
+                {viewMode === 'tavern' && <TavernSection 
+                    heroInfo={currentHeroInfo} 
+                    tavernPosts={tavernPosts} 
+                    onPostLike={handleTavernLike} 
+                    onPostClick={setSelectedPost}
+                    currentUser={currentUser}
+                    isAdmin={isAdmin}
+                    onDelete={handleDeleteTavern}
+                    onEdit={handleEditPost} 
+                />}
+                
+                {viewMode === 'feed' && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                        <div className="md:col-span-2 space-y-4">
+                            <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-2"><TrendingUp size={14} /> 最新攻略</h3>
+                            {posts.map(post => (
+                                <GlassCard key={post.id} className="p-5 flex gap-4 relative group" onClick={() => { setSelectedPost(post); }}>
+                                    {/* 🔥 操作按钮组：编辑 + 删除 */}
+                                    {(isAdmin || post.author === currentUser) && (
+                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+                                            {/* 编辑按钮 */}
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleEditPost(post); }}
+                                                className="p-1.5 text-slate-500 hover:text-[#C8AA6E] hover:bg-[#C8AA6E]/10 rounded transition-all"
+                                                title="编辑"
+                                            >
+                                                <Edit size={16} />
+                                            </button>
+                                            {/* 删除按钮 */}
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeletePost(post.id); }}
+                                                className="p-1.5 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded transition-all"
+                                                title="删除"
+                                            >
+                                                <X size={16} />
+                                            </button>
                                         </div>
-                                        <div className="flex flex-col items-center">
-                                            <div className="text-[10px] text-slate-500 px-2 py-1 rounded bg-white/5 border border-white/5">
-                                                {isMatchup ? m.enemy : (m.is_general ? "通用心得" : (m.enemy || "未分类"))}
-                                            </div>
-                                            {/* 🔥 增加的标签：用于区分混合内容 */}
-                                            {activeTab === 'wiki' && activeCategory === '全部' && (
-                                                <span className={`text-[9px] mt-1 font-bold ${isMatchup ? 'text-red-500' : 'text-[#0AC8B9]'}`}>
-                                                    {isMatchup ? '【对位】' : '【通用】'}
-                                                </span>
-                                            )}
+                                    )}
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            {post.isAiPick && <span className="bg-[#0AC8B9] text-[#091428] text-[10px] font-bold px-1.5 rounded flex items-center gap-1"><Zap size={10} fill="currentColor"/> AI Pick</span>}
+                                            <span className="text-[#C8AA6E] text-[10px] bg-[#C8AA6E]/10 border border-[#C8AA6E]/20 px-1.5 rounded font-mono">{post.refId}</span>
                                         </div>
+                                        <h3 className="text-lg text-slate-200 font-bold mb-2 hover:text-[#0AC8B9] cursor-pointer transition-colors">{post.title}</h3>
+                                        <p className="text-slate-400 text-sm line-clamp-2">{post.content}</p>
                                     </div>
-                                    <div className="flex-1 p-4 flex flex-col justify-between">
-                                        <p className="text-sm text-slate-300 leading-relaxed mb-4 whitespace-pre-wrap">{m.content}</p>
-                                        <div className="flex items-center justify-between text-xs pt-3 border-t border-white/5">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-400">{(m.author || "U")[0]}</div>
-                                                <span className={`font-bold ${THEME.textMain}`}>{m.author || "匿名用户"}</span>
-                                                <span className="text-slate-600 scale-90 ml-1">{new Date(m.created_at || Date.now()).toLocaleDateString()}</span>
-                                            </div>
-                                            <div className="flex gap-4">
-                                                <button onClick={() => handleLike(m.id)} className={`flex items-center gap-1 transition-colors ${m.has_liked ? THEME.textMain : 'text-slate-500 hover:text-slate-300'}`}><ThumbsUp size={14} className={m.has_liked ? "fill-current" : ""}/> {m.like_count || 0}</button>
-                                                <button className="flex items-center gap-1 text-slate-500 hover:text-white transition-colors"><Share2 size={14}/> 分享</button>
-                                            </div>
-                                        </div>
+                                    <div className="flex flex-col items-center justify-center gap-1 text-slate-500 border-l border-white/5 pl-4">
+                                        <div className="cursor-pointer hover:text-[#C8AA6E] transition-colors"><ThumbsUp size={16} /></div>
+                                        <span className="text-xs font-mono">{post.likes}</span>
                                     </div>
-                                </div>
-                            )}) : (
-                                <div className="text-center py-20 text-slate-500 bg-[#121b29]/40 rounded-xl border border-white/5 border-dashed">
-                                    <p>该分类下暂无内容</p>
-                                    <button onClick={() => setShowPostModal(true)} className="mt-2 text-[#C8AA6E] text-xs hover:underline">发布第一条</button>
+                                </GlassCard>
+                            ))}
+                            {posts.length === 0 && (
+                                <div className="p-8 text-center text-slate-500 bg-white/5 rounded border border-white/5">
+                                    暂无相关攻略，快来抢占沙发！
                                 </div>
                             )}
                         </div>
-                    </div>
-                )}
-
-                {/* 2. Discuss (Mock) - 已恢复完整代码 */}
-                {activeTab === 'discuss' && (
-                    <div className="max-w-5xl mx-auto animate-in fade-in duration-500">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold text-white flex items-center gap-2"><FileText size={20} className={THEME.textMain}/> 宗师级 · 深度长文</h3>
-                            <button className="flex items-center gap-1.5 px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold rounded-lg border border-white/10 transition-all"><PenTool size={14}/> 投稿文章</button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {MOCK_ARTICLES.map((article) => (
-                                <div key={article.id} className="group relative bg-[#121b29]/60 border border-white/5 rounded-2xl overflow-hidden hover:border-[#C8AA6E]/30 hover:-translate-y-1 transition-all cursor-pointer">
-                                    <div className="h-40 overflow-hidden relative">
-                                        <div className="absolute inset-0 bg-gradient-to-t from-[#121b29] to-transparent z-10"></div>
-                                        <img src={article.cover} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                                        <div className="absolute bottom-3 left-3 z-20 flex gap-2">
-                                            <span className="px-2 py-0.5 rounded bg-black/50 backdrop-blur text-[10px] text-white border border-white/10">S15</span>
-                                            <span className="px-2 py-0.5 rounded bg-[#0AC8B9]/20 text-[#0AC8B9] border border-[#0AC8B9]/30 font-bold">万字长文</span>
-                                        </div>
-                                    </div>
-                                    <div className="p-5">
-                                        <h3 className="text-lg font-bold text-white mb-2 line-clamp-1 group-hover:text-[#C8AA6E] transition-colors">{article.title}</h3>
-                                        <p className="text-xs text-slate-400 leading-relaxed line-clamp-2 mb-4">{article.summary}</p>
-                                        <div className="flex items-center justify-between text-xs pt-4 border-t border-white/5">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[9px] font-bold">{article.author[0]}</div>
-                                                <div><div className="text-slate-200 font-bold">{article.author}</div><div className="text-[9px] text-[#C8AA6E]">{article.rank}</div></div>
-                                            </div>
-                                            <div className="flex items-center gap-4 text-slate-500"><span className="flex items-center gap-1"><BookOpen size={12}/> {article.views}</span><span className="flex items-center gap-1"><ThumbsUp size={12}/> {article.likes}</span></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="space-y-4">
+                            <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-2"><Clock size={14} /> 最新动态</h3>
+                            <div className="p-4 bg-[#091428]/40 border border-white/5 rounded text-center text-slate-500 text-xs">暂无热门动态</div>
                         </div>
                     </div>
                 )}
-            </div>
+            </main>
 
-            <ChampSelectModal
-                isOpen={showChampSelector}
-                onClose={() => setShowChampSelector(false)}
-                championList={championList}
+            {/* 复用的英雄选择器 Modal */}
+            <ChampSelectModal 
+                isOpen={isSelectorOpen} 
+                onClose={() => setIsSelectorOpen(false)}
+                championList={championList} 
                 onSelect={(hero) => {
-                    setCurrentHeroId(hero.key); 
-                    setShowChampSelector(false);
-                    toast.success(`已进入 ${hero.name} 社区`);
+                    // 更新当前选择的英雄 ID (使用我们适配过的 id 字段)
+                    setCurrentHeroId(hero.id); 
+                    setIsSelectorOpen(false);
+                    toast.success(`已切换至：${hero.name}`);
                 }}
-                roleMapping={roleMapping} 
+                roleMapping={{}} // 社区不需要复杂的角色角标，传空即可
+                initialRoleIndex={0} // 默认显示全部
             />
 
-            <TipModal 
-                isOpen={showPostModal} 
-                onClose={() => setShowPostModal(false)} 
-                content={postContent} 
-                setContent={setPostContent} 
-                onSubmit={handlePostSubmit} 
-                heroName={currentHeroInfo.name} 
-                activeTab={activeTab} 
+            <PublishModal 
+                isOpen={showPublishModal} 
+                onClose={() => { setShowPublishModal(false); setEditingPost(null); }} 
+                heroInfo={currentHeroInfo}
+                championList={championList}
+                onSuccess={handlePublishSuccess}
+                initialData={editingPost} 
+                initialTab={editingPost && !editingPost.title ? 'tavern' : 'wiki'}
+                token={token}
+            />
+
+            <MiniMasteryWidget currentHero={currentHeroInfo} opponentHero={opponentHeroInfo} posts={posts} onNavigateToPost={setSelectedPost} />
+
+            {/* 🔥 传递删除和编辑方法给详情页 */}
+            <PostDetailModal 
+                post={selectedPost} 
+                onClose={() => setSelectedPost(null)} 
                 championList={championList} 
+                currentUser={currentUser}
+                isAdmin={isAdmin}
+                onDelete={handleDeletePost}
+                onEdit={handleEditPost}
             />
         </div>
     );
