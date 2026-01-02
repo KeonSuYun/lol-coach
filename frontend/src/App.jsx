@@ -4,38 +4,50 @@ import { useGameCore } from './hooks/useGameCore';
 // 页面组件引入
 import LandingPage from './components/LandingPage';
 import CommunityPage from './components/CommunityPage';
+import UserProfile from './components/UserProfile'; // 🔥 确保引用了 UserProfile
 import MainConsole from './pages/MainConsole';
-import OverlayConsole from './pages/OverlayConsole'; // 🟢 悬浮窗页面
-import DownloadModal from './components/modals/DownloadModal'; // 🟢 新增引入
+import OverlayConsole from './pages/OverlayConsole'; 
+import DownloadModal from './components/modals/DownloadModal'; 
 
 export default function App() {
-    // 1. 从 Hook 中获取所有状态(state)和操作方法(actions)
     const { state, actions } = useGameCore();
 
-    // =================================================================
-    // 🟢 路由逻辑 A：悬浮窗模式 (Overlay Mode)
-    // =================================================================
     if (state.isOverlay) {
         return <OverlayConsole state={state} actions={actions} />;
     }
 
-    // =================================================================
-    // 🟢 路由逻辑 B：社区页面 (Community Page)
-    // =================================================================
-    if (state.showCommunity) {
+    // 🟢 个人主页路由 (优先级高于其他)
+    if (state.showProfile) {
         return (
-            <CommunityPage 
-                onBack={() => actions.setShowCommunity(false)} 
-                championList={state.championList} // 🟢 修复：传递英雄数据
-                currentUser={state.currentUser}   // 🟢 修复：传递用户数据，修复点赞发帖
-                token={state.token}               // 🟢 修复：传递 Token
+            <UserProfile 
+                onBack={() => actions.setShowProfile(false)} 
+                accountInfo={state.accountInfo}
+                currentUser={state.currentUser}
+                token={state.token}
+                lcuProfile={state.lcuProfile}
+                handleSyncProfile={actions.handleSyncProfile} // 🔥 传递同步函数
+                championList={state.championList}
+                onOpenAdmin={() => {
+                    actions.setAdminView('panel'); // 👈 1. 设定为“面板模式”(用户管理)
+                    actions.setShowProfile(false);   
+                    actions.setShowAdminPanel(true); 
+                }} 
             />
         );
     }
 
-    // =================================================================
-    // 🟢 路由逻辑 C：落地页 (Landing Page)
-    // =================================================================
+    // 🟢 社区页面路由
+    if (state.showCommunity) {
+        return (
+            <CommunityPage 
+                onBack={() => actions.setShowCommunity(false)} 
+                championList={state.championList} 
+                currentUser={state.currentUser}   
+                token={state.token}               
+            />
+        );
+    }
+
     if (!state.hasStarted) {
         return (
             <>
@@ -46,15 +58,11 @@ export default function App() {
                 <LandingPage 
                     onEnter={() => actions.setHasStarted(true)} 
                     onOpenCommunity={() => actions.setShowCommunity(true)}
-                    // 🟢 修复：绑定下载按钮点击事件
                     onDownloadClick={() => actions.setShowDownloadModal(true)} 
                 />
             </>
         );
     }
 
-    // =================================================================
-    // 🟢 路由逻辑 D：主控台 (Main Console)
-    // =================================================================
     return <MainConsole state={state} actions={actions} />;
 }

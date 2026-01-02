@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 
 // 组件引入
 import AdminDashboard from '../components/AdminDashboard';
+import AdminPanel from '../components/AdminPanel'; // 🟢 [新增] 引入面板组件
 import Header from '../components/Header';
 import ChampCard from '../components/ChampCard';
 import AnalysisResult from '../components/AnalysisResult';
@@ -28,7 +29,8 @@ export default function MainConsole({ state, actions }) {
         token, authMode, authForm, showLoginModal, showTipModal, inputContent, tipTarget, tips, tipTargetEnemy,
         showAdminPanel, showSettingsModal, currentShortcuts, sendChatTrigger,
         showFeedbackModal, showPricingModal,
-        mapSide, showDownloadModal, hasStarted 
+        mapSide, showDownloadModal, hasStarted,
+        adminView // 🟢 [新增] 获取当前管理视图模式 ('dashboard' | 'panel')
     } = state;
 
     const {
@@ -39,7 +41,8 @@ export default function MainConsole({ state, actions }) {
         handleLogin, handleRegister, setAuthMode, setAuthForm,
         setShowSettingsModal, setShowAdminPanel, setInputContent, setShowTipModal, setShowFeedbackModal,
         handlePostTip, handleReportError, handleLike, handleDeleteTip, handleSaveShortcuts, setTipTarget, handleTabClick,
-        setMapSide, setShowDownloadModal
+        setMapSide, setShowDownloadModal,
+        setAdminView // 🟢 [新增] 获取设置视图模式的方法
     } = actions;
 
     const getEnemySideLabel = () => {
@@ -48,7 +51,7 @@ export default function MainConsole({ state, actions }) {
         return '';
     };
 
-    // 🔥 修复：改为直接跳转到完整社区页面，而不是滚动
+    // 🔥 修复：现在点击“绝活社区”会直接跳转到独立的全屏页面
     const handleShowCommunity = () => {
         actions.setShowCommunity(true);
     };
@@ -93,11 +96,16 @@ export default function MainConsole({ state, actions }) {
                     userRank={userRank} setUserRank={setUserRank}
                     
                     onGoHome={() => setHasStarted(false)}
-                    onShowCommunity={handleShowCommunity} // 🔥 绑定新的跳转函数
+                    onShowCommunity={handleShowCommunity} // 🔥 绑定跳转函数
                     onShowDownload={() => setShowDownloadModal(true)}
                     
                     onShowSettings={setShowSettingsModal}
-                    onShowAdmin={setShowAdminPanel}
+                    // 🟢 [修改] 顶部菜单点击时，强制设为 'dashboard' 模式并打开
+                    onShowAdmin={() => {
+                        setAdminView('dashboard');
+                        setShowAdminPanel(true);
+                    }}
+                    onShowProfile={() => actions.setShowProfile(true)}
                 />
 
                 <div className="w-full mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -342,15 +350,19 @@ export default function MainConsole({ state, actions }) {
 
                 {/* 模态框组件 */}
                 <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} authMode={authMode} setAuthMode={setAuthMode} authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} handleRegister={handleRegister} />
+                
+                {/* 🔥🔥🔥 关键修复：正确传递 handlePostTip 参数，并强制 activeTab="wiki" 以显示正确分类 */}
                 <TipModal 
                     isOpen={showTipModal} 
                     onClose={() => setShowTipModal(false)} 
                     content={inputContent} 
                     setContent={setInputContent} 
-                    onSubmit={() => handlePostTip(false)}
+                    onSubmit={(target, category) => handlePostTip(target, category)}
                     heroName={blueTeam[userSlot]?.name || "英雄"}
-                    targetName={tipTargetEnemy} 
+                    activeTab="wiki" 
+                    championList={championList}
                 />
+                
                 <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} content={inputContent} setContent={setInputContent} onSubmit={handleReportError} />
                 <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
                 <SettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} currentShortcuts={currentShortcuts} onSave={handleSaveShortcuts} />
@@ -382,7 +394,21 @@ export default function MainConsole({ state, actions }) {
                     }
                 />
 
-                {showAdminPanel && token && <AdminDashboard token={token} onClose={() => setShowAdminPanel(false)} />}
+                {/* 🟢 [核心修改] 根据 adminView 条件渲染不同的管理组件 */}
+                {showAdminPanel && token && (
+                    adminView === 'panel' ? (
+                        <AdminPanel 
+                            token={token} 
+                            onBack={() => setShowAdminPanel(false)} 
+                        />
+                    ) : (
+                        <AdminDashboard 
+                            token={token} 
+                            onClose={() => setShowAdminPanel(false)} 
+                        />
+                    )
+                )}
+
                 {currentUser && ["admin", "root"].includes(currentUser) && (
                     <button onClick={() => setShowAdminPanel(true)} className="fixed bottom-6 left-6 z-50 bg-red-600/90 hover:bg-red-500 text-white p-3 rounded-full shadow-lg backdrop-blur hover:scale-110 transition-all">
                         <ShieldAlert size={20} />

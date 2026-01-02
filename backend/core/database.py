@@ -334,15 +334,25 @@ class KnowledgeBase:
         # 3. 格式化返回
         final_list = []
         for t in matchup_tips:
+            # 🟢 [新增] 动态获取发布者的当前身份 (Title/Role)
+            # 通过 ID 实时查询，确保即使用户刚充值 VIP，旧帖子也能显示尊贵身份
+            # check_membership_status 会自动处理过期逻辑
+            author_role = self.check_membership_status(t["author_id"])
+            
             final_list.append({
                 "id": str(t['_id']),
                 "title": t.get("title", "英雄技巧"),
                 "content": t["content"],
                 "author": t["author_id"],
+                # 🟢 [新增] 返回作者头衔，前端可据此显示 "Pro" / "Admin" 标签
+                "author_role": author_role,
+                # 🟢 [新增] 预留头像字段 (目前使用角色作为 key，前端可映射到默认头像)
+                "author_avatar_key": author_role,
+                
                 "likes": len(t.get("liked_by", [])),
                 "tags": t.get("tags", []),
                 "tag_label": t["tag_label"],
-                "is_pro_author": self.check_membership_status(t["author_id"]) != "user"
+                "is_pro_author": author_role in ["pro", "vip", "svip", "admin"]
             })
         return final_list
 

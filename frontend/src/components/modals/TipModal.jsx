@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, PenTool, Swords, Search, Check } from 'lucide-react';
+import { X, PenTool, Swords, Search, Check, AlertCircle } from 'lucide-react';
 
 export default function TipModal({ isOpen, onClose, content, setContent, onSubmit, heroName, activeTab, championList = [] }) {
     if (!isOpen) return null;
@@ -16,35 +16,47 @@ export default function TipModal({ isOpen, onClose, content, setContent, onSubmi
     const [selectedTargetHero, setSelectedTargetHero] = useState(null); 
     const [showDropdown, setShowDropdown] = useState(false);
 
+    // 重置状态
     useEffect(() => {
-        setSelectedCategory(CATEGORIES[0]);
-        setTargetSearch("");
-        setSelectedTargetHero(null);
-        setShowDropdown(false);
-    }, [activeTab, isOpen]);
+        if (isOpen) {
+            setSelectedCategory(CATEGORIES[0]);
+            setTargetSearch("");
+            setSelectedTargetHero(null);
+            setShowDropdown(false);
+        }
+    }, [activeTab, isOpen, CATEGORIES[0]]);
 
+    // 🔍 修复：搜索逻辑增强，支持中文名(name)、称号(title)、英文ID(key)
     const filteredChampions = useMemo(() => {
         if (!targetSearch) return championList;
         const lower = targetSearch.toLowerCase();
-        return championList.filter(c => c.name.includes(lower) || c.id.toLowerCase().includes(lower) || c.title.includes(lower));
+        return championList.filter(c => 
+            c.name.includes(lower) || 
+            c.title.includes(lower) || 
+            (c.key && c.key.toLowerCase().includes(lower)) || // 支持英文ID搜索 (如 Darius)
+            (c.id && c.id.toString().includes(lower))         // 支持数字ID搜索
+        );
     }, [championList, targetSearch]);
 
     const handleSubmit = () => {
         let finalTarget = selectedCategory;
+        
+        // 如果是“上单对位”，必须选择英雄
         if (selectedCategory === "上单对位") {
             if (!selectedTargetHero) {
-                alert("请选择对位英雄！");
+                alert("请先选择一个对位英雄！"); // 简单的阻断提示
                 return;
             }
-            // 存英雄名 (如: Darius)
+            // 存英雄中文名 (后端如需要英文名，可改为 selectedTargetHero.key)
             finalTarget = selectedTargetHero.name; 
         }
+        
         onSubmit(finalTarget, selectedCategory);
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="w-full max-w-lg bg-[#091428] border border-[#C8AA6E]/30 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+            <div className="w-full max-w-lg bg-[#091428] border border-[#C8AA6E]/30 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                 
                 {/* 标题 */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#010A13] shrink-0">
@@ -78,11 +90,11 @@ export default function TipModal({ isOpen, onClose, content, setContent, onSubmi
                         </div>
                     </div>
 
-                    {/* 2. 对位英雄选择器 */}
+                    {/* 2. 对位英雄选择器 (仅在"上单对位"显示) */}
                     {selectedCategory === "上单对位" && (
                         <div className="animate-in slide-in-from-top-2 duration-200 relative">
                             <label className="text-xs font-bold text-slate-400 mb-2 block uppercase tracking-wider flex items-center gap-1">
-                                <Swords size={12}/> 选择对线英雄
+                                <Swords size={12}/> 选择对线英雄 <span className="text-red-500">*</span>
                             </label>
                             
                             {/* 选中的展示框 */}
@@ -92,14 +104,18 @@ export default function TipModal({ isOpen, onClose, content, setContent, onSubmi
                             >
                                 {selectedTargetHero ? (
                                     <div className="flex items-center gap-3">
-                                        <img src={selectedTargetHero.image_url} className="w-8 h-8 rounded-full border border-[#C8AA6E]" />
-                                        <span className="text-[#C8AA6E] font-bold">{selectedTargetHero.name}</span>
-                                        <span className="text-xs text-slate-500">{selectedTargetHero.title}</span>
+                                        <img src={selectedTargetHero.image_url} className="w-8 h-8 rounded-full border border-[#C8AA6E]" alt={selectedTargetHero.name} />
+                                        <div>
+                                            <span className="text-[#C8AA6E] font-bold text-sm block">{selectedTargetHero.name}</span>
+                                            <span className="text-[10px] text-slate-500 block leading-none">{selectedTargetHero.title}</span>
+                                        </div>
                                     </div>
                                 ) : (
-                                    <span className="text-slate-500 text-sm">点击选择敌方英雄...</span>
+                                    <span className="text-slate-500 text-sm flex items-center gap-2">
+                                        <Search size={14}/> 点击搜索敌方英雄...
+                                    </span>
                                 )}
-                                <Search size={16} className="text-slate-500"/>
+                                <div className={`text-slate-500 transition-transform ${showDropdown ? 'rotate-180' : ''}`}>▼</div>
                             </div>
 
                             {/* 下拉选择列表 */}
@@ -109,14 +125,15 @@ export default function TipModal({ isOpen, onClose, content, setContent, onSubmi
                                         <input 
                                             autoFocus
                                             type="text" 
-                                            placeholder="搜索英雄 (如: 诺手 / Darius)" 
+                                            placeholder="输入名字/拼音/英文 (如: 诺手 / Darius)" 
                                             className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#C8AA6E]"
                                             value={targetSearch}
                                             onChange={(e) => setTargetSearch(e.target.value)}
+                                            onClick={e => e.stopPropagation()}
                                         />
                                     </div>
                                     <div className="overflow-y-auto custom-scrollbar p-1">
-                                        {filteredChampions.map(hero => (
+                                        {filteredChampions.length > 0 ? filteredChampions.map(hero => (
                                             <div 
                                                 key={hero.id}
                                                 onClick={() => {
@@ -124,16 +141,18 @@ export default function TipModal({ isOpen, onClose, content, setContent, onSubmi
                                                     setShowDropdown(false);
                                                     setTargetSearch("");
                                                 }}
-                                                className="flex items-center gap-3 p-2 hover:bg-white/10 rounded cursor-pointer group"
+                                                className="flex items-center gap-3 p-2 hover:bg-white/10 rounded cursor-pointer group transition-colors"
                                             >
-                                                <img src={hero.image_url} className="w-8 h-8 rounded border border-transparent group-hover:border-[#C8AA6E]" />
+                                                <img src={hero.image_url} className="w-8 h-8 rounded border border-transparent group-hover:border-[#C8AA6E]" alt={hero.name} />
                                                 <div>
-                                                    <div className="text-xs font-bold text-slate-200">{hero.name}</div>
-                                                    <div className="text-[10px] text-slate-500">{hero.title}</div>
+                                                    <div className="text-xs font-bold text-slate-200 group-hover:text-white">{hero.name}</div>
+                                                    <div className="text-[10px] text-slate-500 group-hover:text-slate-400">{hero.title}</div>
                                                 </div>
                                                 {selectedTargetHero?.id === hero.id && <Check size={14} className="ml-auto text-[#0AC8B9]"/>}
                                             </div>
-                                        ))}
+                                        )) : (
+                                            <div className="p-4 text-center text-xs text-slate-500">未找到相关英雄</div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -146,12 +165,29 @@ export default function TipModal({ isOpen, onClose, content, setContent, onSubmi
                         <textarea
                             value={content}
                             onChange={(e) => setContent(e.target.value)}
-                            placeholder={activeTab === 'wiki' ? "输入对线细节，如：一级学W，三级前猥琐..." : "分享你的游戏心情..."}
-                            className="w-full h-32 bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-slate-200 focus:border-[#C8AA6E] focus:outline-none resize-none custom-scrollbar"
+                            placeholder={activeTab === 'wiki' ? "输入对线细节，如：一级学W，三级前猥琐，利用草丛规避仇恨..." : "分享你的游戏心情..."}
+                            className="w-full h-32 bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-slate-200 focus:border-[#C8AA6E] focus:outline-none resize-none custom-scrollbar placeholder:text-slate-600"
                         />
                     </div>
 
-                    <button onClick={handleSubmit} className="w-full py-3 bg-gradient-to-r from-[#C8AA6E] to-[#b89a5e] hover:brightness-110 text-[#091428] font-black rounded-lg shadow-lg transition-all">
+                    {/* 错误提示区 (如果有) */}
+                    {selectedCategory === "上单对位" && !selectedTargetHero && (
+                        <div className="flex items-center gap-2 text-[10px] text-yellow-500 bg-yellow-500/10 px-3 py-2 rounded border border-yellow-500/20">
+                            <AlertCircle size={12} />
+                            <span>发布对位攻略前，请务必选择一个敌方英雄。</span>
+                        </div>
+                    )}
+
+                    <button 
+                        onClick={handleSubmit} 
+                        disabled={selectedCategory === "上单对位" && !selectedTargetHero}
+                        className={`w-full py-3 font-black rounded-lg shadow-lg transition-all flex items-center justify-center gap-2
+                            ${selectedCategory === "上单对位" && !selectedTargetHero 
+                                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-[#C8AA6E] to-[#b89a5e] hover:brightness-110 text-[#091428] cursor-pointer active:scale-[0.98]'
+                            }
+                        `}
+                    >
                         立即发布
                     </button>
                 </div>

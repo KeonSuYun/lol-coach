@@ -14,7 +14,7 @@ from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from dotenv import load_dotenv
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from fastapi.staticfiles import StaticFiles
 # 🟢 [修改] 引入 RedirectResponse 用于重定向下载
 from fastapi.responses import FileResponse, RedirectResponse
@@ -235,6 +235,14 @@ class AdminUserUpdate(BaseModel):
     action: str  # "add_days", "set_role", "rename", "delete"
     value: str   # 天数/角色/新名字/空字符串
 
+# 🔥 [新增] 头衔管理模型
+class AdminTitleUpdate(BaseModel):
+    username: str
+    titles: List[str]
+
+class UserSetTitle(BaseModel):
+    active_title: str
+
 class EmailRequest(BaseModel):
     email: str
 
@@ -280,6 +288,18 @@ class AnalyzeRequest(BaseModel):
     # 允许接收 HexLite 发送的实时技能包 (Dict: 英雄名 -> 技能描述文本)
     extraMechanics: Optional[Dict[str, str]] = {} 
 
+class UserProfileSync(BaseModel):
+    gameName: str = "Unknown"
+    tagLine: str = ""
+    level: int = 1
+    rank: str = "Unranked"
+    lp: int = 0
+    winRate: int = 0
+    kda: str = "0.0"
+    profileIconId: int = 29
+    mastery: List[int] = []
+    matches: List[dict] = []
+
 # ================= 🔐 核心权限逻辑 =================
 
 def verify_password(plain_password, hashed_password):
@@ -290,7 +310,7 @@ def get_password_hash(password):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.datetime.utcnow() + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -445,8 +465,8 @@ async def redeem_invite(
     if not invite_code:
         raise HTTPException(status_code=400, detail="请输入邀请码")
 
-    # 获取当前用户 (受邀人)
-    user = await db.users.find_one({"_id": current_user["_id"]})
+    # ✅ [修复] 使用 db.users_col 并移除 await (因为 database.py 是 PyMongo 同步的)
+    user = db.users_col.find_one({"_id": current_user["_id"]})
     if not user:
         raise HTTPException(status_code=404, detail="用户数据同步错误")
 
@@ -454,7 +474,7 @@ async def redeem_invite(
         raise HTTPException(status_code=400, detail="您已经领取过新手福利了，无法重复领取")
 
     # 获取邀请人
-    inviter = await db.users.find_one({"username": invite_code})
+    inviter = db.users_col.find_one({"username": invite_code})
     if not inviter:
         raise HTTPException(status_code=404, detail="无效的邀请码（请输入朋友的用户名）")
 
@@ -463,8 +483,11 @@ async def redeem_invite(
 
     # === 核心逻辑：加时间函数 ===
     def calculate_new_expire(user_obj, days=3):
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         current_expire = user_obj.get('membership_expire')
+        if current_expire and current_expire.tzinfo is None:
+            current_expire = current_expire.replace(tzinfo=datetime.timezone.utc)
+            
         if not current_expire or current_expire < now:
             return now + datetime.timedelta(days=days)
         else:
@@ -472,7 +495,7 @@ async def redeem_invite(
 
     # 1. 给【当前用户 (填写者)】加时间 - 永远成功
     new_expire_user = calculate_new_expire(user, days=3)
-    await db.users.update_one(
+    db.users_col.update_one(
         {"_id": user['_id']},
         {
             "$set": {
@@ -493,7 +516,7 @@ async def redeem_invite(
     if current_invite_count < MAX_INVITES:
         # 未达上限，正常加时间
         new_expire_inviter = calculate_new_expire(inviter, days=3)
-        await db.users.update_one(
+        db.users_col.update_one(
             {"_id": inviter['_id']},
             {
                 "$set": {
@@ -507,7 +530,7 @@ async def redeem_invite(
         # 已达上限，不加时间，但也不报错
         inviter_msg = " (但邀请人已达30天奖励上限)"
         # 依然记录邀请次数(可选)，方便统计人气，但不加会员时长
-        await db.users.update_one(
+        db.users_col.update_one(
             {"_id": inviter['_id']},
             {"$inc": {"invite_count": 1}}
         )
@@ -595,34 +618,20 @@ def get_champion_roles():
         print(f"❌ Role Load Error: {e}")
         return {}
 
-async def polish_tip_content(tip_id: str, content: str):
-    """后台任务：使用 AI 为玩家攻略生成标题和标签"""
-    try:
-        # 使用更便宜、更快的 V3 模型
-        prompt = f"请为这条LOL攻略生成一个6-10字的吸引人标题和2个分类标签（如：对线、团战、出装）。攻略内容：{content}"
-        response = await client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"} # 强制输出 JSON
-        )
-        res = json.loads(response.choices[0].message.content)
-        
-        # 更新数据库
-        db.tips_col.update_one(
-            {"_id": ObjectId(tip_id)},
-            {"$set": {
-                "title": res.get("title"),
-                "tags": res.get("tags"),
-                "is_polished": True
-            }}
-        )
-    except Exception as e:
-        print(f"AI Polishing Error: {e}")
 
 @app.post("/tips")
 async def add_tip_endpoint(data: TipInput, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     """发布攻略并触发 AI 装修"""
+    # 🔥 [新增] 获取用户当前的头衔
+    user_doc = db.users_col.find_one({"username": current_user['username']})
+    user_title = user_doc.get("active_title", "社区成员")
+
+    # 存入帖子
     res = db.add_tip(data.hero, data.enemy, data.content, current_user['username'], data.is_general)
+    
+    # 🔥 [补救] 立即更新帖子，写入 author_title (确保不改动 database.py 也能生效)
+    if hasattr(res, 'inserted_id'):
+        db.tips_col.update_one({"_id": res.inserted_id}, {"$set": {"author_title": user_title}})
     
     # 开启后台任务，不阻塞用户响应
     background_tasks.add_task(polish_tip_content, str(res.inserted_id), data.content)
@@ -788,6 +797,13 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
     # 调用数据库新方法，获取详细的使用情况
     status_info = db.get_user_usage_status(current_user['username'])
     
+    # 🔥 获取头衔信息 (默认只有"社区成员")
+    my_titles = current_user.get("available_titles", [])
+    if "社区成员" not in my_titles: my_titles.append("社区成员")
+    
+    # 🔥 获取当前佩戴的头衔
+    active_title = current_user.get("active_title", "社区成员")
+
     return {
         "username": current_user['username'],
         "role": status_info.get("role", "user"),
@@ -796,8 +812,53 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
         # 返回 R1 的使用情况
         "r1_limit": status_info.get("r1_limit", 10),
         "r1_used": status_info.get("r1_used", 0),
-        "r1_remaining": status_info.get("r1_remaining", 0)
+        "r1_remaining": status_info.get("r1_remaining", 0),
+        
+        # 🔥 返回头衔数据
+        "available_titles": my_titles,
+        "active_title": active_title,
+        
+        "game_profile": {
+            "gameName": current_user.get("game_name"),
+            "tagLine": current_user.get("tag_line"),
+            "level": current_user.get("level"),
+            "rank": current_user.get("rank"),
+            "lp": current_user.get("lp"),
+            "winRate": current_user.get("win_rate"),
+            "kda": current_user.get("kda"),
+            "profileIconId": current_user.get("profile_icon_id"),
+            "mastery": current_user.get("mastery", []),
+            "matches": current_user.get("matches", [])
+        }
     }
+
+# 🔥🔥🔥 [修复] 个人档案同步 (使用 db.users_col + 修复时间) 🔥🔥🔥
+@app.post("/users/sync_profile")
+async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(get_current_user)):
+    update_doc = {
+        "game_name": data.gameName,
+        "tag_line": data.tagLine,
+        "level": data.level,
+        "rank": data.rank,
+        "lp": data.lp,
+        "win_rate": data.winRate,
+        "kda": data.kda,
+        "profile_icon_id": data.profileIconId,
+        "mastery": data.mastery,
+        "matches": data.matches,
+        # ✅ 修复: 使用 timezone-aware UTC time
+        "last_synced_at": datetime.datetime.now(datetime.timezone.utc)
+    }
+    
+    # 更新数据库
+    try:
+        # ✅ [修复] 统一使用 db.users_col 并修正同步调用
+        db.users_col.update_one({"username": current_user['username']}, {"$set": update_doc})
+    except Exception as e:
+        print(f"Sync DB Error: {e}")
+        raise HTTPException(status_code=500, detail="数据库更新失败")
+            
+    return {"status": "success", "msg": "同步成功"}
 
 # ==========================
 # ⚡ 爱发电 Webhook 接口
@@ -948,6 +1009,40 @@ def update_user_admin(data: AdminUserUpdate, current_user: dict = Depends(get_cu
     
     return {"status": "success", "msg": msg}
 
+# 🔥🔥🔥 [修复] 管理员给用户分配头衔 (使用 db.users_col) 🔥🔥🔥
+@app.post("/admin/user/titles")
+def admin_update_titles(data: AdminTitleUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["admin", "root"]: 
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    # ✅ 修复
+    db.users_col.update_one(
+        {"username": data.username}, 
+        {"$set": {"available_titles": data.titles}}
+    )
+    
+    user = db.users_col.find_one({"username": data.username})
+    if user.get("active_title") and user.get("active_title") not in data.titles:
+        db.users_col.update_one({"username": data.username}, {"$set": {"active_title": "社区成员"}})
+        
+    return {"status": "success", "msg": "头衔列表已更新"}
+
+# 🔥🔥🔥 [修复] 用户选择佩戴头衔 (使用 db.users_col) 🔥🔥🔥
+@app.post("/users/set_active_title")
+def set_active_title(data: UserSetTitle, current_user: dict = Depends(get_current_user)):
+    # ✅ 修复
+    user = db.users_col.find_one({"username": current_user['username']})
+    available = user.get("available_titles", [])
+    if "社区成员" not in available: available.append("社区成员")
+
+    if data.active_title not in available:
+        raise HTTPException(status_code=400, detail="你没有获得该头衔")
+    
+    db.users_col.update_one(
+        {"username": current_user['username']}, 
+        {"$set": {"active_title": data.active_title}}
+    )
+    return {"status": "success", "msg": "佩戴成功"}
 
 # --- 4. AI 分析 (集成推荐算法) ---
 

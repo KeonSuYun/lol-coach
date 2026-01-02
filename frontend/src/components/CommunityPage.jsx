@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
-import { Search, ChevronLeft, BookOpen, Beer, Flame, ThumbsUp, Share2, PenTool, Clock, Grid3X3, FileText, User } from 'lucide-react';
+import { Search, ChevronLeft, BookOpen, Beer, Flame, ThumbsUp, Share2, PenTool, Clock, Grid3X3, FileText, User, Swords, Info } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL } from '../config/constants';
 import TipModal from './modals/TipModal'; 
-import ChampSelectModal from './modals/ChampSelectModal'; // 🟢 1. 找回丢失的组件
+import ChampSelectModal from './modals/ChampSelectModal'; 
 
 const THEME = {
     textMain: "text-[#C8AA6E]", 
@@ -35,7 +35,7 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
     const [loading, setLoading] = useState(false);
 
     const [showChampSelector, setShowChampSelector] = useState(false);
-    // 🟢 2. 新增 roleMapping 状态，用于支持高级选择器的分类功能
+    // 新增 roleMapping 状态，用于支持高级选择器的分类功能
     const [roleMapping, setRoleMapping] = useState({});
     
     const [showPostModal, setShowPostModal] = useState(false);
@@ -49,6 +49,7 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
     const fetchTips = async () => {
         setLoading(true);
         try {
+            // 请求 ALL_MATCHUPS 以获取所有类型数据
             const res = await axios.get(`${API_BASE_URL}/tips`, { 
                 params: { hero: currentHeroInfo.name, enemy: "ALL_MATCHUPS" } 
             });
@@ -60,7 +61,7 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
         }
     };
 
-    // 🟢 3. 初始化时获取英雄定位数据
+    // 初始化时获取英雄定位数据
     useEffect(() => {
         axios.get(`${API_BASE_URL}/champions/roles`)
             .then(res => setRoleMapping(res.data))
@@ -77,11 +78,14 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
         if (!postContent.trim()) return toast.error("内容不能为空");
 
         try {
+            // 优化发布逻辑：如果目标是"通用"或者在酒馆板块，则标记为 is_general
+            const isGeneralPost = activeTab === 'tavern' || !finalTarget || finalTarget === "通用";
+
             await axios.post(`${API_BASE_URL}/tips`, {
                 hero: currentHeroInfo.name,
                 enemy: finalTarget,
                 content: postContent,
-                is_general: activeTab === 'tavern'
+                is_general: isGeneralPost
             }, { headers: { Authorization: `Bearer ${token}` } });
             
             toast.success("发布成功！");
@@ -112,14 +116,14 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
         let items = [...tips];
 
         if (activeTab === 'wiki') {
-            items = items.filter(t => !t.is_general);
-            if (activeCategory !== "全部") {
-                if (activeCategory === "上单对位") {
-                    const keywords = ["打野联动", "团战处理", "出装流派", "通用"];
-                    items = items.filter(t => t.enemy && !keywords.includes(t.enemy));
-                } else {
-                    items = items.filter(t => t.enemy === activeCategory);
-                }
+            // 绝活兵法板块
+            if (activeCategory === "全部") {
+                // 🔥 修改点：在“全部”分类下，保留通用和对位所有内容
+            } else if (activeCategory === "上单对位") {
+                const keywords = ["打野联动", "团战处理", "出装流派", "通用"];
+                items = items.filter(t => t.enemy && !keywords.includes(t.enemy) && !t.is_general);
+            } else {
+                items = items.filter(t => t.enemy === activeCategory);
             }
         } else if (activeTab === 'tavern') {
             items = items.filter(t => t.is_general);
@@ -204,22 +208,36 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
                         {/* List */}
                         <div className="space-y-4">
                             {loading ? <div className="text-center py-10 text-slate-500">加载中...</div> : 
-                             displayItems.length > 0 ? displayItems.map((m) => (
+                             displayItems.length > 0 ? displayItems.map((m) => {
+                                // 判断是否是对线技巧
+                                const isMatchup = m.enemy && !["通用", "全部"].includes(m.enemy) && !m.is_general;
+                                
+                                return (
                                 <div key={m.id} className="bg-[#121b29]/60 border border-white/5 rounded-xl overflow-hidden hover:border-[#C8AA6E]/30 transition-all flex flex-col md:flex-row group">
                                     <div className="p-4 md:w-40 bg-black/20 border-b md:border-b-0 md:border-r border-white/5 flex flex-row md:flex-col items-center justify-between md:justify-center gap-4 text-center shrink-0">
                                         <div className="flex items-center gap-2">
-                                            {activeTab === 'wiki' && m.enemy && !WIKI_CATEGORIES.includes(m.enemy) && m.enemy !== "通用" ? (
+                                            {isMatchup ? (
                                                 <div className="relative group/avatar cursor-help">
                                                     <div className="w-12 h-12 rounded-lg bg-red-900/20 border border-red-900/50 flex items-center justify-center text-xs font-bold text-red-400 overflow-hidden">{m.enemy[0]}</div>
                                                     <div className="absolute -bottom-2 -right-2 bg-red-600 text-[8px] px-1 rounded border border-black font-bold text-white shadow-sm">VS</div>
                                                 </div>
                                             ) : (
-                                                <div className={`w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center border border-white/10 ${activeTab === 'tavern' ? 'text-blue-400' : 'text-slate-500'}`}>
-                                                    {activeTab === 'tavern' ? <User size={20}/> : <BookOpen size={20}/>}
+                                                <div className={`w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center border border-white/10 ${activeTab === 'tavern' ? 'text-blue-400' : 'text-[#0AC8B9]'}`}>
+                                                    {activeTab === 'tavern' ? <User size={20}/> : <Info size={20}/>}
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="text-[10px] text-slate-500 px-2 py-1 rounded bg-white/5 border border-white/5">{m.enemy || "未分类"}</div>
+                                        <div className="flex flex-col items-center">
+                                            <div className="text-[10px] text-slate-500 px-2 py-1 rounded bg-white/5 border border-white/5">
+                                                {isMatchup ? m.enemy : (m.is_general ? "通用心得" : (m.enemy || "未分类"))}
+                                            </div>
+                                            {/* 🔥 增加的标签：用于区分混合内容 */}
+                                            {activeTab === 'wiki' && activeCategory === '全部' && (
+                                                <span className={`text-[9px] mt-1 font-bold ${isMatchup ? 'text-red-500' : 'text-[#0AC8B9]'}`}>
+                                                    {isMatchup ? '【对位】' : '【通用】'}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex-1 p-4 flex flex-col justify-between">
                                         <p className="text-sm text-slate-300 leading-relaxed mb-4 whitespace-pre-wrap">{m.content}</p>
@@ -236,7 +254,7 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
                                         </div>
                                     </div>
                                 </div>
-                            )) : (
+                            )}) : (
                                 <div className="text-center py-20 text-slate-500 bg-[#121b29]/40 rounded-xl border border-white/5 border-dashed">
                                     <p>该分类下暂无内容</p>
                                     <button onClick={() => setShowPostModal(true)} className="mt-2 text-[#C8AA6E] text-xs hover:underline">发布第一条</button>
@@ -246,7 +264,7 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
                     </div>
                 )}
 
-                {/* 2. Discuss (Mock) */}
+                {/* 2. Discuss (Mock) - 已恢复完整代码 */}
                 {activeTab === 'discuss' && (
                     <div className="max-w-5xl mx-auto animate-in fade-in duration-500">
                         <div className="flex justify-between items-center mb-6">
@@ -282,20 +300,18 @@ export default function CommunityPage({ onBack, championList = [], currentUser, 
                 )}
             </div>
 
-            {/* 🟢 4. 使用完整功能的英雄选择器 */}
             <ChampSelectModal
                 isOpen={showChampSelector}
                 onClose={() => setShowChampSelector(false)}
                 championList={championList}
                 onSelect={(hero) => {
-                    setCurrentHeroId(hero.key); // 这里使用 key (如 "Camille") 而不是 id (数字)
+                    setCurrentHeroId(hero.key); 
                     setShowChampSelector(false);
                     toast.success(`已进入 ${hero.name} 社区`);
                 }}
-                roleMapping={roleMapping} // 🟢 传入分类数据
+                roleMapping={roleMapping} 
             />
 
-            {/* Post Modal */}
             <TipModal 
                 isOpen={showPostModal} 
                 onClose={() => setShowPostModal(false)} 
