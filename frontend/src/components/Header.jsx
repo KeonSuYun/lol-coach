@@ -3,7 +3,7 @@ import {
   LogOut, Download, Zap, Brain, 
   Infinity as InfinityIcon, ChevronDown, 
   Settings, ShieldAlert, Home, LayoutDashboard, 
-  Globe, Diamond, User 
+  Globe, Diamond, User, HelpCircle 
 } from 'lucide-react';
 import HexCoreIcon from './HexCoreIcon';
 import ConsoleHeaderUser from './ConsoleHeaderUser'; // 确保路径正确
@@ -14,7 +14,7 @@ const Header = ({
     setShowPricingModal, accountInfo,
     userRank, setUserRank,
     onGoHome, onShowCommunity, onShowDownload, onShowProfile,
-    onShowSettings, onShowAdmin
+    onShowSettings, onShowAdmin, onShowGuide
 }) => {
   
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -138,6 +138,15 @@ const Header = ({
                   )}
               </button>
           </div>
+
+          {/* 🟢 [新增] 帮助/引导按钮 */}
+          <button 
+              onClick={onShowGuide}
+              className="p-2 text-slate-500 hover:text-[#0AC8B9] transition-colors rounded-full hover:bg-white/5"
+              title="功能指引"
+          >
+              <HelpCircle size={20} />
+          </button>
 
           {/* 用户信息 & 登录登出 */}
           {currentUser ? (

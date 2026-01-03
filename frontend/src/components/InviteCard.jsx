@@ -45,7 +45,7 @@ const InviteCard = ({ token, username, onUpdateSuccess }) => {
 
             <h3 className="text-[#F0E6D2] font-bold text-lg mb-2 flex items-center gap-2">
                 <Gift size={20} className="text-[#C8AA6E]" /> 
-                邀请好友，各得 3 天会员
+                内测期间，邀请好友，各得 3 天会员
             </h3>
             <p className="text-slate-400 text-xs mb-6">
                 每邀请一位好友填写您的邀请码，双方均可获得 <span className="text-[#0AC8B9] font-bold">3天 Pro 权限</span>

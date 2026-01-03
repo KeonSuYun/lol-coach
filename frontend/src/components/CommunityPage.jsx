@@ -124,7 +124,7 @@ export default function CommunityPage({
 
     const currentHeroInfo = championList.find(c => String(c.id) === String(currentHeroId)) || 
                             championList.find(c => c.key === currentHeroId) || 
-                            { name: "加载中...", image_url: "" };
+                            { name: "加载中...", image_url: null }; // 🟢 Fix: 默认为 null 而非 ""
     
     const opponentHeroInfo = championList.find(c => c.id === opponentHeroId) || null;
 
@@ -228,7 +228,8 @@ export default function CommunityPage({
 
                         <div onClick={() => setIsSelectorOpen(true)} className="flex items-center gap-3 cursor-pointer group">
                             <div className="w-10 h-10 rounded-full border border-[#C8AA6E]/50 p-0.5 group-hover:border-[#0AC8B9] transition-colors relative overflow-hidden bg-black">
-                                <img src={currentHeroInfo.image_url || ""} className="w-full h-full rounded-full object-cover transform group-hover:scale-110 transition-transform" alt=""/>
+                                {/* 🟢 Fix: 使用 || null 替代 || "" */}
+                                <img src={currentHeroInfo.image_url || null} className="w-full h-full rounded-full object-cover transform group-hover:scale-110 transition-transform" alt=""/>
                             </div>
                             <div>
                                 <h1 className="text-lg font-bold text-[#F0E6D2] leading-none group-hover:text-[#0AC8B9] transition-colors">{currentHeroInfo.name || "Loading..."}</h1>
