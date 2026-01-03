@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from '../config/constants';
@@ -22,6 +22,9 @@ export function useGameCore() {
     const [hasStarted, setHasStarted] = useState(() => window.location.href.includes('overlay=true'));
     const [showCommunity, setShowCommunity] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
+    
+    // 🔥 [新增] 销售合伙人弹窗状态
+    const [showSalesDashboard, setShowSalesDashboard] = useState(false);
 
     useEffect(() => {
         if (isOverlay) document.body.classList.add('transparent-mode');
@@ -119,11 +122,9 @@ export function useGameCore() {
                     if (msg.type === 'ALERT') {
                         toast(msg.data.content, { icon: '🚨', duration: 5000, style: { background: '#450a0a', color: '#fecaca' } });
                     }
-                    // 🔥🔥🔥【新增】处理 WebSocket 返回的个人档案 🔥🔥🔥
                     if (msg.type === 'LCU_PROFILE_UPDATE') {
                         console.log("🌐 [WS] 收到个人档案:", msg.data);
                         setLcuProfile(msg.data);
-                        // 静默上传
                         if (token) {
                             axios.post(`${API_BASE_URL}/users/sync_profile`, msg.data, {
                                 headers: { Authorization: `Bearer ${token}` }
@@ -268,39 +269,44 @@ export function useGameCore() {
         }
     };
     
-    // 🔥🔥🔥【关键修复】兼容 Web (WS) 和 Electron (IPC) 的同步函数 🔥🔥🔥
-    const handleSyncProfile = () => {
+    const handleSyncProfile = useCallback(() => { 
         // 1. Electron 环境
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
             ipcRenderer.send('req-lcu-profile'); 
-            toast("请求同步数据中...", { icon: '⏳' });
         } 
         // 2. Web 环境 (通过 WebSocket Bridge)
         else if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: 'REQ_LCU_PROFILE' }));
-            toast("请求同步数据中...", { icon: '📡' });
         } 
         // 3. 失败
         else {
-            toast.error("未连接到 HexLite 客户端");
+            // 静默处理
         }
-    };
+    }, []);
+
+    // 2. 新增：使用 useRef 记录是否已自动同步过，防止切换页面重复触发
+    const hasAutoSynced = useRef(false);
 
     useEffect(() => {
         if (lcuStatus === 'connected') {
-            // 防抖：只有当本地还没有数据，或者确实需要更新时才同步
-            // 这里简单处理：只要连上就尝试同步一次，确保数据最新
+            // 🛑 核心判断：如果已经同步过，就跳过
+            if (hasAutoSynced.current) return;
+
             console.log("⚡ LCU 已连接，正在自动同步数据...");
             
             // 延迟 1 秒执行，等待 LCU 接口完全就绪
             const timer = setTimeout(() => {
                 handleSyncProfile();
+                hasAutoSynced.current = true; // ✅ 标记为已同步
             }, 1000);
             
             return () => clearTimeout(timer);
+        } else if (lcuStatus === 'disconnected') {
+            // 只有真正断开连接时，才重置标记，允许下次连接时再次同步
+            hasAutoSynced.current = false;
         }
-    }, [lcuStatus]);
+    }, [lcuStatus, handleSyncProfile]);
 
     // ================= 4. 数据持久化 & 初始化 =================
     useEffect(() => { localStorage.setItem('blueTeam', JSON.stringify(blueTeam)); }, [blueTeam]);
@@ -485,7 +491,19 @@ export function useGameCore() {
         } catch (e) { alert("登录失败"); }
     };
     const handleRegister = async () => {
-        try { await axios.post(`${API_BASE_URL}/register`, authForm); alert("注册成功"); setAuthMode("login"); } catch (e) { alert("注册失败"); }
+        try { 
+            // 🔥 确保发送的数据包含 sales_ref
+            const payload = {
+                ...authForm,
+                sales_ref: authForm.sales_ref || localStorage.getItem('sales_ref') || null
+            };
+            await axios.post(`${API_BASE_URL}/register`, payload); 
+            alert("注册成功"); 
+            setAuthMode("login"); 
+            localStorage.removeItem('sales_ref');
+        } catch (e) { 
+            alert(e.response?.data?.detail || "注册失败"); 
+        }
     };
     const logout = () => {
         setToken(null); setCurrentUser(null); setAccountInfo(null);
@@ -675,7 +693,10 @@ export function useGameCore() {
             showChampSelector, selectingSlot, selectingIsEnemy, roleMapping,
             currentUser, accountInfo, token, authMode, authForm, showLoginModal, showPricingModal,
             tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot,
-            mapSide,showDownloadModal, lcuProfile
+            mapSide,showDownloadModal, lcuProfile,
+            
+            // 🔥 [导出状态]
+            showSalesDashboard 
         },
         actions: {
             setHasStarted, setShowCommunity, setShowProfile,
@@ -689,7 +710,10 @@ export function useGameCore() {
             handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo,
             handleCardClick, handleSelectChampion, handleSaveShortcuts,
             handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide,
-            setShowDownloadModal, handleSyncProfile 
+            setShowDownloadModal, handleSyncProfile,
+            
+            // 🔥 [导出动作]
+            setShowSalesDashboard 
         }
     };
 }

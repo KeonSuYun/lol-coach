@@ -3,14 +3,15 @@ import axios from 'axios';
 import { 
     ShieldAlert, X, Terminal, User, Clock, Activity, 
     DollarSign, TrendingUp, Users, Zap, AlertTriangle, 
-    Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool 
+    Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool,
+    Wallet, ArrowUpRight, EyeOff
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 
 const COST_PER_CALL = 0.0043; // 单次调用成本 (RMB)
 
-const AdminDashboard = ({ token, onClose }) => {
-    const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'feedbacks' | 'users'
+const AdminDashboard = ({ token, onClose, username }) => {
+    const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'feedbacks' | 'users' | 'sales'
     
     // 数据状态
     const [feedbacks, setFeedbacks] = useState([]);
@@ -26,6 +27,21 @@ const AdminDashboard = ({ token, onClose }) => {
     const [actionType, setActionType] = useState(null); // 'add_days' | 'set_role' | 'rename' | 'delete'
     const [actionValue, setActionValue] = useState("");
 
+    // 销售结算状态
+    const [salesPartners, setSalesPartners] = useState([]);
+
+    // 🔥 [权限判断] 只有 username 为 'admin' 才是超级管理员
+    const isSuperAdmin = username === "admin";
+
+    // 动态生成 Tab 列表
+    const TABS = [
+        { id: 'overview', label: '监控中心', icon: Activity },
+        { id: 'users', label: '用户管理', icon: Users },
+        // 🔥 只有超管才能看到销售结算 Tab
+        ...(isSuperAdmin ? [{ id: 'sales', label: '销售结算', icon: Wallet }] : []),
+        { id: 'feedbacks', label: '用户反馈', icon: Database },
+    ];
+
     // 获取基础数据 (概览 & 反馈)
     const fetchData = async () => {
         setLoading(true);
@@ -35,7 +51,7 @@ const AdminDashboard = ({ token, onClose }) => {
             const resFeedbacks = await axios.get(`${API_BASE_URL}/admin/feedbacks`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            setFeedbacks(resFeedbacks.data);
+            setFeedbacks(Array.isArray(resFeedbacks.data) ? resFeedbacks.data : []);
 
             // 2. 获取统计数据
             try {
@@ -79,9 +95,30 @@ const AdminDashboard = ({ token, onClose }) => {
                 params: { search: searchQuery },
                 headers: { Authorization: `Bearer ${token}` }
             });
-            setUsers(res.data);
+            setUsers(Array.isArray(res.data) ? res.data : []);
         } catch (err) {
             console.error("Fetch users failed", err);
+            setUsers([]);
+        }
+    };
+
+    // 🔥 获取销售结算报表
+    const fetchSalesPartners = async () => {
+        if (!isSuperAdmin) return;
+        try {
+            const res = await axios.get(`${API_BASE_URL}/admin/sales/summary`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            // 🛡️ 防御性检查：确保是数组
+            if (Array.isArray(res.data)) {
+                setSalesPartners(res.data);
+            } else {
+                console.error("Sales data format error:", res.data);
+                setSalesPartners([]);
+            }
+        } catch (err) {
+            console.error("Sales fetch error", err);
+            setSalesPartners([]);
         }
     };
 
@@ -116,9 +153,8 @@ const AdminDashboard = ({ token, onClose }) => {
 
     // 切换到用户标签或搜索时，加载用户列表
     useEffect(() => {
-        if (activeTab === 'users') {
-            fetchUsers();
-        }
+        if (activeTab === 'users') fetchUsers();
+        if (activeTab === 'sales') fetchSalesPartners();
     }, [activeTab, searchQuery]);
 
     // 计算利润逻辑
@@ -132,31 +168,28 @@ const AdminDashboard = ({ token, onClose }) => {
 
     const { cost, profit, margin } = calculateProfit();
 
-    // 🔥🔥🔥 增强版：全方位获取显示名称 (兼容各种后端返回格式) 🔥🔥🔥
     const getDisplayName = (user) => {
-        // 1. 尝试直接从根节点读取 (扁平化结构)
         if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
-        if (user.game_name) return `${user.game_name} #${user.tag_line || 'HEX'}`;
-        if (user.summonerName) return `${user.summonerName} #${user.tagLine || 'HEX'}`;
-
-        // 2. 尝试从 game_profile 对象读取 (嵌套结构)
         if (user.game_profile) {
-            let profile = user.game_profile;
-            
-            // 防御：如果是 JSON 字符串，先解析
-            if (typeof profile === 'string') {
-                try { profile = JSON.parse(profile); } catch(e) {}
+            const p = user.game_profile;
+            // 兼容直接对象或JSON字符串
+            let profile = p;
+            if (typeof p === 'string') {
+                try { profile = JSON.parse(p); } catch(e) {}
             }
-
             if (typeof profile === 'object') {
                 const name = profile.gameName || profile.game_name || profile.summonerName || profile.name;
                 const tag = profile.tagLine || profile.tag_line || profile.tag || "HEX";
                 if (name) return `${name} #${tag}`;
             }
         }
-
         return null;
     };
+
+    // 🔥 计算总应付佣金 (防御性)
+    const totalCommission = Array.isArray(salesPartners) 
+        ? salesPartners.reduce((acc, cur) => acc + (cur.total_commission || 0), 0) 
+        : 0;
 
     return (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
@@ -175,7 +208,7 @@ const AdminDashboard = ({ token, onClose }) => {
                         <div>
                             <h2 className="text-xl font-bold text-[#F0E6D2] tracking-wider font-serif">HEXTECH ADMIN</h2>
                             <p className="text-[10px] text-[#0AC8B9] font-mono tracking-widest uppercase flex items-center gap-1">
-                                <Server size={10}/> SYSTEM ONLINE
+                                <Server size={10}/> SYSTEM ONLINE {isSuperAdmin && <span className="text-red-500 ml-2 font-bold">[SUPER ADMIN]</span>}
                             </p>
                         </div>
                     </div>
@@ -186,40 +219,24 @@ const AdminDashboard = ({ token, onClose }) => {
 
                 {/* 导航 Tab */}
                 <div className="flex border-b border-[#C8AA6E]/20 bg-[#091428]">
-                    <button 
-                        onClick={() => setActiveTab('overview')}
-                        className={`px-6 py-3 text-sm font-bold tracking-wide transition-all flex items-center gap-2
-                            ${activeTab === 'overview' 
-                                ? 'text-[#0AC8B9] border-b-2 border-[#0AC8B9] bg-[#0AC8B9]/5' 
-                                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
-                    >
-                        <Activity size={16}/> 监控中心
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('feedbacks')}
-                        className={`px-6 py-3 text-sm font-bold tracking-wide transition-all flex items-center gap-2
-                            ${activeTab === 'feedbacks' 
-                                ? 'text-[#0AC8B9] border-b-2 border-[#0AC8B9] bg-[#0AC8B9]/5' 
-                                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
-                    >
-                        <Database size={16}/> 用户反馈 
-                        <span className="px-1.5 py-0.5 bg-red-900/50 text-red-200 text-[10px] rounded border border-red-500/30">{feedbacks.length}</span>
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('users')}
-                        className={`px-6 py-3 text-sm font-bold tracking-wide transition-all flex items-center gap-2
-                            ${activeTab === 'users' 
-                                ? 'text-[#0AC8B9] border-b-2 border-[#0AC8B9] bg-[#0AC8B9]/5' 
-                                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
-                    >
-                        <Users size={16}/> 用户管理
-                    </button>
+                    {TABS.map(tab => (
+                        <button 
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`px-6 py-3 text-sm font-bold tracking-wide transition-all flex items-center gap-2
+                                ${activeTab === tab.id 
+                                    ? 'text-[#0AC8B9] border-b-2 border-[#0AC8B9] bg-[#0AC8B9]/5' 
+                                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
+                        >
+                            <tab.icon size={16}/> {tab.label}
+                        </button>
+                    ))}
                 </div>
 
                 {/* 内容区 */}
                 <div className="flex-1 overflow-auto p-6 custom-scrollbar bg-hex-pattern bg-opacity-5">
                     
-                    {loading && (
+                    {loading && activeTab === 'overview' && (
                         <div className="h-full flex flex-col items-center justify-center text-[#0AC8B9] animate-pulse gap-3">
                             <Activity size={48} />
                             <span className="font-mono text-sm">CONNECTING TO NEURAL LINK...</span>
@@ -243,36 +260,57 @@ const AdminDashboard = ({ token, onClose }) => {
                                 </div>
                             )}
 
-                            {/* KPI 卡片 */}
+                            {/* KPI 卡片 - 权限控制 */}
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg relative overflow-hidden group hover:border-[#C8AA6E]/50 transition-all">
-                                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={40} className="text-[#C8AA6E]"/></div>
-                                    <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Total Revenue</div>
-                                    <div className="text-2xl font-black text-[#F0E6D2] font-serif">¥{stats?.total_revenue?.toFixed(2)}</div>
-                                    <div className="text-[10px] text-[#0AC8B9] mt-2 flex items-center gap-1"><TrendingUp size={10}/> +12% from last week</div>
-                                </div>
-                                <div className="bg-[#010A13]/60 border border-red-900/30 p-4 rounded-lg relative overflow-hidden group hover:border-red-500/50 transition-all">
-                                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Server size={40} className="text-red-500"/></div>
-                                    <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">API Cost (Est.)</div>
-                                    <div className="text-2xl font-black text-slate-200 font-serif">¥{cost.toFixed(2)}</div>
-                                    <div className="text-[10px] text-slate-500 mt-2 font-mono">{stats?.total_api_calls} calls × ¥{COST_PER_CALL}</div>
-                                </div>
-                                <div className="bg-gradient-to-br from-[#0AC8B9]/10 to-[#091428] border border-[#0AC8B9]/40 p-4 rounded-lg relative overflow-hidden group shadow-[0_0_20px_rgba(10,200,185,0.1)]">
-                                    <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity"><Zap size={40} className="text-[#0AC8B9]"/></div>
-                                    <div className="text-xs text-[#0AC8B9] font-bold uppercase tracking-wider mb-1">Net Profit</div>
-                                    <div className="text-3xl font-black text-[#ffffff] font-serif drop-shadow-md">¥{profit.toFixed(2)}</div>
-                                    <div className="text-[10px] text-[#0AC8B9]/80 mt-2 font-bold">Margin: {margin.toFixed(1)}%</div>
-                                </div>
-                                <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg group hover:border-[#C8AA6E]/50 transition-all">
-                                    <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Active Users</div>
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="text-2xl font-black text-[#F0E6D2] font-serif">{stats?.total_users}</span>
-                                        <span className="text-xs text-[#C8AA6E] font-bold px-1.5 py-0.5 bg-[#C8AA6E]/10 rounded border border-[#C8AA6E]/20">{stats?.pro_users} PRO</span>
-                                    </div>
-                                    <div className="w-full bg-slate-800 h-1.5 mt-4 rounded-full overflow-hidden">
-                                        <div className="h-full bg-[#C8AA6E]" style={{ width: `${(stats?.pro_users / stats?.total_users) * 100}%` }}></div>
-                                    </div>
-                                </div>
+                                {isSuperAdmin ? (
+                                    <>
+                                        <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg relative overflow-hidden group hover:border-[#C8AA6E]/50 transition-all">
+                                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={40} className="text-[#C8AA6E]"/></div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Total Revenue</div>
+                                            <div className="text-2xl font-black text-[#F0E6D2] font-serif">¥{stats?.total_revenue?.toFixed(2)}</div>
+                                            <div className="text-[10px] text-[#0AC8B9] mt-2 flex items-center gap-1"><TrendingUp size={10}/> +12% from last week</div>
+                                        </div>
+                                        <div className="bg-gradient-to-br from-[#0AC8B9]/10 to-[#091428] border border-[#0AC8B9]/40 p-4 rounded-lg relative overflow-hidden group shadow-[0_0_20px_rgba(10,200,185,0.1)]">
+                                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity"><Zap size={40} className="text-[#0AC8B9]"/></div>
+                                            <div className="text-xs text-[#0AC8B9] font-bold uppercase tracking-wider mb-1">Net Profit</div>
+                                            <div className="text-3xl font-black text-[#ffffff] font-serif drop-shadow-md">¥{profit.toFixed(2)}</div>
+                                            <div className="text-[10px] text-[#0AC8B9]/80 mt-2 font-bold">Margin: {margin.toFixed(1)}%</div>
+                                        </div>
+                                        <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg group hover:border-[#C8AA6E]/50 transition-all">
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Active Users</div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-2xl font-black text-[#F0E6D2] font-serif">{stats?.total_users}</span>
+                                                <span className="text-xs text-[#C8AA6E] font-bold px-1.5 py-0.5 bg-[#C8AA6E]/10 rounded border border-[#C8AA6E]/20">{stats?.pro_users} PRO</span>
+                                            </div>
+                                            <div className="w-full bg-slate-800 h-1.5 mt-4 rounded-full overflow-hidden">
+                                                <div className="h-full bg-[#C8AA6E]" style={{ width: `${(stats?.pro_users / stats?.total_users) * 100}%` }}></div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-[#010A13]/60 border border-red-900/30 p-4 rounded-lg relative overflow-hidden group hover:border-red-500/50 transition-all">
+                                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Server size={40} className="text-red-500"/></div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">API Cost (Est.)</div>
+                                            <div className="text-2xl font-black text-slate-200 font-serif">¥{cost.toFixed(2)}</div>
+                                            <div className="text-[10px] text-slate-500 mt-2 font-mono">{stats?.total_api_calls} calls × ¥{COST_PER_CALL}</div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg group hover:border-[#C8AA6E]/50 transition-all">
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Active Users</div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-2xl font-black text-[#F0E6D2] font-serif">{stats?.total_users}</span>
+                                                <span className="text-xs text-[#C8AA6E] font-bold px-1.5 py-0.5 bg-[#C8AA6E]/10 rounded border border-[#C8AA6E]/20">{stats?.pro_users} PRO</span>
+                                            </div>
+                                            <div className="w-full bg-slate-800 h-1.5 mt-4 rounded-full overflow-hidden">
+                                                <div className="h-full bg-[#C8AA6E]" style={{ width: `${(stats?.pro_users / stats?.total_users) * 100}%` }}></div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-[#010A13]/40 border border-slate-800 p-4 rounded-lg flex flex-col items-center justify-center text-slate-600 gap-2 col-span-3">
+                                            <EyeOff size={24} />
+                                            <span className="text-xs font-bold uppercase">财务数据仅超级管理员可见</span>
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             {/* 最近活跃用户表格 */}
@@ -307,35 +345,7 @@ const AdminDashboard = ({ token, onClose }) => {
                         </div>
                     )}
 
-                    {/* === Tab 2: 用户反馈 === */}
-                    {!loading && !error && activeTab === 'feedbacks' && (
-                        <div className="grid gap-4 animate-fade-in-up">
-                            {feedbacks.map((item) => (
-                                <div key={item._id} className="bg-[#010A13]/60 border border-slate-800 rounded-lg p-4 hover:border-[#0AC8B9]/30 transition-all group relative overflow-hidden">
-                                    <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-red-500/50 group-hover:bg-[#0AC8B9] transition-colors"></div>
-                                    <div className="flex justify-between items-start mb-3 pl-2">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded bg-slate-900 flex items-center justify-center border border-slate-700"><User size={14} className="text-[#0AC8B9]"/></div>
-                                            <div>
-                                                <div className="text-sm font-bold text-slate-200">{item.user_id}</div>
-                                                <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1"><Clock size={10}/> ID: {item._id}</div>
-                                            </div>
-                                        </div>
-                                        <span className="text-[10px] bg-red-900/20 text-red-400 px-2 py-1 rounded border border-red-900/30 uppercase font-bold tracking-wider">Bug Report</span>
-                                    </div>
-                                    <div className="pl-2 mb-4"><p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">{item.description}</p></div>
-                                    <div className="pl-2">
-                                        <div className="bg-black/40 rounded p-3 font-mono text-[10px] border border-slate-800/50 text-[#0AC8B9]/70 overflow-x-auto custom-scrollbar">
-                                            <div className="flex items-center gap-2 mb-1 text-slate-500 font-bold uppercase tracking-wider"><Terminal size={10}/> Context Snapshot</div>
-                                            <pre>{JSON.stringify(item.match_context, null, 2)}</pre>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* === Tab 3: 用户管理 === */}
+                    {/* === Tab 2: 用户管理 === */}
                     {!loading && !error && activeTab === 'users' && (
                         <div className="animate-fade-in-up space-y-4">
                             {/* 搜索栏 */}
@@ -369,7 +379,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                             const gameName = getDisplayName(user);
                                             return (
                                                 <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
-                                                    {/* 🔥 [修改] 同时显示用户名和游戏昵称 */}
                                                     <td className="px-4 py-3">
                                                         <div className="font-bold text-slate-200">{user.username}</div>
                                                         <div className="text-xs text-[#0AC8B9]">{gameName || "未同步"}</div>
@@ -386,8 +395,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                                         {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() + ' ' + new Date(user.membership_expire).toLocaleTimeString() : '-'}
                                                     </td>
                                                     <td className="px-4 py-3 flex justify-end gap-2">
-                                                        
-                                                        {/* 改名 (笔图标) */}
                                                         <button 
                                                             onClick={() => { setActionUser(user); setActionType('rename'); setActionValue(user.username); }}
                                                             className="p-1.5 text-blue-400 bg-blue-900/10 border border-blue-500/20 rounded hover:bg-blue-900/30 transition"
@@ -395,8 +402,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                                         >
                                                             <PenTool size={12}/>
                                                         </button>
-
-                                                        {/* 补单 (加号图标 - 仅加时长) */}
                                                         <button 
                                                             onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }}
                                                             className="flex items-center gap-1 bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition"
@@ -404,8 +409,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                                         >
                                                             <Plus size={12}/> 补单
                                                         </button>
-
-                                                        {/* 权限 (编辑图标) */}
                                                         <button 
                                                             onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }}
                                                             className="flex items-center gap-1 bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition"
@@ -413,8 +416,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                                         >
                                                             <Edit size={12}/> 权限
                                                         </button>
-
-                                                        {/* 删除 (垃圾桶图标) */}
                                                         <button 
                                                             onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }}
                                                             className="p-1.5 text-red-400 bg-red-900/10 border border-red-500/20 rounded hover:bg-red-900/30 transition"
@@ -453,7 +454,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                             <p className="text-[#0AC8B9] text-xs">{getDisplayName(actionUser) || "无游戏信息"}</p>
                                         </div>
 
-                                        {/* 补单时长 */}
                                         {actionType === 'add_days' && (
                                             <div className="mb-6">
                                                 <label className="block text-xs text-slate-500 mb-2">增加天数 (Days)</label>
@@ -465,19 +465,12 @@ const AdminDashboard = ({ token, onClose }) => {
                                                 />
                                                 <div className="flex gap-2 mt-3">
                                                     {[7, 30, 90, 365].map(d => (
-                                                        <button 
-                                                            key={d} 
-                                                            onClick={() => setActionValue(d.toString())} 
-                                                            className="flex-1 bg-slate-800 text-xs py-2 rounded hover:bg-slate-700 text-slate-300 border border-slate-700"
-                                                        >
-                                                            +{d}天
-                                                        </button>
+                                                        <button key={d} onClick={() => setActionValue(d.toString())} className="flex-1 bg-slate-800 text-xs py-2 rounded hover:bg-slate-700 text-slate-300 border border-slate-700">+{d}天</button>
                                                     ))}
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* 修改角色 */}
                                         {actionType === 'set_role' && (
                                             <div className="mb-6">
                                                 <label className="block text-xs text-slate-500 mb-2">选择角色 (Role)</label>
@@ -491,7 +484,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                             </div>
                                         )}
 
-                                        {/* 修改用户名 */}
                                         {actionType === 'rename' && (
                                             <div className="mb-6">
                                                 <label className="block text-xs text-slate-500 mb-2">新的用户名 (New Username)</label>
@@ -501,7 +493,6 @@ const AdminDashboard = ({ token, onClose }) => {
                                             </div>
                                         )}
 
-                                        {/* 删除用户 */}
                                         {actionType === 'delete' && (
                                             <div className="mb-6 bg-red-900/20 border border-red-500/30 p-3 rounded">
                                                 <p className="text-red-300 text-xs font-bold mb-2">您确定要执行此操作吗？</p>
@@ -527,6 +518,101 @@ const AdminDashboard = ({ token, onClose }) => {
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {/* === 🔥 Tab 3: Sales Settlement (仅限超管可见) === */}
+                    {!loading && !error && activeTab === 'sales' && isSuperAdmin && (
+                        <div className="space-y-6 animate-fade-in-up">
+                            <div className="flex justify-between items-end">
+                                <div>
+                                    <h3 className="text-xl font-bold text-[#F0E6D2] flex items-center gap-2">
+                                        <Wallet className="text-[#C8AA6E]" /> 销售合伙人结算表
+                                    </h3>
+                                    <p className="text-slate-400 text-xs mt-1">
+                                        此处显示所有销售人员的累计业绩。请根据【应付佣金】线下打款。
+                                    </p>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-xs text-slate-500 uppercase font-bold">本月待结算总额</div>
+                                    <div className="text-2xl font-black text-[#C8AA6E] font-mono">
+                                        ¥{totalCommission.toFixed(2)}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden">
+                                <table className="w-full text-left text-sm text-slate-400">
+                                    <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
+                                        <tr>
+                                            <th className="px-6 py-4">销售员 (Username)</th>
+                                            <th className="px-6 py-4">联系方式</th>
+                                            <th className="px-6 py-4 text-right">推广单数</th>
+                                            <th className="px-6 py-4 text-right">总销售额</th>
+                                            <th className="px-6 py-4 text-right text-[#C8AA6E]">应付佣金 (40%)</th>
+                                            <th className="px-6 py-4 text-right">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-[#C8AA6E]/5">
+                                        {Array.isArray(salesPartners) && salesPartners.length > 0 ? salesPartners.map((p, idx) => (
+                                            <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors group">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-slate-200 text-base">{p.username}</div>
+                                                    <div className="text-xs text-slate-500">{p.game_name}</div>
+                                                </td>
+                                                <td className="px-6 py-4 font-mono text-xs">{p.contact}</td>
+                                                <td className="px-6 py-4 text-right font-mono text-slate-300">{p.order_count}</td>
+                                                <td className="px-6 py-4 text-right font-mono">¥{p.total_sales}</td>
+                                                <td className="px-6 py-4 text-right font-mono font-bold text-[#C8AA6E] text-lg">
+                                                    ¥{p.total_commission}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button 
+                                                        onClick={() => alert(`请线下转账 ¥${p.total_commission} 给 ${p.username}。\n\n目前系统仅提供记账功能，转账后请自行在 Excel 备注。`)}
+                                                        className="px-3 py-1.5 bg-[#C8AA6E]/10 border border-[#C8AA6E]/30 text-[#C8AA6E] rounded text-xs font-bold hover:bg-[#C8AA6E] hover:text-black transition-all flex items-center gap-1 ml-auto"
+                                                    >
+                                                        <ArrowUpRight size={12}/> 结算
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan="6" className="p-10 text-center text-slate-600">
+                                                    {isSuperAdmin ? "暂无销售数据，快去招募合伙人吧！" : "Loading..."}
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* === Tab 4: 用户反馈 === */}
+                    {!loading && !error && activeTab === 'feedbacks' && (
+                        <div className="grid gap-4 animate-fade-in-up">
+                            {feedbacks.map((item) => (
+                                <div key={item._id} className="bg-[#010A13]/60 border border-slate-800 rounded-lg p-4 hover:border-[#0AC8B9]/30 transition-all group relative overflow-hidden">
+                                    <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-red-500/50 group-hover:bg-[#0AC8B9] transition-colors"></div>
+                                    <div className="flex justify-between items-start mb-3 pl-2">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded bg-slate-900 flex items-center justify-center border border-slate-700"><User size={14} className="text-[#0AC8B9]"/></div>
+                                            <div>
+                                                <div className="text-sm font-bold text-slate-200">{item.user_id}</div>
+                                                <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1"><Clock size={10}/> ID: {item._id}</div>
+                                            </div>
+                                        </div>
+                                        <span className="text-[10px] bg-red-900/20 text-red-400 px-2 py-1 rounded border border-red-900/30 uppercase font-bold tracking-wider">Bug Report</span>
+                                    </div>
+                                    <div className="pl-2 mb-4"><p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">{item.description}</p></div>
+                                    <div className="pl-2">
+                                        <div className="bg-black/40 rounded p-3 font-mono text-[10px] border border-slate-800/50 text-[#0AC8B9]/70 overflow-x-auto custom-scrollbar">
+                                            <div className="flex items-center gap-2 mb-1 text-slate-500 font-bold uppercase tracking-wider"><Terminal size={10}/> Context Snapshot</div>
+                                            <pre>{JSON.stringify(item.match_context, null, 2)}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>

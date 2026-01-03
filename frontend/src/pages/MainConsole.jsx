@@ -175,6 +175,9 @@ export default function MainConsole({ state, actions }) {
                         
                         // 🔥🔥🔥 [修复1] 这里把打开引导的函数传给 Header，让 Header 里的按钮生效
                         onShowGuide={() => setShowGuide(true)} 
+                        
+                        // 🔥 [修改] 传递打开销售中心的方法
+                        onShowSales={() => actions.setShowSalesDashboard(true)}
                     />
                 </div>
 

@@ -3,7 +3,8 @@ import {
   LogOut, Download, Zap, Brain, 
   Infinity as InfinityIcon, ChevronDown, 
   Settings, ShieldAlert, Home, LayoutDashboard, 
-  Globe, Diamond, User, HelpCircle 
+  Globe, Diamond, User, HelpCircle,
+  DollarSign, Gift 
 } from 'lucide-react';
 import HexCoreIcon from './HexCoreIcon';
 import ConsoleHeaderUser from './ConsoleHeaderUser'; // 确保路径正确
@@ -14,7 +15,9 @@ const Header = ({
     setShowPricingModal, accountInfo,
     userRank, setUserRank,
     onGoHome, onShowCommunity, onShowDownload, onShowProfile,
-    onShowSettings, onShowAdmin, onShowGuide
+    onShowSettings, onShowAdmin, onShowGuide,
+    // 🔥 [新增] 接收打开销售中心的函数
+    onShowSales 
 }) => {
   
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -166,14 +169,20 @@ const Header = ({
                                     <User size={14} /> 个人主页
                               </button>
 
-                              <button onClick={() => {if(onShowSettings) onShowSettings(); setShowUserMenu(false);}} className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-white/5 flex items-center gap-2">
-                                  <Settings size={14} /> 设置
+                              {/* 🔥🔥🔥 [核心修改] 替换“设置”为“销售合伙人” 🔥🔥🔥 */}
+                              <button 
+                                  onClick={() => {
+                                      if(onShowSales) onShowSales(); 
+                                      setShowUserMenu(false);
+                                  }} 
+                                  className="w-full text-left px-4 py-2 text-xs font-bold text-amber-400 hover:bg-amber-900/20 flex items-center gap-2"
+                              >
+                                  <DollarSign size={14} /> 销售合伙人
+                                  <span className="bg-red-500 text-white text-[9px] px-1 rounded scale-90">内测</span>
                               </button>
-                              {onShowAdmin && (
-                                  <button onClick={() => {onShowAdmin(); setShowUserMenu(false);}} className="w-full text-left px-4 py-2 text-xs text-red-400 hover:bg-red-900/20 flex items-center gap-2">
-                                      <ShieldAlert size={14} /> 管理后台
-                                  </button>
-                              )}
+
+                              {/* ❌❌❌ [已删除] “管理后台”按钮已移除 */}
+                              
                               <div className="h-[1px] bg-white/5 my-1"></div>
                               <button onClick={logout} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-white/5 flex items-center gap-2">
                                   <LogOut size={14} /> 退出登录

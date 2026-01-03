@@ -94,7 +94,7 @@ AFDIAN_USER_ID = os.getenv("AFDIAN_USER_ID")
 AFDIAN_TOKEN = os.getenv("AFDIAN_TOKEN")
 
 # 2. 邮件配置
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.qq.com")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.exmail.qq.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
@@ -247,6 +247,7 @@ class UserCreate(BaseModel):
     email: str
     verify_code: str
     device_id: str = "unknown" 
+    sales_ref: Optional[str] = None
 
 class AdminUserUpdate(BaseModel):
     username: str
@@ -505,15 +506,29 @@ async def redeem_invite(
     if not invite_code:
         raise HTTPException(status_code=400, detail="请输入邀请码")
 
-    # ✅ [修复] 使用 db.users_col 并移除 await (因为 database.py 是 PyMongo 同步的)
+    # 1️⃣ 【必须先做】获取当前用户对象
     user = db.users_col.find_one({"_id": current_user["_id"]})
     if not user:
         raise HTTPException(status_code=404, detail="用户数据同步错误")
 
+    # 2️⃣ 【再做】检查注册时间 (仅限3天内新用户)
+    register_time = user.get('created_at')
+    if register_time:
+        # 确保 register_time 带时区 (兼容旧数据)
+        if register_time.tzinfo is None:
+            register_time = register_time.replace(tzinfo=datetime.timezone.utc)
+        
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
+        # 计算注册时长
+        if (now - register_time).days > 3:
+            raise HTTPException(status_code=400, detail="仅限注册 3 天内的新用户领取新手福利")
+
+    # 3️⃣ 检查是否已领取过
     if user.get('invited_by'):
         raise HTTPException(status_code=400, detail="您已经领取过新手福利了，无法重复领取")
 
-    # 获取邀请人
+    # 4️⃣ 获取邀请人并校验
     inviter = db.users_col.find_one({"username": invite_code})
     if not inviter:
         raise HTTPException(status_code=404, detail="无效的邀请码（请输入朋友的用户名）")
@@ -666,58 +681,34 @@ def get_champion_roles():
         print(f"❌ Role Load Error: {e}")
         return {}
 
-async def polish_tip_content(tip_id: str, content: str):
-    """后台任务：使用 AI 为玩家攻略生成标题和标签"""
-    try:
-        # 使用更便宜、更快的 V3 模型
-        prompt = f"请为这条LOL攻略生成一个6-10字的吸引人标题和2个分类标签（如：对线、团战、出装）。攻略内容：{content}"
-        response = await client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"} # 强制输出 JSON
-        )
-        res = json.loads(response.choices[0].message.content)
-        
-        # 更新数据库
-        db.tips_col.update_one(
-            {"_id": ObjectId(tip_id)},
-            {"$set": {
-                "title": res.get("title"),
-                "tags": res.get("tags"),
-                "is_polished": True
-            }}
-        )
-    except Exception as e:
-        print(f"AI Polishing Error: {e}")
-
 @app.post("/tips")
-async def add_tip_endpoint(data: TipInput, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    """发布攻略并触发 AI 装修"""
-    # 1. 获取用户当前的头衔 (保留原逻辑)
+def add_tip_endpoint(data: TipInput, current_user: dict = Depends(get_current_user)):
+    """
+    发布攻略 (纯净版 - 无AI介入)
+    """
+    # 1. 获取用户当前的头衔
     user_doc = db.users_col.find_one({"username": current_user['username']})
     user_title = user_doc.get("active_title", "社区成员")
     
-    # 🔥 2. [新增] 获取显示名称 (游戏ID)
+    # 2. 获取显示名称 (游戏ID)
     display_name = get_author_name(current_user)
 
-    # 3. 存入帖子
+    # 3. 存入数据库
+    # 注意：这里直接存入，不再需要等待 AI
     res = db.add_tip(data.hero, data.enemy, data.content, current_user['username'], data.is_general)
     
-    # 4. 立即更新帖子
+    # 4. 补充用户信息到帖子中
     if hasattr(res, 'inserted_id'):
-        # 🔥 [修改] 同时写入 author_title 和 author_display_name
         db.tips_col.update_one(
             {"_id": res.inserted_id}, 
             {"$set": {
                 "author_title": user_title,
-                "author_display_name": display_name 
+                "author_display_name": display_name,
+                "is_polished": False # 标记为未装修
             }}
         )
     
-    # 5. 开启后台任务 (保留原逻辑)
-    background_tasks.add_task(polish_tip_content, str(res.inserted_id), data.content)
-    
-    return {"status": "success", "msg": "发布成功，AI 正在为您优化排版..."}
+    return {"status": "success", "msg": "发布成功！"}
 
 @app.get("/tips")
 def get_tips_endpoint(hero: str, enemy: str = "general"):
@@ -813,7 +804,14 @@ def register(user: UserCreate, request: Request):
 
     if not db.validate_otp(user.email, user.verify_code):
         raise HTTPException(status_code=400, detail="验证码错误或已失效")
-
+    if user.sales_ref:
+    # 检查推荐人是否存在
+        referrer = db.users_col.find_one({"username": user.sales_ref})
+        if not referrer:
+            # 策略A：报错拒绝注册（严格）
+            # raise HTTPException(status_code=400, detail="推荐人不存在")
+            # 策略B：静默置空（推荐）
+            user.sales_ref = None
     hashed_pw = get_password_hash(user.password)
     
     result = db.create_user(
@@ -822,7 +820,8 @@ def register(user: UserCreate, request: Request):
         role="user", 
         email=user.email,
         device_id=user.device_id,
-        ip=request.client.host
+        ip=request.client.host,
+        sales_ref=user.sales_ref
     )
     
     if result == True:
@@ -1017,15 +1016,6 @@ def verify_afdian_order(order_no, amount_str):
         return False
 
 # --- 绝活社区 ---
-
-@app.get("/tips")
-def get_tips(hero: str, enemy: str = "None", is_general: bool = False):
-    return db.get_tips_for_ui(hero, enemy, is_general)
-
-@app.post("/tips")
-def add_tip(data: TipInput, current_user: dict = Depends(get_current_user)):
-    db.add_tip(data.hero, data.enemy, data.content, current_user['username'], data.is_general)
-    return {"status": "success"}
 
 @app.post("/like")
 def like_tip(data: LikeInput, current_user: dict = Depends(get_current_user)):
@@ -2060,6 +2050,25 @@ def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict 
     if db.update_tavern_post(post_id, updates):
         return {"status": "success", "msg": "动态已更新"}
     raise HTTPException(status_code=500, detail="更新失败")
+@app.get("/sales/dashboard")
+def get_sales_dashboard(current_user: dict = Depends(get_current_user)):
+    # 任何注册用户都可以是销售，或者你可以加权限判断
+    # if current_user.get('role') not in ['pro', 'admin', 'sales']: ...
+    
+    data = db.get_sales_dashboard_data(current_user['username'])
+    return data
+@app.get("/admin/sales/summary")
+def get_admin_sales_summary_endpoint(current_user: dict = Depends(get_current_user)):
+    # 严查权限：必须是 admin/root 角色
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    # 🔥 [新增] 硬锁：必须是用户名为 admin 或 root 的账号
+    # 如果您有特定的管理员账号名（比如 "YourName"），请也加到这个列表里
+    if current_user.get("username") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="无权访问财务数据 (仅限超级管理员)")
+    
+    return db.get_admin_sales_summary()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

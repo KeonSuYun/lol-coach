@@ -7,7 +7,7 @@ import re
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError, ConfigurationError 
 from bson.objectid import ObjectId
-
+from bson.errors import InvalidId
 class KnowledgeBase:
     def __init__(self):
         # 🟢 1. 获取 URI (兼容 MONGO_URI 和 MONGO_URL)
@@ -28,7 +28,17 @@ class KnowledgeBase:
             except (ConfigurationError, ValueError):
                 self.db = self.client['lol_community']
                 print(f"✅ [Database] URI 未指定库名，使用默认数据库: {self.db.name}")
-            
+            def _to_oid(self, id_str):
+                """
+                安全转换 ObjectId。
+                如果转换失败（格式不对、长度不对、非法字符），返回 None。
+                """
+                if not id_str or not isinstance(id_str, str):
+                    return None
+                try:
+                    return ObjectId(id_str)
+                except InvalidId:
+                    return None
             # === 集合定义 ===
             self.tips_col = self.db['tips']
             self.feedback_col = self.db['feedback']
@@ -39,7 +49,7 @@ class KnowledgeBase:
             self.champions_col = self.db['champions'] 
             self.otps_col = self.db['otps']
             self.orders_col = self.db['orders']
-
+            self.sales_records_col = self.db['sales_records']
             # === 社区模块集合 (Wiki & Tavern) ===
             self.wiki_posts = self.db['wiki_posts']          # 绝活攻略
             self.tavern_posts = self.db['tavern_posts']      # 酒馆动态
@@ -52,6 +62,110 @@ class KnowledgeBase:
             print(f"❌ [Database] 连接超时! 请检查 MongoDB 服务。")
         except Exception as e:
             print(f"❌ [Database] 初始化发生未知错误: {e}")
+
+    # ... 在 KnowledgeBase 类中添加 ...
+
+    # 🔥 [新增] 管理员查看销售结算清单
+    def get_admin_sales_summary(self):
+        """聚合销售业绩"""
+        pipeline = [
+            {"$group": {
+                "_id": "$salesperson",
+                "total_commission": {"$sum": "$commission"},
+                "total_sales": {"$sum": "$order_amount"},
+                "order_count": {"$sum": 1},
+                "last_order_date": {"$max": "$created_at"}
+            }},
+            {"$sort": {"total_commission": -1}}
+        ]
+        
+        try:
+            results = list(self.sales_records_col.aggregate(pipeline))
+        except Exception as e:
+            print(f"Aggregation error: {e}")
+            return []
+        
+        final_list = []
+        for r in results:
+            username = r["_id"]
+            user = self.users_col.find_one({"username": username})
+            
+            # 获取联系方式和游戏名
+            contact = user.get("email", "未绑定邮箱") if user else "未知用户"
+            game_name = "未同步"
+            if user and user.get("game_profile"):
+                if isinstance(user["game_profile"], dict):
+                    game_name = user["game_profile"].get("gameName", "未同步")
+                # 兼容旧数据
+                elif isinstance(user["game_profile"], str):
+                    try: game_name = json.loads(user["game_profile"]).get("gameName", "未同步")
+                    except: pass
+
+            final_list.append({
+                "username": username,
+                "game_name": game_name,
+                "contact": contact,
+                "total_commission": round(r["total_commission"], 2),
+                "total_sales": round(r["total_sales"], 2),
+                "order_count": r["order_count"],
+                "last_active": r["last_order_date"].strftime("%Y-%m-%d %H:%M") if r["last_order_date"] else "-"
+            })
+            
+        return final_list
+
+    def get_sales_dashboard_data(self, username):
+            """
+            聚合销售数据：总收益、今日收益、订单趋势、最近入账
+            """
+            # 1. 基础统计
+            pipeline = [
+                {"$match": {"salesperson": username}},
+                {"$group": {
+                    "_id": None,
+                    "total_commission": {"$sum": "$commission"}, # 总分润
+                    "total_orders": {"$sum": 1},                 # 总单数
+                    "total_sales": {"$sum": "$order_amount"}     # 总销售额
+                }}
+            ]
+            stats = list(self.sales_records_col.aggregate(pipeline))
+            base_data = stats[0] if stats else {"total_commission": 0, "total_orders": 0, "total_sales": 0}
+
+            # 2. 今日收益
+            today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_stats = self.sales_records_col.aggregate([
+                {"$match": {"salesperson": username, "created_at": {"$gte": today_start}}},
+                {"$group": {"_id": None, "today_earnings": {"$sum": "$commission"}}}
+            ])
+            today_data = list(today_stats)
+            today_earnings = today_data[0]['today_earnings'] if today_data else 0
+
+            # 3. 最近 10 条入账记录 (用于滚动展示)
+            recent_records = list(self.sales_records_col.find(
+                {"salesperson": username},
+                {"source_user": 1, "commission": 1, "created_at": 1, "rate": 1}
+            ).sort("created_at", -1).limit(10))
+
+            # 格式化
+            formatted_records = []
+            for r in recent_records:
+                formatted_records.append({
+                    "source": r.get("source_user", "未知用户")[:3] + "***", # 脱敏
+                    "amount": r.get("commission", 0),
+                    "time": r.get("created_at").strftime("%H:%M"),
+                    "rate": r.get("rate", "40%")
+                })
+
+            # 4. 近 7 天趋势图数据
+            # (此处省略复杂的聚合，前端可以用伪数据或简单列表填充，为了性能建议只返回最近记录)
+            
+            return {
+                "total_earnings": round(base_data['total_commission'], 2),
+                "today_earnings": round(today_earnings, 2),
+                "total_orders": base_data['total_orders'],
+                "conversion_rate": "40%", # 固定或从配置读
+                "recent_records": formatted_records
+            }
+
 
     def _log_connection_attempt(self):
         """辅助函数：打印连接目标，但隐藏密码"""
@@ -78,7 +192,7 @@ class KnowledgeBase:
             self.users_col.create_index("ip")
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
             self.orders_col.create_index("order_no", unique=True)
-
+            self.sales_records_col.create_index([("salesperson", 1), ("created_at", -1)])
             # === 社区模块索引 ===
             try:
                 self.wiki_posts.create_index([("hero_id", 1), ("category", 1)])
@@ -115,6 +229,7 @@ class KnowledgeBase:
 
     # [新增] 更新攻略
     def update_wiki_post(self, post_id, updates):
+        if not (oid := self._to_oid(post_id)): return False
         try:
             # 移除不可更新的字段
             for field in ["_id", "author_id", "created_at", "ref_id"]:
@@ -200,12 +315,19 @@ class KnowledgeBase:
     # 💰 充值与会员系统 (完善累加逻辑)
     # ==========================
     def upgrade_user_role(self, username, days=30):
-        """升级会员，支持在现有过期时间上累加"""
-        now = datetime.datetime.utcnow()
+    # 🔴 原代码: now = datetime.datetime.utcnow() 
+    # 🟢 修复后: 使用带时区的时间
+        now = datetime.datetime.now(datetime.timezone.utc) 
+        
         user = self.users_col.find_one({"username": username})
         if not user: return False
 
         current_expire = user.get("membership_expire")
+        
+        # 🔥 增加时区兼容性处理
+        if current_expire and current_expire.tzinfo is None:
+            current_expire = current_expire.replace(tzinfo=datetime.timezone.utc)
+
         # 如果当前未过期，在过期时间基础上累加；否则从现在开始加
         base_time = current_expire if current_expire and current_expire > now else now
         new_expire = base_time + datetime.timedelta(days=days)
@@ -215,7 +337,7 @@ class KnowledgeBase:
             {"$set": {"role": "pro", "membership_expire": new_expire, "is_pro": True}}
         )
         return True
-
+    
     def process_afdian_order(self, order_no, username, amount, sku_detail):
         """处理爱发电订单"""
         if self.orders_col.find_one({"order_no": order_no}): return True
@@ -236,6 +358,27 @@ class KnowledgeBase:
                 "days_added": days_to_add, "sku": sku_detail,
                 "created_at": datetime.datetime.utcnow()
             })
+            sales_ref = user.get("sales_ref")
+            if sales_ref:
+                prev_orders_count = self.orders_col.count_documents({
+                    "username": username, 
+                    "order_no": {"$ne": order_no} # 排除刚才插入的这一单
+                })
+
+                if prev_orders_count == 0:
+                    commission = amount_float * 0.40 # 40% 分润
+                    
+                    self.sales_records_col.insert_one({
+                        "salesperson": sales_ref,      # 销售人员ID
+                        "source_user": username,       # 付费用户
+                        "order_amount": amount_float,  # 订单金额
+                        "commission": commission,      # 分润金额
+                        "rate": "40%",                 # 分润比例
+                        "order_no": order_no,
+                        "type": "first_month_bonus",   # 类型：首单提成
+                        "created_at": datetime.datetime.utcnow()
+                    })
+                    print(f"💰 [Sales] 销售员 {sales_ref} 获得首单分润: {commission} 元 (来源: {username})")
             return True
         return False
 
@@ -277,7 +420,7 @@ class KnowledgeBase:
             if not user: return False, "用户不存在", 0
 
             is_pro = current_role in ["vip", "svip", "admin", "pro"]
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.now(datetime.timezone.utc)
             today_str = now.strftime("%Y-%m-%d")
             usage_data = user.get("usage_stats", {})
             
@@ -358,6 +501,7 @@ class KnowledgeBase:
         return self.tips_col.insert_one(tip_doc)
 
     def toggle_like(self, tip_id, user_id):
+        if not (oid := self._to_oid(tip_id)): return False
         """点赞逻辑：原子更新并包含10赞自动送3天Pro功能"""
         try:
             # 只有当用户不在点赞列表中时才添加 (原子操作)
@@ -463,8 +607,13 @@ class KnowledgeBase:
             print(f"Error fetching corrections: {e}")
             return []
 
-    def create_user(self, username, hashed_password, role="user", email=None, device_id=None, ip=None):
-        """创建用户并执行多重限制检查"""
+    def create_user(self, username, password, role="user", email="", device_id="unknown", ip="unknown", sales_ref=None):
+        if self.get_user(username):
+            return "USERNAME_TAKEN"
+        
+        # 检查邮箱是否重复
+        if self.users_col.find_one({"email": email}):
+            return "EMAIL_TAKEN"
         try:
             if self.users_col.find_one({"username": username}): return "USERNAME_TAKEN"
             if email and self.users_col.find_one({"email": email}): return "EMAIL_TAKEN"
@@ -472,8 +621,9 @@ class KnowledgeBase:
             if ip and self.users_col.count_documents({"ip": ip, "created_at": {"$gte": datetime.datetime.utcnow() - datetime.timedelta(days=1)}}) >= 5: return "IP_LIMIT"
 
             self.users_col.insert_one({
-                "username": username, "password": hashed_password, "role": role,
-                "email": email, "device_id": device_id, "ip": ip, "created_at": datetime.datetime.utcnow()
+                "username": username, "password": password, "role": role,
+                "email": email, "device_id": device_id, "ip": ip, "created_at": datetime.datetime.utcnow(),
+                "sales_ref": sales_ref
             })
             return True
         except: return False 
@@ -483,9 +633,11 @@ class KnowledgeBase:
     def get_prompt_template(self, mode: str): return self.prompt_templates_col.find_one({"mode": mode})
     def get_game_constants(self): return self.config_col.find_one({"_id": "s15_rules"}) or {"patch_version": "Unknown"}
     def delete_tip(self, tip_id):
+        if not (oid := self._to_oid(tip_id)): return False # 🛡️ 安全校验
         try: return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0
         except: return False
     def get_tip_by_id(self, tip_id):
+        if not (oid := self._to_oid(tip_id)): return None
         try:
             tip = self.tips_col.find_one({"_id": ObjectId(tip_id)})
             return dict(tip, id=str(tip['_id']), _id=None) if tip else None
@@ -594,6 +746,7 @@ class KnowledgeBase:
             del summary["_id"]
         return summary
     def add_comment(self, post_id, user_id, user_name, content):
+        if not (oid := self._to_oid(post_id)): return None
         comment = {
             "post_id": str(post_id),
             "user_id": str(user_id),

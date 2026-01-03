@@ -9,6 +9,8 @@ import { useGameCore } from './hooks/useGameCore';
 // 引入管理组件
 import AdminDashboard from './components/AdminDashboard';
 import AdminPanel from './components/AdminPanel';
+// 🔥 引入销售仪表盘
+import SalesDashboard from './components/SalesDashboard';
 
 function App() {
   const { state, actions } = useGameCore();
@@ -17,6 +19,16 @@ function App() {
   const { showAdminPanel, adminView, token, currentUser, isOverlay, roleMapping } = state;
   const { setShowAdminPanel, setAdminView } = actions;
 
+  // 🔥 监听 URL 中的销售邀请码 (?ref=xxx)
+  React.useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const refCode = params.get('ref');
+      if (refCode) {
+          localStorage.setItem('sales_ref', refCode);
+          window.history.replaceState({}, document.title, window.location.pathname);
+      }
+  }, []);
+
   // 渲染主内容的辅助函数
   const renderContent = () => {
     // 1. 游戏内覆盖模式 (优先级最高)
@@ -24,17 +36,21 @@ function App() {
       return <OverlayConsole state={state} actions={actions} />;
     }
 
-    // 2. 个人主页 (优先级高于社区，这样在社区点头像能跳转过来)
+    // 2. 个人主页
     if (state.showProfile) {
         return (
             <UserProfile 
                 onBack={() => actions.setShowProfile(false)}
                 accountInfo={state.accountInfo}
                 token={state.token}
-                championList={state.championList} // 👈 必须加这个，头像才能正常显示
-                currentUser={state.currentUser}   // 👈 用于判断是不是自己的主页
-                lcuProfile={state.lcuProfile}     // 👈 用于显示同步的 LCU 数据
-                handleSyncProfile={actions.handleSyncProfile} // 👈 让右上角的"同步按钮"生效
+                championList={state.championList}
+                currentUser={state.currentUser}
+                lcuProfile={state.lcuProfile}
+                handleSyncProfile={actions.handleSyncProfile}
+                onOpenAdmin={() => { 
+                    actions.setAdminView('dashboard'); 
+                    actions.setShowAdminPanel(true); 
+                }}
             />
         )
     }
@@ -44,19 +60,13 @@ function App() {
       return (
         <CommunityPage 
           onBack={() => actions.setShowCommunity(false)}
-          
-          // 🔥 关键：传入导航和登出方法
           onShowProfile={() => actions.setShowProfile(true)}
           onLogout={actions.logout}
-          
-          // 🔥🔥🔥 [新增] 传入设置和管理面板的方法，以便在社区页调用
           onShowSettings={() => actions.setShowSettingsModal(true)}
           onShowAdmin={() => { 
               actions.setAdminView('dashboard'); 
               actions.setShowAdminPanel(true); 
           }}
-          
-          // 数据透传
           championList={state.championList} 
           roleMapping={state.roleMapping} 
           currentUser={state.currentUser}
@@ -76,7 +86,15 @@ function App() {
       {/* 1. 核心页面内容 */}
       {renderContent()}
 
-      {/* 2. 全局挂载：管理员面板 (仅限管理员且已登录) */}
+      {/* 2. 全局挂载：销售合伙人仪表盘 */}
+      <SalesDashboard 
+          isOpen={state.showSalesDashboard} 
+          onClose={() => actions.setShowSalesDashboard(false)} 
+          username={state.currentUser}
+          token={state.token}
+      />
+
+      {/* 3. 全局挂载：管理员面板 */}
       {showAdminPanel && token && (
           adminView === 'panel' ? (
               <AdminPanel 
@@ -86,12 +104,13 @@ function App() {
           ) : (
               <AdminDashboard 
                   token={token} 
+                  username={currentUser} // 🔥 [核心修改] 传入当前用户名
                   onClose={() => setShowAdminPanel(false)} 
               />
           )
       )}
 
-      {/* 3. 全局挂载：管理员悬浮球 (Overlay模式除外) */}
+      {/* 4. 全局挂载：管理员悬浮球 (Overlay模式除外) */}
       {currentUser && ["admin", "root"].includes(currentUser) && !isOverlay && (
           <button 
               onClick={() => {

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
-
+import SalesDashboard from './SalesDashboard';
 // 🔥🔥🔥 1. 全局样式注入 (最新版：含边缘遮罩流光) 🔥🔥🔥
 const BADGE_CUSTOM_STYLES = `
   @keyframes border-flow {

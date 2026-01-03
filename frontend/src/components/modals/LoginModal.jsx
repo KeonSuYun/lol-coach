@@ -51,7 +51,22 @@ export default function LoginModal({
         return () => clearTimeout(timer);
     }, [countdown]);
 
-    // === 3. 发送邮箱验证码 ===
+    // === 3. 🔥 [新增] 销售邀请码自动注入逻辑 ===
+    // 当切换到注册模式时，自动从本地缓存读取销售码并写入表单
+    useEffect(() => {
+        if (authMode === 'register') {
+            const cachedRef = localStorage.getItem('sales_ref');
+            if (cachedRef) {
+                console.log("🔗 检测到销售邀请码，已自动绑定:", cachedRef);
+                setAuthForm(prev => ({ 
+                    ...prev, 
+                    sales_ref: cachedRef 
+                }));
+            }
+        }
+    }, [authMode, setAuthForm]);
+
+    // === 4. 发送邮箱验证码 ===
     const sendEmail = async () => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!authForm.email || !emailRegex.test(authForm.email)) {

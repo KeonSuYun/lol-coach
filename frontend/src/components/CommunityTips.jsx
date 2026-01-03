@@ -68,14 +68,7 @@ const CommunityTips = ({ tips, currentUser, currentHero, currentTarget, allies, 
                 </div>
             </div>
 
-            {/* 🔥 点击发布时，传递当前的 target (如果是通用则传 null) */}
-            <button 
-                onClick={() => onOpenPostModal(currentTarget)} 
-                className="p-2 rounded-lg bg-hex-blue/10 text-hex-blue border border-hex-blue/30 hover:bg-hex-blue hover:text-white transition-all active:scale-95"
-                title="分享绝活"
-            >
-                <Plus size={18}/>
-            </button>
+            {/* 🔴 [修改] 已移除右上角发布按钮 */}
         </div>
 
         {isSelectorOpen && (
@@ -134,7 +127,7 @@ const CommunityTips = ({ tips, currentUser, currentHero, currentTarget, allies, 
                     <div className="flex justify-between items-start mb-2 pl-3">
                         <div className="flex items-center gap-2">
                             <span className="text-xs text-slate-400 font-mono flex items-center gap-1.5 font-bold">
-                                <User size={12}/> {tip.author_id}
+                                <User size={12}/> {tip.author_display_name || tip.author_id}
                             </span>
                             {/* 🔥 如果是通用帖子，显示标签 */}
                             {tip.is_general && (
@@ -161,7 +154,8 @@ const CommunityTips = ({ tips, currentUser, currentHero, currentTarget, allies, 
                     {isGeneral ? <Globe size={40} strokeWidth={1.5} /> : isSynergy ? <Handshake size={40} strokeWidth={1.5} /> : <Crosshair size={40} strokeWidth={1.5} />}
                     <div className="text-center">
                         <p className="text-sm font-bold mb-1">暂无相关心得</p>
-                        <p className="text-xs">点击右上角 + 号，分享你的理解！</p>
+                        {/* 🔴 [修改] 引导文案 */}
+                        <p className="text-xs">请前往【绝活社区】查看更多攻略！</p>
                     </div>
                 </div>
             )}
