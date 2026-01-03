@@ -31,6 +31,10 @@ function App() {
                 onBack={() => actions.setShowProfile(false)}
                 accountInfo={state.accountInfo}
                 token={state.token}
+                championList={state.championList} // 👈 必须加这个，头像才能正常显示
+                currentUser={state.currentUser}   // 👈 用于判断是不是自己的主页
+                lcuProfile={state.lcuProfile}     // 👈 用于显示同步的 LCU 数据
+                handleSyncProfile={actions.handleSyncProfile} // 👈 让右上角的"同步按钮"生效
             />
         )
     }

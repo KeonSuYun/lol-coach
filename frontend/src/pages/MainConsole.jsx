@@ -163,26 +163,19 @@ export default function MainConsole({ state, actions }) {
                         userRank={userRank} setUserRank={setUserRank}
                         
                         onGoHome={() => setHasStarted(false)}
-                        onShowCommunity={handleShowCommunity} // 🔥 绑定跳转函数
+                        onShowCommunity={handleShowCommunity}
                         onShowDownload={() => setShowDownloadModal(true)}
                         
                         onShowSettings={setShowSettingsModal}
-                        // 🟢 [修改] 顶部菜单点击时，强制设为 'dashboard' 模式并打开
                         onShowAdmin={() => {
                             setAdminView('dashboard');
                             setShowAdminPanel(true);
                         }}
                         onShowProfile={() => actions.setShowProfile(true)}
+                        
+                        // 🔥🔥🔥 [修复1] 这里把打开引导的函数传给 Header，让 Header 里的按钮生效
+                        onShowGuide={() => setShowGuide(true)} 
                     />
-                    
-                    {/* 🟢 [新增] 手动触发引导的帮助按钮 */}
-                    <button 
-                        onClick={() => setShowGuide(true)}
-                        className="absolute top-[-10px] right-0 md:top-4 md:right-4 p-2 text-slate-500 hover:text-[#0AC8B9] transition-colors z-20"
-                        title="新手功能指引"
-                    >
-                        <HelpCircle size={20} />
-                    </button>
                 </div>
 
                 <div className="w-full mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

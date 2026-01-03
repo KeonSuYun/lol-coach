@@ -10,7 +10,13 @@ const GuideOverlay = ({ steps, isOpen, onClose, onComplete }) => {
 
     // 监听窗口大小变化和步骤变化，重新计算高亮位置
     useEffect(() => {
+        if (isOpen) {
+            setCurrentStep(0);
+        }
+    }, [isOpen]);
+    useEffect(() => {
         if (!isOpen) return;
+
 
         const updatePosition = () => {
             const step = steps[currentStep];
