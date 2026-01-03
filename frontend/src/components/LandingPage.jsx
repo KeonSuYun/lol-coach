@@ -10,10 +10,14 @@ import {
 } from 'lucide-react';
 
 import HexCoreIcon from './HexCoreIcon';
+import DownloadModal from './modals/DownloadModal'; // 🔥 引入统一的下载弹窗
 import { Toaster, toast } from 'react-hot-toast';
 
-const LandingPage = ({ onEnter, onOpenCommunity, onDownloadClick }) => {
+const LandingPage = ({ onEnter, onOpenCommunity }) => {
   const [activeFeature, setActiveFeature] = useState(0);
+  
+  // 🔥 管理本地下载弹窗状态
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   // 1. 设置浏览器标签页标题
   useEffect(() => {
@@ -32,6 +36,12 @@ const LandingPage = ({ onEnter, onOpenCommunity, onDownloadClick }) => {
   return (
     <div className="w-full min-h-screen bg-[#06070a] text-slate-200 overflow-x-hidden selection:bg-[#C8AA6E]/30 font-sans">
       <Toaster position="top-center" />
+      
+      {/* 🔥 挂载下载弹窗 */}
+      <DownloadModal 
+          isOpen={showDownloadModal} 
+          onClose={() => setShowDownloadModal(false)} 
+      />
       
       {/* === 1. 顶部导航栏 === */}
       <nav className="fixed top-0 left-0 w-full z-50 bg-[#06070a]/90 backdrop-blur-md border-b border-white/5 transition-all duration-300 h-20">
@@ -96,11 +106,11 @@ const LandingPage = ({ onEnter, onOpenCommunity, onDownloadClick }) => {
                 进入控制台
             </button>
             <button 
-                onClick={onDownloadClick}
+                onClick={() => setShowDownloadModal(true)} // 🔥 绑定弹窗
                 className="flex items-center gap-2 px-5 py-2 bg-[#C8AA6E] hover:bg-[#b39556] text-[#091428] font-black rounded-full transition-all shadow-lg hover:shadow-[#C8AA6E]/20 active:scale-95 text-xs md:text-sm group"
             >
                 <Download size={16} strokeWidth={3} className="group-hover:translate-y-0.5 transition-transform" />
-                <span>下载客户端</span>
+                <span>下载连接助手</span>
             </button>
           </div>
         </div>
@@ -137,7 +147,7 @@ const LandingPage = ({ onEnter, onOpenCommunity, onDownloadClick }) => {
                   <Cpu size={20} fill="currentColor"/> 启动 AI 教练
                 </button>
                 <button 
-                  onClick={onDownloadClick}
+                  onClick={() => setShowDownloadModal(true)} // 🔥 绑定弹窗
                   className="px-10 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-all flex items-center gap-3 backdrop-blur-sm hover:border-[#C8AA6E]/50 hover:text-[#C8AA6E]"
                 >
                   <Download size={20}/> 下载连接助手
