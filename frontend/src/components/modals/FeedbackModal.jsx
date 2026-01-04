@@ -15,7 +15,7 @@ const FeedbackModal = ({ isOpen, onClose, content, setContent, onSubmit }) => {
                   {/* 🔥 [修改] 文案模糊化，不写具体次数 */}
                   <p className="text-amber-400 font-bold flex items-center gap-1.5 bg-amber-500/10 p-2 rounded border border-amber-500/20">
                       <Gift size={14} className="animate-bounce"/> 
-                      若反馈被采纳，将获得额外的深度思考 (R1) 使用次数奖励！
+                      若反馈被采纳，将获得额外的【海克斯核心算力】充能！
                   </p>
               </div>
               <textarea 

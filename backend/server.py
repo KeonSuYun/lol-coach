@@ -2,6 +2,7 @@ import os
 import json
 import uvicorn
 import datetime
+import traceback
 import time
 import random
 import re
@@ -17,11 +18,10 @@ from dotenv import load_dotenv
 from typing import List, Optional, Dict, Any
 from fastapi.staticfiles import StaticFiles
 # 🟢 [修改] 引入 RedirectResponse 用于重定向下载
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
@@ -528,7 +528,7 @@ async def redeem_invite(
     if not invite_code:
         raise HTTPException(status_code=400, detail="请输入邀请码")
 
-    # 1️⃣ 【必须先做】获取当前用户对象
+    # 1️⃣ 【必须先做】获取当前用户对象 (确保数据最新)
     user = db.users_col.find_one({"_id": current_user["_id"]})
     if not user:
         raise HTTPException(status_code=404, detail="用户数据同步错误")
@@ -557,42 +557,62 @@ async def redeem_invite(
 
     if str(inviter['_id']) == str(user['_id']):
         raise HTTPException(status_code=400, detail="不能邀请自己哦")
-
+    user_device = str(user.get("device_id", "unknown")).lower()
+    inviter_device = str(inviter.get("device_id", "unknown")).lower()
+    
+    # 2. 定义无效指纹列表 (这些指纹不参与比对，否则误伤正常用户)
+    invalid_fingerprints = ["unknown", "unknown_client_error", "none", ""]
+    
+    # 3. 核心校验：只有当设备指纹有效，且两者一致时，才拦截
+    if (user_device not in invalid_fingerprints) and (user_device == inviter_device):
+        print(f"🚫 [Security] 拦截同设备刷邀请: {user['username']} -> {inviter['username']} (DevID: {user_device})")
+        raise HTTPException(status_code=400, detail="系统检测到设备环境异常 (同设备不可互刷)")
+    # ================= 🔥 修复结束 (Fix End) 🔥 =================
     # === 核心逻辑：加时间函数 ===
     def calculate_new_expire(user_obj, days=3):
         now = datetime.datetime.now(datetime.timezone.utc)
         current_expire = user_obj.get('membership_expire')
+        
+        # 确保数据库里的时间带时区
         if current_expire and current_expire.tzinfo is None:
             current_expire = current_expire.replace(tzinfo=datetime.timezone.utc)
             
+        # 如果已过期或没有时间，从现在开始算
         if not current_expire or current_expire < now:
             return now + datetime.timedelta(days=days)
         else:
+            # 如果没过期，在原基础顺延
             return current_expire + datetime.timedelta(days=days)
 
-    # 1. 给【当前用户 (填写者)】加时间 - 永远成功
+    # 1. 给【当前用户 (填写者)】加时间 - 永远成功 (+3天)
     new_expire_user = calculate_new_expire(user, days=3)
+    
     db.users_col.update_one(
         {"_id": user['_id']},
         {
             "$set": {
                 "membership_expire": new_expire_user,
-                "invited_by": inviter['_id'],
+                "invited_by": inviter['_id'], # 记录邀请关系
+                "invite_time": datetime.datetime.now(datetime.timezone.utc),
+                # 如果是普通用户，升级为 pro
                 "role": "pro" if user.get('role', 'user') == 'user' else user.get('role')
             }
         }
     )
 
     # 2. 给【邀请人】加时间 - 🔥 增加上限判断
-    # 限制：每人最多邀请 10 人 (10 * 3天 = 30天)
-    MAX_INVITES = 10
+    # 限制：每人最多邀请 5 人 (5人 * 3天 = 15天封顶)
+    MAX_INVITES = 5 
+    
+    # 获取邀请人当前的有效邀请计数
     current_invite_count = inviter.get('invite_count', 0)
     
     inviter_msg = ""
 
     if current_invite_count < MAX_INVITES:
-        # 未达上限，正常加时间
+        # 未达上限，给邀请人加时间
         new_expire_inviter = calculate_new_expire(inviter, days=3)
+        
         db.users_col.update_one(
             {"_id": inviter['_id']},
             {
@@ -600,19 +620,22 @@ async def redeem_invite(
                     "membership_expire": new_expire_inviter,
                     "role": "pro" if inviter.get('role', 'user') == 'user' else inviter.get('role')
                 },
-                "$inc": {"invite_count": 1} # 计数+1
+                "$inc": {"invite_count": 1} # 有效邀请计数+1
             }
         )
+        inviter_msg = " (邀请人也获得了奖励)"
     else:
-        # 已达上限，不加时间，但也不报错
-        inviter_msg = " (但邀请人已达30天奖励上限)"
-        # 依然记录邀请次数(可选)，方便统计人气，但不加会员时长
+        # 已达上限，不加时间
+        # 但依然记录计数(可选)，方便统计总热度，只是不发奖励
+        inviter_msg = " (但邀请人已达15天奖励上限)"
+        
         db.users_col.update_one(
             {"_id": inviter['_id']},
-            {"$inc": {"invite_count": 1}}
+            {"$inc": {"invite_count": 1}} # 计数依然+1，用于统计人气
         )
 
     return {
+        "status": "success",
         "msg": f"兑换成功！您获得了 3 天 Pro 会员！{inviter_msg}",
         "new_expire": new_expire_user.isoformat()
     }
@@ -821,6 +844,14 @@ def send_email_code(req: EmailRequest, request: Request):
 @app.post("/register")
 def register(user: UserCreate, request: Request):
     RESERVED = ["admin", "root", "system", "hexcoach", "gm", "master"]
+    if user.device_id and user.device_id != "unknown":
+        device_count = db.users_col.count_documents({"device_id": user.device_id})
+        if device_count >= 3: # 您可以把这个数字调大，比如 5 或 10
+            raise HTTPException(
+                status_code=400, 
+                detail="⛔ 该设备注册账号数量已达上限"
+            )
+    client_ip = request.client.host
     if any(r in user.username.lower() for r in RESERVED):
         raise HTTPException(status_code=400, detail="用户名包含保留字")
 
@@ -1308,20 +1339,49 @@ def resolve_feedback_endpoint(req: ResolveFeedbackRequest, current_user: dict = 
         raise HTTPException(status_code=403, detail="权限不足")
         
     if db.resolve_feedback(req.feedback_id, adopt=req.adopt, reward=req.reward):
-        msg_suffix = f" (已采纳并奖励用户 {req.reward} 次 R1)" if req.adopt else ""
+        msg_suffix = f" (已采纳并奖励用户 {req.reward} 次 【海克斯核心】充能)" if req.adopt else ""
         return {"status": "success", "msg": f"反馈已归档{msg_suffix}"}
     
     raise HTTPException(status_code=500, detail="操作失败")
 # 🟢 新增：获取用户列表接口
 @app.get("/admin/users")
 def get_admin_users(search: str = "", current_user: dict = Depends(get_current_user)):
-    # 1. 权限检查 (安全核心)
+    # --- 1. 权限检查 ---
     allowed_roles = ["admin", "root", "vip_admin"]
     if current_user.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="需要管理员权限")
-    
-    # 2. 查询数据
-    return db.get_all_users(limit=50, search=search)
+
+    try:
+        # --- 2. 定义全能清洗函数 (递归处理所有层级) ---
+        def safe_serialize(obj):
+            if isinstance(obj, list):
+                return [safe_serialize(item) for item in obj]
+            if isinstance(obj, dict):
+                return {k: safe_serialize(v) for k, v in obj.items()}
+            if isinstance(obj, ObjectId):
+                return str(obj)
+            if isinstance(obj, (datetime.datetime, datetime.date)):
+                if obj.tzinfo is None: # 如果是 naive time，加上 UTC
+                    obj = obj.replace(tzinfo=datetime.timezone.utc)
+                return obj.isoformat()
+            return obj
+
+        # --- 3. 查询数据 ---
+        # 注意：这里调用的是 database.py 的方法，假设它返回的是 Cursor 或 List
+        raw_users = db.get_all_users(limit=50, search=search)
+        
+        # --- 4. 执行清洗 ---
+        # 这一步会把整个列表里的所有 ObjectId 和 datetime 全部转成字符串
+        cleaned_users = safe_serialize(list(raw_users))
+        
+        return cleaned_users
+
+    except Exception as e:
+        # 🔥 关键：如果报错，会在控制台打印详细错误，而不是只报 500
+        print(f"❌ [Admin Users Error]: {str(e)}")
+        traceback.print_exc()
+        # 返回友好的错误信息给前端，方便调试
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
 # 🟢 新增：管理员更新用户信息接口
 @app.post("/admin/user/update")
@@ -1538,6 +1598,8 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     
     # 如果距离上次请求不足 3 秒，直接拒绝
     if now - last_request_time < 3:
+        # 这里用 JSONResponse 返回 429 也行，或者保持原样返回流式错误
+        # 为了统一体验，这里也建议改用 JSONResponse，不过原逻辑也能跑
         async def fast_err(): 
             yield json.dumps({
                 "concise": {
@@ -1549,6 +1611,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     
     # 更新最后请求时间
     ANALYZE_LIMIT_STORE[username] = now
+
     # 1. API Key 检查
     if not DEEPSEEK_API_KEY:
          async def err(): yield json.dumps({"concise": {"title":"维护中", "content":"服务暂时不可用 (Configuration Error)"}})
@@ -1556,15 +1619,18 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # 2. 频控检查 (传入 model_type 进行分级计费)
     allowed, msg, remaining = db.check_and_update_usage(current_user['username'], data.mode, data.model_type)
+    
+    # 🔥🔥🔥 [修复核心] Test 2 零余额保护：明确返回 403 状态码
     if not allowed:
-        async def limit_err(): 
-            yield json.dumps({
+        return JSONResponse(
+            status_code=403,
+            content={
                 "concise": {
                     "title": "请求被拒绝", 
                     "content": msg + ("\n💡 升级 Pro 可解锁无限次使用！" if remaining == -1 else "")
                 }
-            })
-        return StreamingResponse(limit_err(), media_type="application/json")
+            }
+        )
 
     # 🟢 5. 输入自动纠错 (JarvanIV -> Jarvan IV)
     def fix_name(n):
@@ -1975,10 +2041,10 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 9. AI 调用
     if data.model_type == "reasoner":
         MODEL_NAME = "deepseek-reasoner"
-        print(f"🧠 [AI] R1 Request - User: {current_user['username']}")
+        print(f"🧠 [AI] 核心算力 Request - User: {current_user['username']}")
     else:
         MODEL_NAME = "deepseek-chat"
-        print(f"🚀 [AI] V3 Request - User: {current_user['username']}")
+        print(f"🚀 [AI] 基础算力 Request - User: {current_user['username']}")
 
     async def event_stream():
         try:

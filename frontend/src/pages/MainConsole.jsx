@@ -4,7 +4,7 @@ import { Toaster, toast } from 'react-hot-toast';
 
 // 组件引入
 import AdminDashboard from '../components/AdminDashboard';
-import AdminPanel from '../components/AdminPanel'; // 🟢 [新增] 引入面板组件
+import AdminPanel from '../components/AdminPanel'; 
 import Header from '../components/Header';
 import ChampCard from '../components/ChampCard';
 import AnalysisResult from '../components/AnalysisResult';
@@ -65,7 +65,7 @@ export default function MainConsole({ state, actions }) {
         showAdminPanel, showSettingsModal, currentShortcuts, sendChatTrigger,
         showFeedbackModal, showPricingModal,
         mapSide, showDownloadModal, hasStarted,
-        adminView // 🟢 [新增] 获取当前管理视图模式 ('dashboard' | 'panel')
+        adminView 
     } = state;
 
     const {
@@ -77,18 +77,24 @@ export default function MainConsole({ state, actions }) {
         setShowSettingsModal, setShowAdminPanel, setInputContent, setShowTipModal, setShowFeedbackModal,
         handlePostTip, handleReportError, handleLike, handleDeleteTip, handleSaveShortcuts, setTipTarget, handleTabClick,
         setMapSide, setShowDownloadModal,
-        setAdminView // 🟢 [新增] 获取设置视图模式的方法
+        setAdminView 
     } = actions;
 
     // 🟢 [新增] 引导状态管理
     const [showGuide, setShowGuide] = useState(false);
+
+    // 🔥🔥🔥 [修复核心] 适配 Header 的 modelType (转换 boolean -> string)
+    // 这里的 modelType 是派生状态，依赖于 state.useThinkingModel
+    const modelType = useThinkingModel ? 'reasoner' : 'chat';
+    
+    // 这里的 setModelType 是适配函数，将 string 转换回 boolean 传给 action
+    const setModelType = (type) => setUseThinkingModel(type === 'reasoner');
 
     // 🟢 [新增] 首次加载检查
     useEffect(() => {
         if (hasStarted) {
             const hasSeenGuide = localStorage.getItem('has_seen_guide_v2');
             if (!hasSeenGuide) {
-                // 稍微延迟一下，确保页面渲染完成
                 const timer = setTimeout(() => setShowGuide(true), 1000);
                 return () => clearTimeout(timer);
             }
@@ -106,31 +112,16 @@ export default function MainConsole({ state, actions }) {
         if (mapSide === 'red') return '(蓝色方)';
         return '';
     };
-    const [formData, setFormData] = useState({
-        rank: 'Emerald',
-        side: 'blue',
-        userRole: 'JUNGLE', // 默认打野位
-        myHero: 'LeeSin',   // 默认英雄：盲僧
-        enemyHero: 'JarvanIV', // 默认对位：皇子
-        
-        // 默认我方阵容
-        myTeam: ['Malphite', 'LeeSin', 'Ahri', 'Jinx', 'Thresh'], 
-        
-        // 默认敌方阵容 (皇子/辛德拉版)
-        enemyTeam: ['Aatrox', 'JarvanIV', 'Syndra', "Kai'Sa", 'Nautilus'],
-    });
-    // 🔥 修复：现在点击“绝活社区”会直接跳转到独立的全屏页面
+
     const handleShowCommunity = () => {
         actions.setShowCommunity(true);
     };
 
     useEffect(() => {
-        // 条件：已开始体验 AND 未连接客户端 AND 当前位置没有选择英雄
         if (hasStarted && lcuStatus !== 'connected' && !blueTeam[userSlot]) {
             const timer = setTimeout(() => {
                 toast((t) => (
                     <div className="flex flex-col gap-3 min-w-[260px] animate-in slide-in-from-right duration-300">
-                        {/* 标题区 */}
                         <div className="flex items-center gap-3 border-b border-white/10 pb-2">
                             <span className="text-2xl animate-bounce">👋</span>
                             <div>
@@ -138,20 +129,16 @@ export default function MainConsole({ state, actions }) {
                                 <span className="text-[10px] text-slate-500 block">HexCoach 战术助手</span>
                             </div>
                         </div>
-                        
-                        {/* 内容区 */}
                         <div className="text-xs text-slate-400 leading-relaxed">
                             <p className="mb-1">检测到您尚未连接游戏客户端。</p>
                             <p>您可以直接点击左侧 <span className="text-[#C8AA6E] font-bold border border-[#C8AA6E]/30 px-1 rounded bg-[#C8AA6E]/10">圆圈卡片</span> 手动选择英雄，即可立即体验 AI 分析功能！</p>
                         </div>
-
-                        {/* 按钮区 */}
                         <div className="flex gap-2 pt-1">
                             <button 
                                 className="flex-1 bg-gradient-to-r from-[#0AC8B9] to-[#089186] text-[#091428] text-xs font-bold py-2 px-3 rounded shadow-lg hover:brightness-110 active:scale-95 transition-all"
                                 onClick={() => { 
                                     toast.dismiss(t.id); 
-                                    setShowGuide(true); // 打开完整教程
+                                    setShowGuide(true); 
                                 }}
                             >
                                 演示给我看
@@ -165,18 +152,18 @@ export default function MainConsole({ state, actions }) {
                         </div>
                     </div>
                 ), { 
-                    duration: 15000, // 显示 15 秒
+                    duration: 15000, 
                     position: 'bottom-right',
                     style: {
-                        background: 'rgba(15, 23, 42, 0.95)', // 深色背景
-                        border: '1px solid rgba(200, 170, 110, 0.4)', // 金色边框
+                        background: 'rgba(15, 23, 42, 0.95)',
+                        border: '1px solid rgba(200, 170, 110, 0.4)',
                         padding: '16px',
                         boxShadow: '0 10px 40px -10px rgba(0,0,0,0.8)',
                         backdropFilter: 'blur(10px)',
                         maxWidth: '350px'
                     }
                 });
-            }, 10000); // ⏳ 10秒无操作后触发
+            }, 10000); 
             
             return () => clearTimeout(timer);
         }
@@ -204,7 +191,6 @@ export default function MainConsole({ state, actions }) {
         <div className="min-h-screen">
             <Toaster position="top-right" />
             
-            {/* 🟢 [新增] 新手引导组件挂载 */}
             <UserGuide 
                 isOpen={showGuide} 
                 steps={GUIDE_STEPS} 
@@ -219,10 +205,8 @@ export default function MainConsole({ state, actions }) {
 
             <div className="fixed top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#C8AA6E]/50 to-transparent z-50"></div>
             
-            {/* 恢复正常的 padding, 适配原来的 Header */}
             <div className="relative z-10 flex flex-col items-center p-4 md:p-8 pt-24 max-w-[1800px] mx-auto">
                 
-                {/* 🟢 [修改] 添加 id="console-header" 用于引导定位 */}
                 <div id="console-header" className="w-full relative group/header-guide">
                     <Header
                         version={version} lcuStatus={lcuStatus}
@@ -232,6 +216,10 @@ export default function MainConsole({ state, actions }) {
                         setShowPricingModal={setShowPricingModal} accountInfo={accountInfo}
                         userRank={userRank} setUserRank={setUserRank}
                         
+                        // 🔥 [修复] 现在传入了定义好的 modelType 和 setModelType
+                        modelType={modelType}       
+                        setModelType={setModelType}
+
                         onGoHome={() => setHasStarted(false)}
                         onShowCommunity={handleShowCommunity}
                         onShowDownload={() => setShowDownloadModal(true)}
@@ -242,11 +230,7 @@ export default function MainConsole({ state, actions }) {
                             setShowAdminPanel(true);
                         }}
                         onShowProfile={() => actions.setShowProfile(true)}
-                        
-                        // 🔥🔥🔥 [修复1] 这里把打开引导的函数传给 Header，让 Header 里的按钮生效
                         onShowGuide={() => setShowGuide(true)} 
-                        
-                        // 🔥 [修改] 传递打开销售中心的方法
                         onShowSales={() => actions.setShowSalesDashboard(true)}
                     />
                 </div>
@@ -257,7 +241,6 @@ export default function MainConsole({ state, actions }) {
                     <div className="lg:col-span-3 flex flex-col gap-5 lg:sticky lg:top-8">
                         
                         {/* 1. 阵容面板 */}
-                        {/* 🟢 [修改] 添加 id="left-panel-team" 用于引导定位 */}
                         <div id="left-panel-team" className="bg-[#091428] border border-[#C8AA6E]/30 rounded shadow-lg relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#0AC8B9] to-transparent opacity-50"></div>
                             
@@ -357,7 +340,6 @@ export default function MainConsole({ state, actions }) {
                     
                     {/* 中间：核心分析台 */}
                     <div className="lg:col-span-6 flex flex-col gap-0 min-h-[600px]">
-                        {/* 🟢 [修改] 添加 id="center-analysis-btn" 用于引导定位 */}
                         <div id="center-analysis-btn" className="mb-4 px-1">
                             <AnalysisButton 
                                 selectedHero={blueTeam[userSlot]} 
@@ -367,11 +349,9 @@ export default function MainConsole({ state, actions }) {
                             />
                         </div>
                         
-                        {/* 🔥🔥🔥 [核心修改] Tab 区域：合并 Personal, 移除 Lane/Jungle 分开的选项 🔥🔥🔥 */}
                         <div id="analysis-tabs" className="grid grid-cols-3 gap-0 bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg overflow-hidden relative z-30 shadow-2xl">
                             {[
                                 { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
-                                // 🟢 [合并] 使用 'personal' ID，后端 server.py 会根据 userRole 自动分流
                                 { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线/打野' }, 
                                 { id: 'team', label: '运营指挥', icon: <Brain size={18}/>, desc: '大局决策' },
                             ].map(tab => {
@@ -414,8 +394,6 @@ export default function MainConsole({ state, actions }) {
                     
                     {/* 右侧：敌方 (Enemy) */}
                     <div className="lg:col-span-3 flex flex-col gap-5 sticky top-8">
-                        {/* 敌方阵容 */}
-                        {/* 🟢 [修改] 添加 id="right-panel-enemy" 用于引导定位 */}
                         <div id="right-panel-enemy" className="flex flex-col gap-5">
                             <div className="bg-[#1a0505] border border-red-900/30 rounded shadow-lg relative overflow-hidden">
                                 <div className="flex items-center justify-between px-3 py-2 bg-[#2a0a0a]/50 border-b border-red-900/20">
@@ -440,7 +418,6 @@ export default function MainConsole({ state, actions }) {
                                 </div>
                             </div>
 
-                            {/* 敌方分路 */}
                             <div className="p-3 bg-[#1a0505] border border-red-900/20 rounded shadow-lg relative">
                                 <div className="flex items-center justify-between mb-3">
                                     <div className="flex items-center gap-2">
@@ -470,9 +447,7 @@ export default function MainConsole({ state, actions }) {
                                 </div>
                             </div>
                             
-                            {/* 社区 Tips */}
                             <div id="community-section" className="flex-1 min-h-[300px] bg-[#091428] border border-[#C8AA6E]/20 rounded shadow-xl overflow-hidden flex flex-col scroll-mt-28">
-                                {/* 🔥 ID 用于滚动跳转 */}
                                 <CommunityTips
                                     tips={tips}
                                     currentUser={currentUser}
@@ -485,8 +460,6 @@ export default function MainConsole({ state, actions }) {
                                     onOpenPostModal={(target) => {
                                         if(!currentUser) setShowLoginModal(true);
                                         else {
-                                            // 如果 target 是 null/undefined，说明是通用，tipTargetEnemy 设为 null
-                                            // 否则设为具体的英雄名
                                             setTipTargetEnemy(target);
                                             setShowTipModal(true);
                                         }
@@ -499,10 +472,8 @@ export default function MainConsole({ state, actions }) {
                     </div>
                 </div>
 
-                {/* 模态框组件 */}
                 <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} authMode={authMode} setAuthMode={setAuthMode} authForm={authForm} setAuthForm={setAuthForm} handleLogin={handleLogin} handleRegister={handleRegister} />
                 
-                {/* 🔥🔥🔥 关键修复：正确传递 handlePostTip 参数，并强制 activeTab="wiki" 以显示正确分类 */}
                 <TipModal 
                     isOpen={showTipModal} 
                     onClose={() => setShowTipModal(false)} 
@@ -518,7 +489,6 @@ export default function MainConsole({ state, actions }) {
                 <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} username={currentUser} />
                 <SettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} currentShortcuts={currentShortcuts} onSave={handleSaveShortcuts} />
                 
-                {/* 渲染选人弹窗 */}
                 <ChampSelectModal
                     isOpen={showChampSelector}
                     onClose={() => setShowChampSelector(false)}
@@ -545,7 +515,6 @@ export default function MainConsole({ state, actions }) {
                     }
                 />
 
-                {/* 🟢 [核心修改] 根据 adminView 条件渲染不同的管理组件 */}
                 {showAdminPanel && token && (
                     adminView === 'panel' ? (
                         <AdminPanel 
@@ -555,6 +524,7 @@ export default function MainConsole({ state, actions }) {
                     ) : (
                         <AdminDashboard 
                             token={token} 
+                            username={currentUser}
                             onClose={() => setShowAdminPanel(false)} 
                         />
                     )

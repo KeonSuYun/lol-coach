@@ -624,9 +624,9 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                         <button 
                                                             onClick={() => handleResolveFeedback(item._id, true)}
                                                             className="px-3 py-1.5 bg-amber-600/10 text-amber-400 border border-amber-500/30 rounded text-xs hover:bg-amber-600/20 flex items-center gap-1 transition"
-                                                            title="采纳反馈，并自动奖励用户 1 次 R1"
+                                                            title="采纳反馈，并自动奖励用户 1 次 【海克斯核心】充能"
                                                         >
-                                                            <Gift size={12}/> 采纳(+1)
+                                                            <Gift size={12}/> 采纳(+1核心)
                                                         </button>
 
                                                         {/* 仅归档 */}

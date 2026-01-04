@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, FileText, Layout, MessageSquarePlus, Copy, Check, Coffee } from 'lucide-react';
+import { RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, FileText, Layout, MessageSquarePlus, Copy, Check, Coffee, AlertTriangle, Gift } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'react-hot-toast';
@@ -153,6 +153,7 @@ const AnalysisResult = ({
     isAnalyzing, 
     setShowFeedbackModal, 
     setFeedbackContent, 
+    modelType,
     sendChatTrigger, 
     forceTab // 🔥 核心参数：指示当前处于 Overlay 分页模式
 }) => {
@@ -213,6 +214,7 @@ const AnalysisResult = ({
                 .replace(/#{1,6}\s/g, '')
                 .replace(/\n{2,}/g, '\n')
                 .replace(/[ \t]+/g, ' ')
+                .replace(/.[ \t]+/g, '')
                 .trim();
             const finalMsg = `${cleanText} (来自:海克斯教练)`;
             if (window.require) {
@@ -584,12 +586,23 @@ const AnalysisResult = ({
                     <SelectionFloatingButton />
                 </div>
                 
+                {/* 🔥 [修改] 底部反馈栏 - 带奖励提示 */}
                 <div className="p-2 border-t border-white/5 flex justify-end bg-[#2c2c33]/40 rounded-b-xl shrink-0">
                     <button 
                         onClick={() => setShowFeedbackModal(true)} 
-                        className="text-[10px] text-slate-500 hover:text-red-300 flex items-center gap-1.5 px-2 py-1 transition-colors"
+                        className="flex items-center gap-2 text-xs transition-all group"
                     >
-                        <ShieldAlert size={12}/> <span>内容有误？点击反馈</span>
+                        {/* 左侧：弱提示 */}
+                        <span className="text-slate-500 group-hover:text-slate-400 flex items-center gap-1">
+                            <AlertTriangle size={12} />
+                            内容有误？
+                        </span>
+
+                        {/* 右侧：强激励 (金色胶囊) */}
+                        <div className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full group-hover:bg-amber-500/20 group-hover:border-amber-500/40 group-hover:scale-105 transition-all duration-300">
+                            <Gift size={12} className="animate-bounce" />
+                            <span className="font-bold tracking-wide scale-90 sm:scale-100">纠错采纳送 海克斯核心 额度</span>
+                        </div>
                     </button>
                 </div>
             </div>

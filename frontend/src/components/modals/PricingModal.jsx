@@ -67,7 +67,7 @@ const PricingModal = ({ isOpen, onClose, username }) => {
                 {/* 📱 移动端隐藏详细描述，只留标题，保持 Banner 简洁 */}
                 <div className="hidden md:block">
                     <p className="text-slate-400 text-sm mb-8 leading-relaxed max-w-xs">
-                        基于 DeepSeek R1 深度思考模型，为您提供职业级 BP 建议与对位博弈指引。
+                        基于 HEX AI 深度思考模型，为您提供职业级 BP 建议与对位博弈指引。
                     </p>
                     
                     <ul className="space-y-4">

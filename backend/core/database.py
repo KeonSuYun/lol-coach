@@ -415,6 +415,11 @@ class KnowledgeBase:
         if not user: return False, "用户不存在", 0
         
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
+        if model_type == "reasoner":
+                explicit_balance = user.get("r1_remaining")
+                # 只有当字段存在(不为None) 且 余额耗尽(<=0) 时才拦截
+                if explicit_balance is not None and explicit_balance <= 0:
+                    return False, "深度思考次数不足 (余额已耗尽)", -1
         now = datetime.datetime.now(datetime.timezone.utc)
         today_str = now.strftime("%Y-%m-%d")
         
@@ -491,7 +496,10 @@ class KnowledgeBase:
         if self.get_user(username): return "USERNAME_TAKEN"
         if self.users_col.find_one({"email": email}): return "EMAIL_TAKEN"
         # 简单频控
-        if device_id != "unknown" and self.users_col.count_documents({"device_id": device_id}) >= 3: return "DEVICE_LIMIT"
+        if device_id and device_id not in ["unknown", "unknown_client_error"] and self.users_col.count_documents({"device_id": device_id}) >= 3: 
+            return "DEVICE_LIMIT"
+            
+        if ip and self.users_col.count_documents({"ip": ip, "created_at": {"$gte": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)}}) >= 5: return "IP_LIMIT"
         
         self.users_col.insert_one({
             "username": username, "password": password, "role": role,
@@ -783,7 +791,7 @@ class KnowledgeBase:
                     {"username": username},
                     {"$inc": {"usage_stats.bonus_r1": reward}}
                 )
-                print(f"🎁 [Reward] 用户 {username} 获得 {reward} 次 R1 奖励")
+                print(f"🎁 [Reward] 用户 {username} 获得 {reward} 次 【海克斯核心】充能")
                 
             return True
         except Exception as e:
