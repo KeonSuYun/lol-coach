@@ -93,13 +93,13 @@ HexCoach 的诞生离不开团队成员的共同努力。特别感谢以下贡�
     > 感谢在项目早期阶段提供的功能测试、Bug 修复、代码优化建议以及技术方案排查支持。
 
 ### 👑 项目发起人 (Project Owner)
-* **苏恩富 (Su Enfu)**
+* **苏恩富 (KeonSuYun)**
 
 ---
 
 ## ⚖️ 版权声明 (License)
 
-**Copyright © 2025 苏恩富 (Su Enfu). All Rights Reserved.**
+**Copyright © 2025 苏恩富 (KeonSuYun). All Rights Reserved.**
 
 本软件为 **私有商业软件 (Proprietary Software)**，非开源软件。
 
