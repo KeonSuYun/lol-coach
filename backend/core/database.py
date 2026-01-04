@@ -798,3 +798,29 @@ class KnowledgeBase:
     
     def delete_wiki_post(self, post_id): return self.wiki_posts.delete_one({"_id": ObjectId(post_id)}).deleted_count > 0 if self._to_oid(post_id) else False
     def delete_tavern_post(self, post_id): return self.tavern_posts.delete_one({"_id": ObjectId(post_id)}).deleted_count > 0 if self._to_oid(post_id) else False
+    def get_client_config(self):
+        """获取客户端下载配置"""
+        try:
+            # 默认返回空字典，防止报错
+            return self.config_col.find_one({"_id": "client_download"}) or {}
+        except:
+            return {}
+
+    def update_client_config(self, url, pwd):
+        """更新客户端下载配置"""
+        try:
+            self.config_col.update_one(
+                {"_id": "client_download"},
+                {
+                    "$set": {
+                        "pan_url": url, 
+                        "pan_pwd": pwd,
+                        "updated_at": datetime.datetime.now(datetime.timezone.utc)
+                    }
+                },
+                upsert=True # 如果不存在则自动创建
+            )
+            return True
+        except Exception as e:
+            print(f"Config Update Error: {e}")
+            return False

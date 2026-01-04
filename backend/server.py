@@ -231,6 +231,10 @@ class MessageSend(BaseModel):  # <--- 确保这个类定义存在
     receiver: str
     content: str
 
+class ClientConfigUpdate(BaseModel):
+    pan_url: str
+    pan_pwd: str
+
 class WikiPostCreate(BaseModel):
     title: str
     content: str
@@ -2326,8 +2330,32 @@ def get_sales_dashboard(current_user: dict = Depends(get_current_user)):
     
     data = db.get_sales_dashboard_data(current_user['username'])
     return data
+# ==========================
+# ⚙️ 系统配置 API
+# ==========================
 
-# ==========================================
+# 1. 公开接口：获取下载链接 (给 DownloadModal 用)
+@app.get("/api/config/client")
+def get_client_config_endpoint():
+    # 注意：db 是 server.py 全局初始化的 KnowledgeBase 实例
+    config = db.get_client_config()
+    return {
+        "pan_url": config.get("pan_url", ""),
+        "pan_pwd": config.get("pan_pwd", "")
+    }
+
+# 2. 管理接口：更新下载链接 (给 AdminDashboard 用) - 这就是你报错 405 的那个接口
+@app.post("/admin/config/client")
+def update_client_config_endpoint(data: ClientConfigUpdate, current_user: dict = Depends(get_current_user)):
+    # 权限检查
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    if db.update_client_config(data.pan_url, data.pan_pwd):
+        return {"status": "success", "msg": "下载链接已更新"}
+    
+    raise HTTPException(status_code=500, detail="更新失败")
+# ========================================
 # 🚨 兜底路由 (必须放在所有 API 之后)
 # ==========================================
 

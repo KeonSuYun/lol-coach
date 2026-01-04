@@ -4,7 +4,9 @@ import {
     ShieldAlert, X, Terminal, User, Clock, Activity, 
     DollarSign, TrendingUp, Users, Zap, AlertTriangle, 
     Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool,
-    Wallet, ArrowUpRight, EyeOff, HandCoins, CheckCircle2, MessageSquare, Send, Check
+    Wallet, ArrowUpRight, EyeOff, HandCoins, CheckCircle2, MessageSquare, Send, Check,
+    // 🔥 [新增] 引入配置页所需的图标
+    Cloud, Link, Save, Key, Settings
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
@@ -36,6 +38,10 @@ const AdminDashboard = ({ token, onClose, username }) => {
     const [replyTarget, setReplyTarget] = useState(null); // 当前要回复的反馈对象 {id, user_id}
     const [replyContent, setReplyContent] = useState("");
 
+    // 🔥 [新增] 下载配置状态
+    const [downloadConfig, setDownloadConfig] = useState({ pan_url: "", pan_pwd: "" });
+    const [configLoading, setConfigLoading] = useState(false);
+
     const isSuperAdmin = username === "admin" || username === "root";
 
     const TABS = [
@@ -43,6 +49,8 @@ const AdminDashboard = ({ token, onClose, username }) => {
         { id: 'users', label: '用户管理', icon: Users },
         ...(isSuperAdmin ? [{ id: 'sales', label: '销售结算', icon: Wallet }] : []),
         { id: 'feedbacks', label: '用户反馈', icon: Database },
+        // 🔥 [新增] 系统配置 Tab (仅管理员可见)
+        ...(isSuperAdmin ? [{ id: 'config', label: '系统配置', icon: Settings }] : []),
     ];
 
     // ================= 1. 数据获取逻辑 =================
@@ -105,6 +113,24 @@ const AdminDashboard = ({ token, onClose, username }) => {
             });
             setSalesPartners(Array.isArray(res.data) ? res.data : []);
         } catch (err) { setSalesPartners([]); }
+    };
+
+    // 🔥 [新增] 获取配置函数
+    const fetchConfig = async () => {
+        setConfigLoading(true);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/config/client`);
+            // 确保数据存在，防止 null 报错
+            setDownloadConfig({
+                pan_url: res.data.pan_url || "",
+                pan_pwd: res.data.pan_pwd || ""
+            });
+        } catch (e) {
+            console.error("Config load failed", e);
+            toast.error("加载配置失败");
+        } finally {
+            setConfigLoading(false);
+        }
     };
 
     // ================= 2. 操作逻辑 =================
@@ -171,6 +197,21 @@ const AdminDashboard = ({ token, onClose, username }) => {
         }
     };
 
+    // 🔥 [新增] 保存配置函数
+    const handleSaveConfig = async () => {
+        try {
+            setConfigLoading(true); // 复用 loading 状态
+            await axios.post(`${API_BASE_URL}/admin/config/client`, downloadConfig, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            toast.success("✅ 下载链接已更新，用户端立即生效！");
+        } catch (e) {
+            toast.error("保存失败: " + (e.response?.data?.detail || e.message));
+        } finally {
+            setConfigLoading(false);
+        }
+    };
+
     // ================= 3. Effect Hooks =================
 
     useEffect(() => { fetchData(); }, [token]); // 初始加载
@@ -180,6 +221,8 @@ const AdminDashboard = ({ token, onClose, username }) => {
         if (activeTab === 'users') fetchUsers();
         if (activeTab === 'sales') fetchSalesPartners();
         if (activeTab === 'feedbacks') fetchData(); 
+        // 🔥 [新增] 切换到配置页时加载
+        if (activeTab === 'config') fetchConfig();
     }, [activeTab, searchQuery, showResolved]);
 
     const calculateFinancials = () => {
@@ -465,7 +508,7 @@ const AdminDashboard = ({ token, onClose, username }) => {
                         </div>
                     )}
 
-                    {/* === Tab 4: 用户反馈 (更新版：支持筛选、回复、处理) === */}
+                    {/* === Tab 4: 用户反馈 === */}
                     {!loading && !error && activeTab === 'feedbacks' && (
                         <div className="space-y-4 animate-fade-in-up">
                             {/* 工具栏 */}
@@ -518,14 +561,14 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                 <p className="text-slate-300 text-sm whitespace-pre-wrap">{item.description}</p>
                                             </div>
                                             
-                                            {/* Context 代码块 (默认收起，hover展示细节如果太长可优化，这里简单处理) */}
+                                            {/* Context 代码块 */}
                                             {item.match_context && Object.keys(item.match_context).length > 0 && (
                                                 <div className="text-[10px] text-slate-600 font-mono truncate hover:text-slate-400 transition cursor-help" title="Context Data">
                                                     Context: {JSON.stringify(item.match_context)}
                                                 </div>
                                             )}
 
-                                            {/* 操作栏 (悬浮显示或常驻) */}
+                                            {/* 操作栏 */}
                                             <div className="flex justify-end gap-2 pt-2 border-t border-white/5 mt-1">
                                                 
                                                 {/* 回复按钮 */}
@@ -585,6 +628,115 @@ const AdminDashboard = ({ token, onClose, username }) => {
                             )}
                         </div>
                     )}
+
+                    {/* === 🔥 [新增] Tab 5: 系统配置 === */}
+                    {!loading && !error && activeTab === 'config' && isSuperAdmin && (
+                        <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto mt-8">
+                            
+                            <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 rounded-xl p-8 shadow-lg relative overflow-hidden">
+                                {/* 装饰背景 */}
+                                <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+                                    <Cloud size={200} />
+                                </div>
+
+                                <div className="flex items-center gap-3 mb-6 border-b border-[#C8AA6E]/10 pb-4">
+                                    <div className="p-2 bg-[#C8AA6E]/10 rounded-lg text-[#C8AA6E]">
+                                        <Settings size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-[#F0E6D2]">系统全局配置</h3>
+                                        <p className="text-xs text-slate-500">
+                                            修改此处的配置将实时同步到所有客户端，无需重新发版。
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-8 relative z-10">
+                                    
+                                    {/* 1. 下载链接配置模块 */}
+                                    <div>
+                                        <h4 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2 border-l-4 border-[#0AC8B9] pl-3">
+                                            <Cloud size={16} className="text-[#0AC8B9]"/> 客户端下载源 (123云盘/直链)
+                                        </h4>
+                                        
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            {/* URL 输入 */}
+                                            <div className="md:col-span-2">
+                                                <label className="text-xs text-slate-500 font-bold uppercase mb-2 block flex items-center gap-1">
+                                                    <Link size={12}/> 下载链接 (URL)
+                                                </label>
+                                                <div className="relative group">
+                                                    <input 
+                                                        className="w-full bg-[#091428] border border-slate-700 rounded-lg py-3 px-4 text-slate-200 focus:border-[#C8AA6E] focus:ring-1 focus:ring-[#C8AA6E]/50 outline-none transition-all font-mono text-sm placeholder:text-slate-600"
+                                                        placeholder="https://www.123pan.com/s/..."
+                                                        value={downloadConfig.pan_url}
+                                                        onChange={e => setDownloadConfig({...downloadConfig, pan_url: e.target.value})}
+                                                    />
+                                                    <div className="absolute inset-0 border border-transparent group-hover:border-[#C8AA6E]/20 rounded-lg pointer-events-none transition-colors"></div>
+                                                </div>
+                                            </div>
+
+                                            {/* 密码输入 */}
+                                            <div>
+                                                <label className="text-xs text-slate-500 font-bold uppercase mb-2 block flex items-center gap-1">
+                                                    <Key size={12}/> 提取码 (Password)
+                                                </label>
+                                                <input 
+                                                    className="w-full bg-[#091428] border border-slate-700 rounded-lg py-3 px-4 text-slate-200 focus:border-[#C8AA6E] focus:ring-1 focus:ring-[#C8AA6E]/50 outline-none transition-all font-mono text-sm placeholder:text-slate-600"
+                                                    placeholder="留空则不显示"
+                                                    value={downloadConfig.pan_pwd}
+                                                    onChange={e => setDownloadConfig({...downloadConfig, pan_pwd: e.target.value})}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 分割线 */}
+                                    <div className="h-px bg-white/5 w-full"></div>
+
+                                    {/* 底部操作区 */}
+                                    <div className="flex items-center justify-between pt-2">
+                                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                                            <Activity size={14} className="text-[#0AC8B9]"/>
+                                            <span>上次更新: 实时生效</span>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-4">
+                                            {configLoading && <span className="text-xs text-[#0AC8B9] animate-pulse font-mono">正在同步数据...</span>}
+                                            <button 
+                                                onClick={handleSaveConfig}
+                                                disabled={configLoading}
+                                                className="px-8 py-2.5 bg-gradient-to-r from-[#C8AA6E] to-[#b09358] text-[#091428] font-black uppercase tracking-wider rounded shadow-lg hover:shadow-[#C8AA6E]/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                <Save size={16} strokeWidth={2.5} /> 保存配置
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            {/* 提示信息卡片 */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4 flex gap-3">
+                                    <div className="text-blue-400 mt-0.5"><Activity size={16}/></div>
+                                    <div className="text-xs text-slate-400 leading-relaxed">
+                                        <h4 className="text-blue-300 font-bold mb-1">即时生效机制</h4> 
+                                        无需重新打包前端或重启服务器。保存后，所有用户再次打开“下载弹窗”时，会自动获取最新的云盘链接。
+                                    </div>
+                                </div>
+                                <div className="bg-[#C8AA6E]/5 border border-[#C8AA6E]/20 rounded-lg p-4 flex gap-3">
+                                    <div className="text-[#C8AA6E] mt-0.5"><Link size={16}/></div>
+                                    <div className="text-xs text-slate-400 leading-relaxed">
+                                        <h4 className="text-[#C8AA6E] font-bold mb-1">链接填写规范</h4> 
+                                        建议优先使用 <strong>123云盘</strong> 或 <strong>蓝奏云</strong> 等不限速网盘。如果使用直链（如对象存储），请确保流量充足。
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    )}
+
                 </div>
             </div>
         </div>
