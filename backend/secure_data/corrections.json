@@ -15,6 +15,22 @@
     "priority": 120
   },
   {
+    "hero": "Sylas",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **机制铁律**：塞拉斯的大招【其人之道】**只能偷取敌方英雄的 R 技能（终极技能）**。严禁建议偷取任何小技能（如阿卡丽W烟雾弹、小丑盒子、莫甘娜黑盾等）。不管小技能多强，塞拉斯都偷不到。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
+    "hero": "Viego",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **机制铁律**：佛耶戈（破败之王）捡魂后可以使用敌方的 Q/W/E，但**无法使用敌方的大招 (R)**。严禁建议“捡魂后开大反打”。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
   "hero": "role_jungle",
   "enemy": "general",
   "mutual": false,

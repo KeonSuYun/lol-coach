@@ -3,7 +3,6 @@ import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from '../config/constants';
 
-// 辅助：加载本地缓存
 const loadState = (key, defaultVal) => {
     try {
         const saved = localStorage.getItem(key);
@@ -12,20 +11,15 @@ const loadState = (key, defaultVal) => {
 };
 
 export function useGameCore() {
-    // ================= 1. 基础状态定义 =================
     const [version, setVersion] = useState("V15.2");
     const [championList, setChampionList] = useState([]);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
     const [adminView, setAdminView] = useState('dashboard');
-    // 页面状态
     const [isOverlay, setIsOverlay] = useState(() => window.location.href.includes('overlay=true'));
     const [hasStarted, setHasStarted] = useState(() => window.location.href.includes('overlay=true'));
     const [showCommunity, setShowCommunity] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
     
-    // 🔥 [新增] 销售合伙人弹窗状态
-    const [showSalesDashboard, setShowSalesDashboard] = useState(false);
-
     useEffect(() => {
         if (isOverlay) document.body.classList.add('transparent-mode');
     }, [isOverlay]);
@@ -33,8 +27,8 @@ export function useGameCore() {
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [currentShortcuts, setCurrentShortcuts] = useState(null);
     const [sendChatTrigger, setSendChatTrigger] = useState(0);
-
-    // 游戏数据状态
+    const [showSalesDashboard, setShowSalesDashboard] = useState(false);
+    
     const [blueTeam, setBlueTeam] = useState(() => loadState('blueTeam', Array(5).fill(null)));
     const [redTeam, setRedTeam] = useState(() => loadState('redTeam', Array(5).fill(null)));
     const [myTeamRoles, setMyTeamRoles] = useState(() => loadState('myTeamRoles', Array(5).fill("")));
@@ -46,16 +40,14 @@ export function useGameCore() {
     const [mapSide, setMapSide] = useState(() => loadState('mapSide', "unknown"));
     const [showDownloadModal, setShowDownloadModal] = useState(false);
     const [extraMechanics, setExtraMechanics] = useState({});
-    
+    const [gamePhase, setGamePhase] = useState("None"); 
     const [lcuProfile, setLcuProfile] = useState(null);
 
-    // 选人弹窗
     const [showChampSelector, setShowChampSelector] = useState(false);
     const [selectingSlot, setSelectingSlot] = useState(null); 
     const [selectingIsEnemy, setSelectingIsEnemy] = useState(false); 
     const [roleMapping, setRoleMapping] = useState({}); 
 
-    // 分路
     const [enemyLaneAssignments, setEnemyLaneAssignments] = useState(() =>
         loadState('enemyLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
     );
@@ -63,7 +55,6 @@ export function useGameCore() {
         loadState('myLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
     );
 
-    // 分析状态
     const [useThinkingModel, setUseThinkingModel] = useState(() => loadState('useThinkingModel', false));
     const [aiResults, setAiResults] = useState(() => loadState('aiResults', { bp: null, personal: null, team: null }));
     const [analyzingStatus, setAnalyzingStatus] = useState({});
@@ -77,7 +68,6 @@ export function useGameCore() {
     const analyzeTypeRef = useRef(analyzeType);
     useEffect(() => { analyzeTypeRef.current = analyzeType; }, [analyzeType]);
 
-    // 攻略与社区
     const [tipTarget, setTipTarget] = useState(null);
     const [tips, setTips] = useState({ general: [], matchup: [] });
     const [inputContent, setInputContent] = useState("");
@@ -87,7 +77,6 @@ export function useGameCore() {
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [showPricingModal, setShowPricingModal] = useState(false);
 
-    // 用户
     const [currentUser, setCurrentUser] = useState(null);
     const [accountInfo, setAccountInfo] = useState(null);
     const [token, setToken] = useState(null);
@@ -95,11 +84,10 @@ export function useGameCore() {
     const [authForm, setAuthForm] = useState({ username: "", password: "" });
     const [rawLcuData, setRawLcuData] = useState(null);
 
-    // ================= 2. WebSocket & 广播 (优先于 IPC 初始化) =================
     const wsRef = useRef(null);
     
     useEffect(() => {
-        if (window.require) return; // Electron 环境跳过，使用 IPC
+        if (window.require) return; 
         
         let ws; let timer;
         const connect = () => {
@@ -139,7 +127,6 @@ export function useGameCore() {
         return () => { if(ws) ws.close(); clearTimeout(timer); };
     }, [token]);
 
-    // ================= 3. Electron IPC (核心通信逻辑) =================
     useEffect(() => {
         if (window.require) {
             try {
@@ -173,7 +160,7 @@ export function useGameCore() {
                                 summonerName: p.summonerName || "",
                                 assignedPosition: p.assignedPosition || ""
                             })),
-                            localPlayerCellId: data.localPlayerCellId || -1
+                            localPlayerCellId: data.localPlayerCellId !== undefined ? data.localPlayerCellId : -1
                         };
                         handleLcuUpdate(adaptedSession);
                         setLcuStatus("connected");
@@ -240,12 +227,22 @@ export function useGameCore() {
                     setCurrentShortcuts(newConfig);
                 };
 
+                const handleOpenSettings = () => {
+                    setShowSettingsModal(true);
+                };
+
+                const handleGamePhaseUpdate = (event, phase) => {
+                    setGamePhase(phase);
+                };
+
                 ipcRenderer.on('lcu-update', handleElectronLcuUpdate);
                 ipcRenderer.on('lcu-profile-update', handleLcuProfileUpdate);
                 ipcRenderer.on('sync-analysis', handleRemoteSync);
                 ipcRenderer.on('shortcut-triggered', handleCommand);
                 ipcRenderer.on('shortcuts-updated', handleShortcutsUpdated);
-                
+                ipcRenderer.on('open-settings', handleOpenSettings); 
+                ipcRenderer.on('game-phase', handleGamePhaseUpdate);
+
                 ipcRenderer.send('fetch-lcu-data');
 
                 return () => {
@@ -254,6 +251,8 @@ export function useGameCore() {
                     ipcRenderer.removeListener('sync-analysis', handleRemoteSync);
                     ipcRenderer.removeListener('shortcut-triggered', handleCommand);
                     ipcRenderer.removeListener('shortcuts-updated', handleShortcutsUpdated);
+                    ipcRenderer.removeListener('open-settings', handleOpenSettings); 
+                    ipcRenderer.removeListener('game-phase', handleGamePhaseUpdate);
                 };
             } catch (e) {
                 console.error("Electron IPC init failed:", e);
@@ -269,46 +268,32 @@ export function useGameCore() {
         }
     };
     
-    const handleSyncProfile = useCallback(() => { 
-        // 1. Electron 环境
+    const handleSyncProfile = useCallback(() => {
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
             ipcRenderer.send('req-lcu-profile'); 
         } 
-        // 2. Web 环境 (通过 WebSocket Bridge)
         else if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: 'REQ_LCU_PROFILE' }));
         } 
-        // 3. 失败
-        else {
-            // 静默处理
-        }
-    }, []);
+    }, []); 
 
-    // 2. 新增：使用 useRef 记录是否已自动同步过，防止切换页面重复触发
     const hasAutoSynced = useRef(false);
 
     useEffect(() => {
         if (lcuStatus === 'connected') {
-            // 🛑 核心判断：如果已经同步过，就跳过
             if (hasAutoSynced.current) return;
-
             console.log("⚡ LCU 已连接，正在自动同步数据...");
-            
-            // 延迟 1 秒执行，等待 LCU 接口完全就绪
             const timer = setTimeout(() => {
                 handleSyncProfile();
-                hasAutoSynced.current = true; // ✅ 标记为已同步
+                hasAutoSynced.current = true;
             }, 1000);
-            
             return () => clearTimeout(timer);
         } else if (lcuStatus === 'disconnected') {
-            // 只有真正断开连接时，才重置标记，允许下次连接时再次同步
             hasAutoSynced.current = false;
         }
     }, [lcuStatus, handleSyncProfile]);
 
-    // ================= 4. 数据持久化 & 初始化 =================
     useEffect(() => { localStorage.setItem('blueTeam', JSON.stringify(blueTeam)); }, [blueTeam]);
     useEffect(() => { localStorage.setItem('redTeam', JSON.stringify(redTeam)); }, [redTeam]);
     useEffect(() => { localStorage.setItem('myTeamRoles', JSON.stringify(myTeamRoles)); }, [myTeamRoles]);
@@ -413,7 +398,7 @@ export function useGameCore() {
             });
             if (roles.some(r => r !== "")) setMyTeamRoles(roles);
 
-            if (session.localPlayerCellId !== undefined) {
+            if (session.localPlayerCellId !== undefined && session.localPlayerCellId !== -1) {
                 const localPlayer = session.myTeam.find(p => p.cellId === session.localPlayerCellId);
                 if (localPlayer) {
                     setUserSlot(localPlayer.cellId % 5);
@@ -492,7 +477,6 @@ export function useGameCore() {
     };
     const handleRegister = async () => {
         try { 
-            // 🔥 确保发送的数据包含 sales_ref
             const payload = {
                 ...authForm,
                 sales_ref: authForm.sales_ref || localStorage.getItem('sales_ref') || null
@@ -604,6 +588,28 @@ export function useGameCore() {
         setAnalyzingStatus(prev => ({ ...prev, [mode]: true }));
         setAiResults(prev => ({ ...prev, [mode]: null })); 
 
+        // 🔥 [修复] 智能英雄定位系统 (Auto Slot Detection)
+        // 核心逻辑：如果当前选中的位置(userSlot)没有英雄，
+        // 或者是手动测试模式(LCU未连接)，代码会自动扫描 blueTeam
+        // 找到第一个选了英雄的位置，并认为那就是玩家自己。
+        let targetSlot = userSlot;
+        let myHeroObj = blueTeam[userSlot];
+
+        if (!myHeroObj) {
+            const firstNonEmptyIndex = blueTeam.findIndex(h => h !== null);
+            if (firstNonEmptyIndex !== -1) {
+                console.log(`⚠️ 自动修正玩家位置: Slot ${userSlot} -> Slot ${firstNonEmptyIndex} (${blueTeam[firstNonEmptyIndex].name})`);
+                targetSlot = firstNonEmptyIndex;
+                myHeroObj = blueTeam[firstNonEmptyIndex];
+                setUserSlot(firstNonEmptyIndex); 
+                
+                const SLOT_TO_ROLE = { 0: "TOP", 1: "JUNGLE", 2: "MID", 3: "ADC", 4: "SUPPORT" };
+                if (!lcuRealRole) {
+                    setUserRole(SLOT_TO_ROLE[firstNonEmptyIndex]);
+                }
+            }
+        }
+
         const payloadAssignments = {};
         blueTeam.forEach((hero, idx) => {
             const roleMap = { "TOP": "TOP", "JUG": "JUNGLE", "JUNGLE": "JUNGLE", "MID": "MID", "ADC": "ADC", "BOTTOM": "ADC", "SUP": "SUPPORT", "SUPPORT": "SUPPORT" };
@@ -620,10 +626,21 @@ export function useGameCore() {
         });
 
         let finalUserRole = lcuRealRole || userRole;
-        const myHeroName = blueTeam[userSlot]?.name;
+        if (!finalUserRole) {
+             const SLOT_TO_ROLE = { 0: "TOP", 1: "JUNGLE", 2: "MID", 3: "ADC", 4: "SUPPORT" };
+             finalUserRole = SLOT_TO_ROLE[targetSlot] || "MID";
+        }
+
+        const myHeroName = myHeroObj?.name;
         if (myHeroName) {
              const manualRole = Object.keys(myLaneAssignments).find(r => myLaneAssignments[r] === myHeroName);
              if (manualRole) finalUserRole = manualRole;
+        }
+
+        if (!myHeroObj) {
+            setAiResults(prev => ({ ...prev, [mode]: JSON.stringify({ concise: { title: "无法识别英雄", content: "请先在左侧点击圆圈选择您的英雄，或等待游戏内自动同步。" } })}));
+            setAnalyzingStatus(prev => ({ ...prev, [mode]: false }));
+            return;
         }
 
         try {
@@ -633,7 +650,7 @@ export function useGameCore() {
 
             const payload = {
                 mode,
-                myHero: blueTeam[userSlot]?.key || "",
+                myHero: myHeroObj.key, 
                 myTeam: blueTeam.map(c => c?.key || ""),
                 enemyTeam: redTeam.map(c => c?.key || ""),
                 userRole: finalUserRole,
@@ -693,10 +710,8 @@ export function useGameCore() {
             showChampSelector, selectingSlot, selectingIsEnemy, roleMapping,
             currentUser, accountInfo, token, authMode, authForm, showLoginModal, showPricingModal,
             tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot,
-            mapSide,showDownloadModal, lcuProfile,
-            
-            // 🔥 [导出状态]
-            showSalesDashboard 
+            mapSide,showDownloadModal, showSalesDashboard,lcuProfile,
+            gamePhase 
         },
         actions: {
             setHasStarted, setShowCommunity, setShowProfile,
@@ -710,10 +725,7 @@ export function useGameCore() {
             handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo,
             handleCardClick, handleSelectChampion, handleSaveShortcuts,
             handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide,
-            setShowDownloadModal, handleSyncProfile,
-            
-            // 🔥 [导出动作]
-            setShowSalesDashboard 
+            setShowDownloadModal, setShowSalesDashboard,handleSyncProfile 
         }
     };
 }

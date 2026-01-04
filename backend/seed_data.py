@@ -3,6 +3,8 @@ import os
 import datetime
 import re
 from pymongo import MongoClient
+from pymongo.errors import ConfigurationError
+# 👆 修复点1：已移除了 'ValueError' 导入
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
@@ -64,7 +66,7 @@ def has_chinese(text):
 def get_utc_now():
     return datetime.datetime.now(datetime.timezone.utc)
 
-# ✨✨✨ 新增功能：同步 RAG 修正数据 (Corrections) ✨✨✨
+# ✨✨✨ 同步 RAG 修正数据 (Corrections) ✨✨✨
 def sync_corrections_from_json(db):
     print("\n🚀 [6/6] 同步 RAG 修正数据 (Corrections)...")
     
@@ -146,7 +148,13 @@ def seed_data():
         print(f"❌ 连接失败: {e}")
         return
 
-    db = client["lol_community"]
+    # 🔥 统一数据库选择逻辑 (确保和 database.py 一致)
+    try:
+        db = client.get_default_database()
+        print(f"✅ 使用 URI 指定的数据库: {db.name}")
+    except (ConfigurationError, ValueError):
+        db = client['lol_community']
+        print(f"✅ URI 未指定库名，使用默认数据库: {db.name}")
 
     # =====================================================
     # 1. 同步英雄数据 (Champions) - 以 champions.json 为准
@@ -155,6 +163,13 @@ def seed_data():
     
     champs_data = load_json("champions.json")
     if champs_data:
+        # 🔥🔥🔥 修复点2：先删除旧索引，防止 "duplicate key error" 🔥🔥🔥
+        try:
+            db.champions.drop_indexes()
+            print("🔧 已清理旧索引 (解决重名冲突问题)")
+        except Exception as e:
+            print(f"⚠️ 索引清理跳过: {e}")
+
         # 1. 清空旧数据
         delete_result = db.champions.delete_many({})
         print(f"🧹 已清空旧表 (删除了 {delete_result.deleted_count} 条)")
@@ -168,9 +183,6 @@ def seed_data():
                 hero_english_id = hero.get("name") 
                 if not hero_english_id: continue
                 
-                # 🛠️ 关键修复：同时准备大小写
-                # backend/server.py 依赖大写 (TOP) 做推荐算法
-                # frontend/ChampSelectModal.jsx 依赖小写 (top) 做筛选 (虽然它兼容性好，但保持一致更安全)
                 role_raw = hero.get("role", "mid")
                 role_upper = role_raw.upper() # "TOP"
                 role_lower = role_raw.lower() # "top"
@@ -196,28 +208,19 @@ def seed_data():
 
                     hero_map[hero_english_id] = {
                         "id": str(hero_english_id),      # 英文ID: "Malphite"
-                        "_id": str(hero_english_id),     # 数据库主键
+                        "_id": str(hero_english_id),     # 数据库主键 (强制唯一)
                         
-                        # 🛠️ 兼容性修复 1: 前端图片
-                        # 前端 <img src={alias}.png> -> 需要英文 "Malphite"
                         "alias": str(hero_english_id),   
-                        
-                        # 🛠️ 兼容性修复 2: 后端 server.py 的 get_hero_cn_name
-                        # 后端虽然优先读 alias 列表，但失败后会读 title
-                        # 所以我们把中文名存入 title，保证后端翻译正常
                         "title": display_name_cn,        # "石头人"
-                        "name": display_name_cn,         # "石头人"
+                        "name": display_name_cn,         # "石头人" (这里可能会重复，所以我们删除了索引)
                         
                         "key": str(hero_english_id),     # 冗余英文字段，双重保险
                         "tags": [t.capitalize() for t in hero.get("tags", [])],
                         "updated_at": get_utc_now(),
                         
                         "positions": {},
-                        
-                        # 列表初始化
                         "roles": [role_lower],
                         
-                        # 主数据初始化
                         "tier": stats_block["tier"],
                         "win_rate": stats_block["win_rate"],
                         "pick_rate": stats_block["pick_rate"],
@@ -225,16 +228,11 @@ def seed_data():
                         "role": role_lower 
                     }
                 
-                # 🛠️ 兼容性修复 3: 后端 server.py 的 recommend_heroes_algo
-                # 后端强制使用大写 KEY: positions_data.get(current_role.upper())
-                # 所以这里的 Key 必须是 "TOP", "MID"...
                 hero_map[hero_english_id]["positions"][role_upper] = stats_block
                 
-                # 维护 roles 数组 (去重)
                 if role_lower not in hero_map[hero_english_id]["roles"]:
                     hero_map[hero_english_id]["roles"].append(role_lower)
 
-                # 更新主显示数据 (通常取 Pick 率最高的位置作为主数据)
                 current_main_pick = hero_map[hero_english_id].get("pick_rate", 0)
                 if stats_block["pick_rate"] > current_main_pick:
                      hero_map[hero_english_id]["tier"] = stats_block["tier"]

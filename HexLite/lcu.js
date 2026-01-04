@@ -92,6 +92,17 @@ async function fetchSession(creds) {
     } catch (e) { return null; }
 }
 
+// 🔥 [新增] 主动获取当前游戏流程阶段
+async function fetchGameFlowPhase(creds) {
+    try {
+        const res = await axios.get(`${creds.url}/lol-gameflow/v1/gameflow-phase`, {
+            httpsAgent: agent,
+            headers: { 'Authorization': creds.auth, 'Accept': 'application/json' }
+        });
+        return res.data; // 例如: "ChampSelect", "InProgress", "Lobby"
+    } catch (e) { return null; }
+}
+
 async function processSession(session, creds, callback) {
     if (!session || !session.myTeam) return;
 
@@ -206,7 +217,6 @@ async function getProfileData() {
 
         for (const g of allGamesSorted) {
             // 只保留排位赛 (单双排 420, 灵活 440)
-            // 提示：队列ID可能会随赛季变动，但420/440相对稳定
             if (!QUEUE_ID_MAP[g.queueId]) continue;
 
             const p = g.participants[0];
@@ -287,20 +297,40 @@ async function connectToLCU(callback, onWarning) {
     const initialData = await fetchSession(creds);
     if (initialData) await processSession(initialData, creds, callback);
 
+    // 🔥 [新增] 初始化时立刻获取当前游戏阶段 (关键修复)
+    // 这样即使软件开启时已经处于选人界面，也能立即变大
+    const initialPhase = await fetchGameFlowPhase(creds);
+    if (initialPhase) {
+        console.log(`🔄 [LCU] 初始游戏阶段: ${initialPhase}`);
+        callback({ gamePhase: initialPhase });
+    }
+
     const wsUrl = `wss://riot:${creds.password}@127.0.0.1:${creds.port}`;
     const ws = new WebSocket(wsUrl, { rejectUnauthorized: false });
 
     ws.on('open', () => {
         console.log('✅ [Lite] LCU WebSocket 连接成功');
         ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-champ-select_v1_session']));
+        // 🔥 [新增] 订阅 GameFlow 事件 (用于后续的阶段变更)
+        ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-gameflow_v1_gameflow-phase']));
     });
 
     ws.on('message', async (data) => {
         try {
             const json = JSON.parse(data);
-            if (json[2] && json[2].uri === '/lol-champ-select/v1/session') {
+            if (!json || !json[2]) return;
+
+            // 1. 处理 BP 数据
+            if (json[2].uri === '/lol-champ-select/v1/session') {
                 if (json[2].eventType === 'Delete') { callback({ myTeam: [], enemyTeam: [] }); return; }
                 await processSession(json[2].data, creds, callback);
+            }
+            
+            // 2. 🔥 [新增] 处理游戏流程变化 (ChampSelect <-> InProgress)
+            if (json[2].uri === '/lol-gameflow/v1/gameflow-phase') {
+                const phase = json[2].data; // "ChampSelect", "InProgress", "Lobby", "None"
+                console.log(`🔄 [LCU] 游戏阶段变更: ${phase}`);
+                callback({ gamePhase: phase });
             }
         } catch (e) {}
     });

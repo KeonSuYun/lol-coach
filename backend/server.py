@@ -1572,18 +1572,28 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     
     # 1. 处理前端传来的实时技能数据
     live_mechanics_str = ""
+    
     if data.extraMechanics:
-        # ⚠️ 关键：必须排序！确保每次生成的字符串顺序一致，否则缓存会失效
-        sorted_mechanics = sorted(data.extraMechanics.items())
+        # 1. 定义白名单：只允许 我方英雄、敌方对位英雄 进入 Prompt
+        # normalize_simple 是你之前定义的去除非法字符函数
+        allowed_heroes = {
+            normalize_simple(data.myHero), 
+            normalize_simple(data.enemyHero)
+        }
         
-        mechanics_list = []
-        for hero_name, mech_desc in sorted_mechanics:
-            # 简单清洗，防止过长
-            clean_desc = str(mech_desc).strip()[:800] 
-            mechanics_list.append(f"【{hero_name} 关键机制/CD】:\n{clean_desc}")
-        
-        if mechanics_list:
-            live_mechanics_str = "\n".join(mechanics_list)
+        # 2. 只有当 keys 里的英雄在白名单里时，才拼接技能描述
+        # 这里的 k 可能是 "LeeSin" 或者 "盲僧"，建议前端传英文ID，或者在这里做模糊匹配
+        filtered_mechanics = []
+        for k, v in data.extraMechanics.items():
+            # 简单清洗 k 进行比对
+            clean_k = normalize_simple(k)
+            # 如果 k 包含在白名单里 (比如 clean_k == 'leesin')
+            if clean_k in allowed_heroes:
+                # 截断单个英雄描述，防止过长
+                filtered_mechanics.append(f"【{k}】:\n{v[:600]}") 
+
+        if filtered_mechanics:
+            live_mechanics_str = "====== 🚨 关键对位实时数据 (Live Data) ======\n" + "\n\n".join(filtered_mechanics)
 
     # 2. 组合“超级系统提示词” (S15机制 + 实时技能)
     # 只要这部分内容不变（同局游戏），DeepSeek 就会命中缓存，费用打 1 折，速度极快
