@@ -395,47 +395,90 @@ class KnowledgeBase:
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
         today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
         usage_data = user.get("usage_stats", {})
+        base_limit = 10
+        bonus = usage_data.get("bonus_r1", 0)
+        total_limit = base_limit + bonus
         r1_used = sum(usage_data.get("counts_reasoner", {}).values()) if usage_data.get("last_reset_date") == today_str else 0
-        return {"is_pro": is_pro, "role": current_role, "r1_limit": 10, "r1_used": r1_used, "r1_remaining": max(0, 10 - r1_used) if not is_pro else -1}
+        
+        return {
+            "is_pro": is_pro, 
+            "role": current_role, 
+            "r1_limit": total_limit, # 返回包含奖励的总额度
+            "r1_used": r1_used, 
+            "r1_remaining": max(0, total_limit - r1_used) if not is_pro else -1
+        }
 
     def check_and_update_usage(self, username, mode, model_type="chat"):
+        # 1. 获取用户身份与基础信息
         current_role = self.check_membership_status(username)
         user = self.users_col.find_one({"username": username})
         if not user: return False, "用户不存在", 0
+        
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
         now = datetime.datetime.now(datetime.timezone.utc)
         today_str = now.strftime("%Y-%m-%d")
+        
+        # 2. 初始化或重置每日统计
         usage_data = user.get("usage_stats", {})
-        
         if usage_data.get("last_reset_date") != today_str:
-            usage_data = {"last_reset_date": today_str, "counts_chat": {}, "counts_reasoner": {}, "last_access": {}, "hourly_start": now.isoformat(), "hourly_count": 0}
+            # 保留 bonus_r1 不被重置
+            current_bonus = usage_data.get("bonus_r1", 0)
+            usage_data = {
+                "last_reset_date": today_str, 
+                "counts_chat": {}, 
+                "counts_reasoner": {}, 
+                "last_access": {}, 
+                "hourly_start": now.isoformat(), 
+                "hourly_count": 0,
+                "bonus_r1": current_bonus # 继承奖励次数
+            }
         
+        # 3. 小时频控 (防刷)
         HOURLY_LIMIT = 30 if is_pro else 10
         hourly_start_str = usage_data.get("hourly_start")
         hourly_start = datetime.datetime.fromisoformat(hourly_start_str) if hourly_start_str else now
         if hourly_start.tzinfo is None: hourly_start = hourly_start.replace(tzinfo=datetime.timezone.utc)
         
-        if (now - hourly_start).total_seconds() > 3600: hourly_start, usage_data["hourly_count"] = now, 0
+        if (now - hourly_start).total_seconds() > 3600: 
+            hourly_start, usage_data["hourly_count"] = now, 0
+            
         if usage_data.get("hourly_count", 0) >= HOURLY_LIMIT:
             return False, f"操作过于频繁 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", 0
 
+        # 4. 冷却时间 (Cooldown)
         COOLDOWN = 5 if is_pro else 15
         last_time_str = usage_data.get("last_access", {}).get(mode)
         if last_time_str:
             try:
                 last_time = datetime.datetime.fromisoformat(last_time_str)
                 if last_time.tzinfo is None: last_time = last_time.replace(tzinfo=datetime.timezone.utc)
-                if (now - last_time).total_seconds() < COOLDOWN: return False, "AI思考中", int(COOLDOWN - (now - last_time).total_seconds())
+                if (now - last_time).total_seconds() < COOLDOWN: 
+                    return False, "AI思考中", int(COOLDOWN - (now - last_time).total_seconds())
             except: pass
 
-        if not is_pro and model_type == "reasoner" and sum(usage_data.get("counts_reasoner", {}).values()) >= 10: return False, "深度思考限额已满", -1
+        # 5. 🔥🔥🔥 [核心修改] 深度思考 (R1) 次数限制检查 (含奖励逻辑)
+        if not is_pro and model_type == "reasoner":
+            # 获取奖励次数 (默认为 0)
+            bonus = usage_data.get("bonus_r1", 0)
+            # 每日基础 10 次 + 奖励次数
+            daily_r1_limit = 10 + bonus
+            
+            used_today = sum(usage_data.get("counts_reasoner", {}).values())
+            
+            if used_today >= daily_r1_limit: 
+                return False, f"深度思考限额已满 ({used_today}/{daily_r1_limit})", -1
         
-        if model_type == "reasoner": usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
-        else: usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
+        # 6. 更新计数
+        if model_type == "reasoner": 
+            usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
+        else: 
+            usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
             
         usage_data["last_access"][mode] = now.isoformat()
         usage_data["hourly_count"] = usage_data.get("hourly_count", 0) + 1
         usage_data["hourly_start"] = hourly_start.isoformat()
+        
+        # 7. 保存到数据库
         self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
         return True, "OK", 0
 
@@ -714,16 +757,39 @@ class KnowledgeBase:
         # 按时间倒序
         cursor = self.feedback_col.find(query).sort('created_at', -1).limit(limit)
         return [dict(doc, _id=str(doc['_id'])) for doc in cursor]
-    def resolve_feedback(self, feedback_id):
-        if not self._to_oid(feedback_id): return False
+    def resolve_feedback(self, feedback_id, adopt=False, reward=1):
+        if not (oid := self._to_oid(feedback_id)): return False
         try:
-            self.feedback_col.update_one(
-                {"_id": ObjectId(feedback_id)},
-                {"$set": {"status": "resolved", "resolved_at": datetime.datetime.now(datetime.timezone.utc)}}
+            # A. 更新反馈状态
+            update_doc = {
+                "status": "resolved", 
+                "resolved_at": datetime.datetime.now(datetime.timezone.utc),
+                "adopted": adopt,
+                "reward_granted": reward if adopt else 0
+            }
+            
+            feedback = self.feedback_col.find_one_and_update(
+                {"_id": oid},
+                {"$set": update_doc},
+                return_document=True
             )
+            
+            if not feedback: return False
+
+            # B. 如果采纳，给用户发奖 (原子操作 $inc 增加 bonus_r1)
+            if adopt and feedback.get("user_id"):
+                username = feedback["user_id"]
+                self.users_col.update_one(
+                    {"username": username},
+                    {"$inc": {"usage_stats.bonus_r1": reward}}
+                )
+                print(f"🎁 [Reward] 用户 {username} 获得 {reward} 次 R1 奖励")
+                
             return True
-        except:
+        except Exception as e:
+            print(f"Resolve Error: {e}")
             return False
+        
     def get_prompt_template(self, mode): return self.prompt_templates_col.find_one({"mode": mode})
     def get_game_constants(self): return self.config_col.find_one({"_id": "s15_rules"}) or {}
     def delete_tip(self, tip_id): return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0 if self._to_oid(tip_id) else False

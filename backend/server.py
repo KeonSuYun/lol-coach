@@ -9,7 +9,7 @@ import smtplib
 import requests
 import hashlib
 import sys
-
+import asyncio
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -289,6 +289,8 @@ class TipInput(BaseModel):
 
 class ResolveFeedbackRequest(BaseModel):
     feedback_id: str
+    adopt: bool = False
+    reward: int = 1
 
 class BlockRequest(BaseModel):
     target_username: str
@@ -1305,8 +1307,9 @@ def resolve_feedback_endpoint(req: ResolveFeedbackRequest, current_user: dict = 
     if current_user.get("role") not in ["admin", "root"]:
         raise HTTPException(status_code=403, detail="权限不足")
         
-    if db.resolve_feedback(req.feedback_id):
-        return {"status": "success", "msg": "反馈已归档"}
+    if db.resolve_feedback(req.feedback_id, adopt=req.adopt, reward=req.reward):
+        msg_suffix = f" (已采纳并奖励用户 {req.reward} 次 R1)" if req.adopt else ""
+        return {"status": "success", "msg": f"反馈已归档{msg_suffix}"}
     
     raise HTTPException(status_code=500, detail="操作失败")
 # 🟢 新增：获取用户列表接口
@@ -2050,7 +2053,6 @@ class ConnectionManager:
             
     # 同步回调包装器 (给 CV 线程用)
     def broadcast_sync(self, message: dict):
-        import asyncio
         # 在主事件循环中调度发送任务
         try:
             loop = asyncio.get_event_loop()

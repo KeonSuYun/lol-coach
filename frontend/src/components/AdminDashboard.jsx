@@ -3,10 +3,10 @@ import axios from 'axios';
 import { 
     ShieldAlert, X, Terminal, User, Clock, Activity, 
     DollarSign, TrendingUp, Users, Zap, AlertTriangle, 
-    Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool,Ban,
+    Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool, Ban,
     Wallet, ArrowUpRight, EyeOff, HandCoins, CheckCircle2, MessageSquare, Send, Check,
     // 🔥 [新增] 引入配置页所需的图标
-    Cloud, Link, Save, Key, Settings
+    Cloud, Link, Save, Key, Settings, Briefcase, Gift // 🔥 [修复] 添加 Gift
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
@@ -168,15 +168,21 @@ const AdminDashboard = ({ token, onClose, username }) => {
         }
     };
 
-    // 🔥 [新增] 标记反馈为已处理
-    const handleResolveFeedback = async (id) => {
+    // 🔥 [修改] 标记反馈处理函数：支持采纳奖励
+    const handleResolveFeedback = async (id, adopt = false) => {
         try {
-            await axios.post(`${API_BASE_URL}/admin/feedbacks/resolve`, { feedback_id: id }, { headers: { Authorization: `Bearer ${token}` } });
-            toast.success("反馈已标记为已处理");
+            await axios.post(`${API_BASE_URL}/admin/feedbacks/resolve`, 
+                { feedback_id: id, adopt: adopt, reward: 1 }, // 🔥 固定奖励 1 次
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            const actionText = adopt ? "已采纳并奖励用户！" : "已归档 (无奖励)";
+            toast.success(actionText);
+            
             // 乐观更新 UI：从列表中移除
             setFeedbacks(prev => prev.filter(f => f._id !== id));
         } catch (err) {
-            toast.error("操作失败");
+            toast.error("操作失败: " + (err.response?.data?.detail || err.message));
         }
     };
 
@@ -413,6 +419,17 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                 <td className="px-4 py-3 flex justify-end gap-2">
                                                     <button onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }} className="bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition">补单</button>
                                                     <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }} className="bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition">权限</button>
+                                                    
+                                                    {/* 🔥 [新增] 设为销售按钮 */}
+                                                    <button 
+                                                        onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue('sales'); }} 
+                                                        className="bg-emerald-900/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-xs hover:bg-emerald-900/40 transition flex items-center gap-1"
+                                                        title="设为销售合伙人"
+                                                    >
+                                                        <Briefcase size={12}/> 销售
+                                                    </button>
+
+                                                    {/* 🔥 [新增] 禁用/封号按钮 */}
                                                     <button 
                                                         onClick={() => { 
                                                             setActionUser(user); 
@@ -424,6 +441,7 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                     >
                                                         <Ban size={12}/> 禁用
                                                     </button>
+
                                                     <button onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
                                                 </td>
                                             </tr>
@@ -599,14 +617,27 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                     <MessageSquare size={12}/> 私信回复
                                                 </button>
 
-                                                {/* 标记处理按钮 */}
+                                                {/* 🔥 [修改] 按钮组：区分采纳与归档 */}
                                                 {item.status !== 'resolved' && (
-                                                    <button 
-                                                        onClick={() => handleResolveFeedback(item._id)}
-                                                        className="px-3 py-1.5 bg-green-600/10 text-green-400 border border-green-500/30 rounded text-xs hover:bg-green-600/20 flex items-center gap-1 transition"
-                                                    >
-                                                        <Check size={12}/> 标记已处理
-                                                    </button>
+                                                    <>
+                                                        {/* 采纳并奖励 */}
+                                                        <button 
+                                                            onClick={() => handleResolveFeedback(item._id, true)}
+                                                            className="px-3 py-1.5 bg-amber-600/10 text-amber-400 border border-amber-500/30 rounded text-xs hover:bg-amber-600/20 flex items-center gap-1 transition"
+                                                            title="采纳反馈，并自动奖励用户 1 次 R1"
+                                                        >
+                                                            <Gift size={12}/> 采纳(+1)
+                                                        </button>
+
+                                                        {/* 仅归档 */}
+                                                        <button 
+                                                            onClick={() => handleResolveFeedback(item._id, false)}
+                                                            className="px-3 py-1.5 bg-slate-700/50 text-slate-400 border border-slate-600/50 rounded text-xs hover:bg-slate-700 flex items-center gap-1 transition"
+                                                            title="忽略/仅归档，不发奖励"
+                                                        >
+                                                            <Check size={12}/> 归档
+                                                        </button>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>

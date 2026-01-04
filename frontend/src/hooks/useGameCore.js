@@ -61,7 +61,7 @@ export function useGameCore() {
     const abortControllersRef = useRef({ bp: null, personal: null, team: null });
     const isModeAnalyzing = (mode) => !!analyzingStatus[mode];
 
-    const [analyzeType, setAnalyzeType] = useState(() => loadState('analyzeType', 'bp'));
+    const [analyzeType, setAnalyzeType] = useState(() => loadState('analyzeType', 'personal'));
     const [viewMode, setViewMode] = useState('detailed');
     const [activeTab, setActiveTab] = useState(0); 
 
@@ -126,6 +126,67 @@ export function useGameCore() {
         connect(); 
         return () => { if(ws) ws.close(); clearTimeout(timer); };
     }, [token]);
+    useEffect(() => {
+        // 1. 检查是否为新用户状态 (列表已加载，但双方阵容全空)
+        const isBlueEmpty = blueTeam.every(c => c === null);
+        const isRedEmpty = redTeam.every(c => c === null);
+
+        if (championList.length > 0 && isBlueEmpty && isRedEmpty) {
+            console.log("🌟 [Init] 检测到初始状态，正在部署全明星阵容...");
+
+            // 2. 定义标准 ID (DDragon Key)
+            const demoBlueIds = ["Malphite", "LeeSin", "Ahri", "Jinx", "Thresh"];
+            const demoRedIds = ["Aatrox", "JarvanIV", "Syndra", "KaiSa", "Nautilus"];
+
+            // 3. 查找英雄对象辅助函数
+            const findHero = (id) => {
+                const hero = championList.find(c => 
+                    c.key === id || 
+                    c.id === id || 
+                    c.key.toLowerCase() === id.toLowerCase()
+                );
+                if (!hero) console.warn(`⚠️ 未找到演示英雄: ${id}`);
+                return hero || null;
+            };
+
+            // 4. 构建阵容数组
+            const newBlueTeam = demoBlueIds.map(id => findHero(id));
+            const newRedTeam = demoRedIds.map(id => findHero(id));
+
+            // 5. 写入阵容状态
+            setBlueTeam(newBlueTeam);
+            setRedTeam(newRedTeam);
+
+            // 6. 构建中文分路映射表 (确保前端 UI 显示正确)
+            if (newBlueTeam[0]) {
+                setMyLaneAssignments({
+                    "TOP": newBlueTeam[0]?.name,     // 石头人
+                    "JUNGLE": newBlueTeam[1]?.name,  // 盲僧
+                    "MID": newBlueTeam[2]?.name,     // 阿狸
+                    "ADC": newBlueTeam[3]?.name,     // 金克丝
+                    "SUPPORT": newBlueTeam[4]?.name  // 锤石
+                });
+            }
+
+            if (newRedTeam[0]) {
+                setEnemyLaneAssignments({
+                    "TOP": newRedTeam[0]?.name,      // 剑魔
+                    "JUNGLE": newRedTeam[1]?.name,   // 皇子
+                    "MID": newRedTeam[2]?.name,      // 辛德拉
+                    "ADC": newRedTeam[3]?.name,      // 卡莎
+                    "SUPPORT": newRedTeam[4]?.name   // 泰坦
+                });
+            }
+
+            // 7. 设置其他默认状态
+            const roles = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"];
+            setMyTeamRoles(roles);
+            
+            // 🔥🔥🔥 [修改点] 设置默认选中为盲僧 (Index 1)
+            setUserSlot(1);         // 👈 改为 1，即选中盲僧 (Array Index 1)
+            setMapSide("blue"); // 默认蓝色方
+        }
+    }, [championList]); // 仅当英雄列表加载完毕后触发
 
     useEffect(() => {
         if (window.require) {
@@ -166,7 +227,7 @@ export function useGameCore() {
                         setLcuStatus("connected");
                     }
                 };
-
+            
                 const handleLcuProfileUpdate = (event, profileData) => {
                     console.log("👤 [IPC] 收到 LCU 个人档案:", profileData);
                     setLcuProfile(profileData);

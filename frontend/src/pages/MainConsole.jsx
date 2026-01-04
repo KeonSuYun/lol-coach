@@ -94,7 +94,7 @@ export default function MainConsole({ state, actions }) {
             }
         }
     }, [hasStarted]);
-
+    
     const handleGuideComplete = () => {
         setShowGuide(false);
         localStorage.setItem('has_seen_guide_v2', 'true');
@@ -106,7 +106,19 @@ export default function MainConsole({ state, actions }) {
         if (mapSide === 'red') return '(蓝色方)';
         return '';
     };
-
+    const [formData, setFormData] = useState({
+        rank: 'Emerald',
+        side: 'blue',
+        userRole: 'JUNGLE', // 默认打野位
+        myHero: 'LeeSin',   // 默认英雄：盲僧
+        enemyHero: 'JarvanIV', // 默认对位：皇子
+        
+        // 默认我方阵容
+        myTeam: ['Malphite', 'LeeSin', 'Ahri', 'Jinx', 'Thresh'], 
+        
+        // 默认敌方阵容 (皇子/辛德拉版)
+        enemyTeam: ['Aatrox', 'JarvanIV', 'Syndra', "Kai'Sa", 'Nautilus'],
+    });
     // 🔥 修复：现在点击“绝活社区”会直接跳转到独立的全屏页面
     const handleShowCommunity = () => {
         actions.setShowCommunity(true);
@@ -196,7 +208,7 @@ export default function MainConsole({ state, actions }) {
             <UserGuide 
                 isOpen={showGuide} 
                 steps={GUIDE_STEPS} 
-                onClose={() => setShowGuide(false)}
+                onClose={handleGuideComplete}
                 onComplete={handleGuideComplete}
             />
 

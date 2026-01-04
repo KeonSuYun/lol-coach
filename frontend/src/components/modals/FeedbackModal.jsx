@@ -1,6 +1,6 @@
 import React from 'react';
-import { AlertTriangle } from 'lucide-react';
 
+import { AlertTriangle, Gift } from 'lucide-react';
 const FeedbackModal = ({ isOpen, onClose, content, setContent, onSubmit }) => {
   if (!isOpen) return null;
 
@@ -10,9 +10,14 @@ const FeedbackModal = ({ isOpen, onClose, content, setContent, onSubmit }) => {
               <h3 className="text-white font-bold mb-2 flex items-center gap-2">
                   <AlertTriangle className="text-red-500"/> 指出 AI 的错误
               </h3>
-              <p className="text-slate-400 text-xs mb-4">
-                  如果发现 AI 说了过时的机制或错误的建议，请告诉我们。管理员审核后会将其加入【修正知识库】。
-              </p>
+              <div className="text-slate-400 text-xs mb-4 space-y-1">
+                  <p>如果发现 AI 说了过时的机制或错误的建议，请告诉我们。管理员审核后会将其加入【修正知识库】。</p>
+                  {/* 🔥 [修改] 文案模糊化，不写具体次数 */}
+                  <p className="text-amber-400 font-bold flex items-center gap-1.5 bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                      <Gift size={14} className="animate-bounce"/> 
+                      若反馈被采纳，将获得额外的深度思考 (R1) 使用次数奖励！
+                  </p>
+              </div>
               <textarea 
                   className="w-full bg-black border border-slate-700 rounded p-3 text-white text-sm mb-4 h-32 focus:border-red-500 outline-none transition-colors"
                   placeholder="请直接复制有错误的整段文字"
