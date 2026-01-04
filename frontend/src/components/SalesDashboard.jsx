@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-// === 修改点 1: 引入 Mail 图标 ===
-import { X, TrendingUp, DollarSign, Users, Copy, CheckCircle2, Crown, ArrowUpRight, Gift, Rocket, Mail } from 'lucide-react';
+import { X, TrendingUp, DollarSign, Users, Copy, CheckCircle2, Crown, ArrowUpRight, Gift, Rocket, Mail, Repeat } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
 
@@ -99,18 +98,22 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                             </p>
                             
                             <ul className="space-y-3">
+                                {/* 🔥 [修正点] 更新为阶梯佣金说明 */}
                                 <li className="flex items-start gap-3">
                                     <div className="p-1.5 bg-[#C8AA6E]/10 rounded text-[#C8AA6E] mt-0.5"><DollarSign size={16}/></div>
                                     <div>
-                                        <div className="text-sm font-bold text-slate-200">40% 现金高额提成</div>
-                                        <div className="text-xs text-slate-500">每单最高可得 ¥7.96，无上限，实时入账。</div>
+                                        <div className="text-sm font-bold text-slate-200">最高 40% 阶梯佣金</div>
+                                        <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                                            <span className="text-[#C8AA6E]">首单 40%</span>，<span className="text-blue-400">复购 15%</span>。<br/>
+                                            一次推广，持续锁定用户后续收益。
+                                        </div>
                                     </div>
                                 </li>
                                 <li className="flex items-start gap-3">
                                     <div className="p-1.5 bg-[#0AC8B9]/10 rounded text-[#0AC8B9] mt-0.5"><Gift size={16}/></div>
                                     <div>
                                         <div className="text-sm font-bold text-slate-200">双赢机制</div>
-                                        <div className="text-xs text-slate-500">通过您链接注册的好友，亦可获得 3 天 Pro 会员奖励。</div>
+                                        <div className="text-xs text-slate-500 mt-0.5">通过您链接注册的好友，亦可获得 3 天 Pro 会员奖励。</div>
                                     </div>
                                 </li>
                             </ul>
@@ -130,7 +133,6 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                                 <span>{copied ? "成功" : "复制"}</span>
                             </div>
                         </button>
-                        {/* === 修改点 2: 底部小字更新 === */}
                         <p className="text-[10px] text-slate-500 mt-2 text-center flex items-center justify-center gap-1">
                             <Mail size={10} /> 结算通知将发送至您的账号注册邮箱
                         </p>
@@ -140,7 +142,7 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                 {/* === 右侧：数据仪表盘 (55%) === */}
                 <div className="w-full md:w-[55%] bg-[#050810]/50 p-8 flex flex-col">
                     
-                    {/* === 修改点 3: 新增结算说明提示框 (放在数据卡片上方) === */}
+                    {/* 结算说明提示框 */}
                     <div className="mb-6 bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-700">
                         <div className="p-2 bg-blue-500/20 rounded-full text-blue-400">
                             <Mail size={18} />
@@ -186,18 +188,26 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                                 data.recent_records.map((item, idx) => (
                                     <div key={idx} className="grid grid-cols-3 p-3 rounded-lg hover:bg-white/5 transition-colors items-center group animate-in slide-in-from-bottom-2 duration-500" style={{animationDelay: `${idx * 50}ms`}}>
                                         <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold border border-slate-700">
-                                                {item.source[0]}
+                                            {/* 头像 */}
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border 
+                                                ${item.type === '首单奖励' 
+                                                    ? 'bg-amber-900/20 text-amber-400 border-amber-500/30' 
+                                                    : 'bg-blue-900/20 text-blue-400 border-blue-500/30'
+                                                }`}>
+                                                {item.type === '复购奖励' ? <Repeat size={12}/> : item.source[0]}
                                             </div>
                                             <div className="flex flex-col">
                                                 <span className="text-xs text-slate-200 font-bold">{item.source}</span>
-                                                <span className="text-[10px] text-slate-600">首单奖励</span>
+                                                {/* 🔥 动态显示类型和费率 */}
+                                                <span className={`text-[10px] flex items-center gap-1 ${item.type === '首单奖励' ? 'text-amber-500' : 'text-blue-400'}`}>
+                                                    {item.type} <span className="opacity-50">({item.rate})</span>
+                                                </span>
                                             </div>
                                         </div>
                                         <div className="text-center text-xs text-slate-500 font-mono">
                                             {item.time}
                                         </div>
-                                        <div className="text-right font-bold text-[#C8AA6E] font-mono flex items-center justify-end gap-1">
+                                        <div className={`text-right font-bold font-mono flex items-center justify-end gap-1 ${item.type === '首单奖励' ? 'text-[#C8AA6E]' : 'text-slate-300'}`}>
                                             +{item.amount.toFixed(2)}
                                         </div>
                                     </div>

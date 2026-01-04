@@ -11,7 +11,7 @@
   },
   {
     "name": "Ambessa",
-    "alias": ["不落魔锋", "安贝萨"],
+    "alias": ["铁血狼母", "安贝萨"],
     "role": "top",
     "tier": "T1",
     "tags": ["fighter", "mobility"],
@@ -834,7 +834,7 @@
   "alias": ["不落魔锋", "亚恒"],
   "role": "jungle",
   "tier": "T1",
-  "tags": ["fighter", "skirmisher", "revive"],
+  "tags": ["fighter", "skirmisher", "mobility"],
   "win_rate": "51.20%", 
   "pick_rate": "14.5%",
   "ban_rate": "62.1%"
@@ -1118,16 +1118,6 @@
     "win_rate": "47.87%",
     "pick_rate": "0.68%",
     "ban_rate": "1.28%"
-  },
-  {
-    "name": "Ambessa",
-    "alias": ["铁血狼母"],
-    "role": "jungle",
-    "tier": "T5",
-    "tags": ["fighter", "assassin"],
-    "win_rate": "46.13%",
-    "pick_rate": "2.78%",
-    "ban_rate": "11.21%"
   },
   {
     "name": "Amumu",

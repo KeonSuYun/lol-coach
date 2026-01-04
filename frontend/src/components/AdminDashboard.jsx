@@ -4,17 +4,19 @@ import {
     ShieldAlert, X, Terminal, User, Clock, Activity, 
     DollarSign, TrendingUp, Users, Zap, AlertTriangle, 
     Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool,
-    Wallet, ArrowUpRight, EyeOff
+    Wallet, ArrowUpRight, EyeOff, HandCoins, CheckCircle2, MessageSquare, Send, Check
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
+import { toast } from 'react-hot-toast';
 
-const COST_PER_CALL = 0.0043; // 单次调用成本 (RMB)
+const COST_PER_CALL = 0.0043; 
 
 const AdminDashboard = ({ token, onClose, username }) => {
-    const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'feedbacks' | 'users' | 'sales'
+    const [activeTab, setActiveTab] = useState('overview'); 
     
     // 数据状态
     const [feedbacks, setFeedbacks] = useState([]);
+    const [showResolved, setShowResolved] = useState(false); // 🔥 是否显示已处理
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -23,58 +25,55 @@ const AdminDashboard = ({ token, onClose, username }) => {
     // 用户管理状态
     const [users, setUsers] = useState([]); 
     const [searchQuery, setSearchQuery] = useState("");
-    const [actionUser, setActionUser] = useState(null); // 当前正在操作的用户
-    const [actionType, setActionType] = useState(null); // 'add_days' | 'set_role' | 'rename' | 'delete'
+    const [actionUser, setActionUser] = useState(null); 
+    const [actionType, setActionType] = useState(null); 
     const [actionValue, setActionValue] = useState("");
 
     // 销售结算状态
     const [salesPartners, setSalesPartners] = useState([]);
 
-    // 🔥 [权限判断] 只有 username 为 'admin' 才是超级管理员
-    const isSuperAdmin = username === "admin";
+    // 🔥 私信回复状态
+    const [replyTarget, setReplyTarget] = useState(null); // 当前要回复的反馈对象 {id, user_id}
+    const [replyContent, setReplyContent] = useState("");
 
-    // 动态生成 Tab 列表
+    const isSuperAdmin = username === "admin" || username === "root";
+
     const TABS = [
         { id: 'overview', label: '监控中心', icon: Activity },
         { id: 'users', label: '用户管理', icon: Users },
-        // 🔥 只有超管才能看到销售结算 Tab
         ...(isSuperAdmin ? [{ id: 'sales', label: '销售结算', icon: Wallet }] : []),
         { id: 'feedbacks', label: '用户反馈', icon: Database },
     ];
 
-    // 获取基础数据 (概览 & 反馈)
+    // ================= 1. 数据获取逻辑 =================
+
     const fetchData = async () => {
         setLoading(true);
         setError(null);
         try {
-            // 1. 获取反馈列表
+            // 🔥 获取反馈 (根据 showResolved 状态传参)
+            const statusParam = showResolved ? 'all' : 'pending';
             const resFeedbacks = await axios.get(`${API_BASE_URL}/admin/feedbacks`, {
+                params: { status: statusParam },
                 headers: { Authorization: `Bearer ${token}` }
             });
             setFeedbacks(Array.isArray(resFeedbacks.data) ? resFeedbacks.data : []);
 
-            // 2. 获取统计数据
-            try {
-                const resStats = await axios.get(`${API_BASE_URL}/admin/stats`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                setStats(resStats.data);
-                setUsingMockData(false);
-            } catch (statsErr) {
-                // 如果没有 stats 接口，使用演示数据
-                setUsingMockData(true);
-                setStats({
-                    total_users: 128,
-                    pro_users: 15,
-                    total_revenue: 356.00,
-                    total_api_calls: 2450,
-                    recent_users: [
-                        { username: "Faker_LPL", role: "pro", r1_used: 142, last_active: "10 mins ago" },
-                        { username: "Uzi_Returns", role: "user", r1_used: 8, last_active: "1 hour ago" },
-                        { username: "TheShy_Top", role: "pro", r1_used: 56, last_active: "2 hours ago" },
-                        { username: "ClearLove", role: "admin", r1_used: 0, last_active: "Just now" }
-                    ]
-                });
+            // 获取统计数据 (仅在概览页或首次加载时)
+            if (activeTab === 'overview' || !stats) {
+                try {
+                    const resStats = await axios.get(`${API_BASE_URL}/admin/stats`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setStats(resStats.data);
+                    setUsingMockData(false);
+                } catch (statsErr) {
+                    setUsingMockData(true);
+                    setStats({
+                        total_users: 0, pro_users: 0, total_revenue: 0, 
+                        total_commissions: 0, total_api_calls: 0, recent_users: []
+                    });
+                }
             }
 
         } catch (err) {
@@ -88,7 +87,6 @@ const AdminDashboard = ({ token, onClose, username }) => {
         }
     };
 
-    // 获取用户列表
     const fetchUsers = async () => {
         try {
             const res = await axios.get(`${API_BASE_URL}/admin/users`, {
@@ -96,119 +94,132 @@ const AdminDashboard = ({ token, onClose, username }) => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(Array.isArray(res.data) ? res.data : []);
-        } catch (err) {
-            console.error("Fetch users failed", err);
-            setUsers([]);
-        }
+        } catch (err) { setUsers([]); }
     };
 
-    // 🔥 获取销售结算报表
     const fetchSalesPartners = async () => {
         if (!isSuperAdmin) return;
         try {
             const res = await axios.get(`${API_BASE_URL}/admin/sales/summary`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            // 🛡️ 防御性检查：确保是数组
-            if (Array.isArray(res.data)) {
-                setSalesPartners(res.data);
-            } else {
-                console.error("Sales data format error:", res.data);
-                setSalesPartners([]);
-            }
-        } catch (err) {
-            console.error("Sales fetch error", err);
-            setSalesPartners([]);
-        }
+            setSalesPartners(Array.isArray(res.data) ? res.data : []);
+        } catch (err) { setSalesPartners([]); }
     };
 
-    // 提交用户修改
+    // ================= 2. 操作逻辑 =================
+
     const handleUpdateUser = async () => {
         if (!actionUser) return;
-        
-        if ((actionType === 'rename' || actionType === 'add_days') && !actionValue) {
-            alert("请输入值"); return;
-        }
-
         try {
             await axios.post(`${API_BASE_URL}/admin/user/update`, {
                 username: actionUser.username,
                 action: actionType,
                 value: actionValue
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            alert("操作成功！");
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            
+            toast.success("用户操作成功！");
             setActionUser(null);
-            fetchUsers(); // 刷新列表
+            fetchUsers(); 
         } catch (err) {
-            alert("操作失败: " + (err.response?.data?.detail || err.message));
+            toast.error("操作失败: " + (err.response?.data?.detail || err.message));
         }
     };
 
-    // 初始加载
-    useEffect(() => {
-        fetchData();
-    }, [token]);
-
-    // 切换到用户标签或搜索时，加载用户列表
-    useEffect(() => {
-        if (activeTab === 'users') fetchUsers();
-        if (activeTab === 'sales') fetchSalesPartners();
-    }, [activeTab, searchQuery]);
-
-    // 计算利润逻辑
-    const calculateProfit = () => {
-        if (!stats) return { cost: 0, profit: 0, margin: 0 };
-        const cost = stats.total_api_calls * COST_PER_CALL;
-        const profit = stats.total_revenue - cost;
-        const margin = stats.total_revenue > 0 ? (profit / stats.total_revenue) * 100 : 0;
-        return { cost, profit, margin };
+    const handleSettle = async (partner) => {
+        if (partner.pending_commission <= 0) {
+            toast("该用户当前没有待结算的佣金。", { icon: 'ℹ️' });
+            return;
+        }
+        const confirmMsg = `即将结算用户 [${partner.username}] 的佣金。\n\n💰 本次结算金额：¥${partner.pending_commission}\n\n⚠️ 注意：此操作仅在数据库中标记状态为“已结算”，请确保您已通过微信/支付宝线下转账给对方。`;
+        if (!window.confirm(confirmMsg)) return;
+        try {
+            await axios.post(`${API_BASE_URL}/admin/sales/settle`, { username: partner.username }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("✅ 状态更新成功！佣金已归档。");
+            fetchSalesPartners(); 
+        } catch (err) {
+            toast.error("❌ 结算失败: " + (err.response?.data?.detail || err.message));
+        }
     };
 
-    const { cost, profit, margin } = calculateProfit();
+    // 🔥 [新增] 标记反馈为已处理
+    const handleResolveFeedback = async (id) => {
+        try {
+            await axios.post(`${API_BASE_URL}/admin/feedbacks/resolve`, { feedback_id: id }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("反馈已标记为已处理");
+            // 乐观更新 UI：从列表中移除
+            setFeedbacks(prev => prev.filter(f => f._id !== id));
+        } catch (err) {
+            toast.error("操作失败");
+        }
+    };
+
+    // 🔥 [新增] 发送私信回复
+    const handleSendReply = async () => {
+        if (!replyContent.trim()) return;
+        try {
+            await axios.post(`${API_BASE_URL}/messages`, {
+                receiver: replyTarget.user_id,
+                content: replyContent
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            
+            toast.success(`已私信回复 ${replyTarget.user_id}`);
+            setReplyTarget(null);
+            setReplyContent("");
+        } catch (err) {
+            toast.error("发送失败: " + (err.response?.data?.detail || err.message));
+        }
+    };
+
+    // ================= 3. Effect Hooks =================
+
+    useEffect(() => { fetchData(); }, [token]); // 初始加载
+
+    useEffect(() => {
+        // 切换 Tab 或 切换反馈筛选时 重新获取
+        if (activeTab === 'users') fetchUsers();
+        if (activeTab === 'sales') fetchSalesPartners();
+        if (activeTab === 'feedbacks') fetchData(); 
+    }, [activeTab, searchQuery, showResolved]);
+
+    const calculateFinancials = () => {
+        if (!stats) return { revenue: 0, commissions: 0, apiCost: 0, profit: 0, margin: 0 };
+        const revenue = stats.total_revenue || 0;
+        const commissions = stats.total_commissions || 0; 
+        const apiCost = (stats.total_api_calls || 0) * COST_PER_CALL; 
+        const profit = revenue - commissions - apiCost;
+        const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+        return { revenue, commissions, apiCost, profit, margin };
+    };
+    const { revenue, commissions, apiCost, profit, margin } = calculateFinancials();
 
     const getDisplayName = (user) => {
         if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
-        if (user.game_profile) {
-            const p = user.game_profile;
-            // 兼容直接对象或JSON字符串
-            let profile = p;
-            if (typeof p === 'string') {
-                try { profile = JSON.parse(p); } catch(e) {}
+        try {
+            if (user.game_profile) {
+                const p = typeof user.game_profile === 'string' ? JSON.parse(user.game_profile) : user.game_profile;
+                if (p.gameName) return `${p.gameName} #${p.tagLine || 'HEX'}`;
             }
-            if (typeof profile === 'object') {
-                const name = profile.gameName || profile.game_name || profile.summonerName || profile.name;
-                const tag = profile.tagLine || profile.tag_line || profile.tag || "HEX";
-                if (name) return `${name} #${tag}`;
-            }
-        }
+        } catch(e){}
         return null;
     };
 
-    // 🔥 计算总应付佣金 (防御性)
-    const totalCommission = Array.isArray(salesPartners) 
-        ? salesPartners.reduce((acc, cur) => acc + (cur.total_commission || 0), 0) 
-        : 0;
-
     return (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
-            {/* 主容器 */}
             <div className="bg-[#091428] w-full max-w-6xl h-[85vh] rounded-xl border border-[#C8AA6E]/50 flex flex-col shadow-[0_0_50px_rgba(10,200,185,0.1)] overflow-hidden relative">
                 
-                {/* 顶部光效 */}
                 <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#0AC8B9] to-transparent"></div>
 
-                {/* 标题栏 */}
+                {/* Header */}
                 <div className="p-5 border-b border-[#C8AA6E]/20 flex justify-between items-center bg-[#010A13]/50">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-[#C8AA6E]/10 rounded border border-[#C8AA6E]/30">
                             <ShieldAlert size={20} className="text-[#C8AA6E]" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-[#F0E6D2] tracking-wider font-serif">HEXTECH ADMIN</h2>
+                            <h2 className="text-xl font-bold text-[#F0E6D2] tracking-wider font-serif">HEXTECH 管理后台</h2>
                             <p className="text-[10px] text-[#0AC8B9] font-mono tracking-widest uppercase flex items-center gap-1">
-                                <Server size={10}/> SYSTEM ONLINE {isSuperAdmin && <span className="text-red-500 ml-2 font-bold">[SUPER ADMIN]</span>}
+                                <Server size={10}/> 系统在线 {isSuperAdmin && <span className="text-red-500 ml-2 font-bold">[超级管理员]</span>}
                             </p>
                         </div>
                     </div>
@@ -217,7 +228,7 @@ const AdminDashboard = ({ token, onClose, username }) => {
                     </button>
                 </div>
 
-                {/* 导航 Tab */}
+                {/* Tabs */}
                 <div className="flex border-b border-[#C8AA6E]/20 bg-[#091428]">
                     {TABS.map(tab => (
                         <button 
@@ -233,20 +244,18 @@ const AdminDashboard = ({ token, onClose, username }) => {
                     ))}
                 </div>
 
-                {/* 内容区 */}
                 <div className="flex-1 overflow-auto p-6 custom-scrollbar bg-hex-pattern bg-opacity-5">
                     
                     {loading && activeTab === 'overview' && (
                         <div className="h-full flex flex-col items-center justify-center text-[#0AC8B9] animate-pulse gap-3">
                             <Activity size={48} />
-                            <span className="font-mono text-sm">CONNECTING TO NEURAL LINK...</span>
+                            <span className="font-mono text-sm">正在连接神经网络...</span>
                         </div>
                     )}
                     
                     {error && (
                         <div className="bg-red-950/30 border border-red-500/50 p-6 rounded text-red-400 text-center font-bold flex flex-col items-center gap-2">
-                            <ShieldAlert size={32}/>
-                            {error}
+                            <ShieldAlert size={32}/> {error}
                         </div>
                     )}
 
@@ -256,76 +265,56 @@ const AdminDashboard = ({ token, onClose, username }) => {
                             {usingMockData && (
                                 <div className="bg-yellow-900/20 border border-yellow-600/30 p-2 rounded text-yellow-500 text-xs font-mono text-center flex items-center justify-center gap-2">
                                     <AlertTriangle size={12}/>
-                                    DEMO MODE: Backend API (/admin/stats) not detected. Showing simulation data.
+                                    演示模式：后端接口连接异常，当前显示为模拟数据。
                                 </div>
                             )}
-
-                            {/* KPI 卡片 - 权限控制 */}
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 {isSuperAdmin ? (
                                     <>
                                         <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg relative overflow-hidden group hover:border-[#C8AA6E]/50 transition-all">
                                             <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={40} className="text-[#C8AA6E]"/></div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Total Revenue</div>
-                                            <div className="text-2xl font-black text-[#F0E6D2] font-serif">¥{stats?.total_revenue?.toFixed(2)}</div>
-                                            <div className="text-[10px] text-[#0AC8B9] mt-2 flex items-center gap-1"><TrendingUp size={10}/> +12% from last week</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">总营收 (流水)</div>
+                                            <div className="text-2xl font-black text-[#F0E6D2] font-mono">¥{revenue.toFixed(2)}</div>
+                                            <div className="text-[10px] text-[#0AC8B9] mt-2 flex items-center gap-1">付费用户: {stats?.pro_users} 人</div>
                                         </div>
-                                        <div className="bg-gradient-to-br from-[#0AC8B9]/10 to-[#091428] border border-[#0AC8B9]/40 p-4 rounded-lg relative overflow-hidden group shadow-[0_0_20px_rgba(10,200,185,0.1)]">
-                                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity"><Zap size={40} className="text-[#0AC8B9]"/></div>
-                                            <div className="text-xs text-[#0AC8B9] font-bold uppercase tracking-wider mb-1">Net Profit</div>
-                                            <div className="text-3xl font-black text-[#ffffff] font-serif drop-shadow-md">¥{profit.toFixed(2)}</div>
-                                            <div className="text-[10px] text-[#0AC8B9]/80 mt-2 font-bold">Margin: {margin.toFixed(1)}%</div>
-                                        </div>
-                                        <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg group hover:border-[#C8AA6E]/50 transition-all">
-                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Active Users</div>
-                                            <div className="flex items-baseline gap-2">
-                                                <span className="text-2xl font-black text-[#F0E6D2] font-serif">{stats?.total_users}</span>
-                                                <span className="text-xs text-[#C8AA6E] font-bold px-1.5 py-0.5 bg-[#C8AA6E]/10 rounded border border-[#C8AA6E]/20">{stats?.pro_users} PRO</span>
-                                            </div>
-                                            <div className="w-full bg-slate-800 h-1.5 mt-4 rounded-full overflow-hidden">
-                                                <div className="h-full bg-[#C8AA6E]" style={{ width: `${(stats?.pro_users / stats?.total_users) * 100}%` }}></div>
-                                            </div>
+                                        <div className="bg-[#010A13]/60 border border-purple-500/20 p-4 rounded-lg relative overflow-hidden group hover:border-purple-500/50 transition-all">
+                                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><HandCoins size={40} className="text-purple-400"/></div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">分销支出 (佣金)</div>
+                                            <div className="text-2xl font-black text-purple-200 font-mono">- ¥{commissions.toFixed(2)}</div>
+                                            <div className="text-[10px] text-purple-400 mt-2">已分发给合伙人</div>
                                         </div>
                                         <div className="bg-[#010A13]/60 border border-red-900/30 p-4 rounded-lg relative overflow-hidden group hover:border-red-500/50 transition-all">
                                             <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Server size={40} className="text-red-500"/></div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">API Cost (Est.)</div>
-                                            <div className="text-2xl font-black text-slate-200 font-serif">¥{cost.toFixed(2)}</div>
-                                            <div className="text-[10px] text-slate-500 mt-2 font-mono">{stats?.total_api_calls} calls × ¥{COST_PER_CALL}</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">API 成本 (预估)</div>
+                                            <div className="text-2xl font-black text-red-200 font-mono">- ¥{apiCost.toFixed(2)}</div>
+                                            <div className="text-[10px] text-red-400/80 mt-2 font-mono">调用量: {stats?.total_api_calls} 次</div>
+                                        </div>
+                                        <div className="bg-gradient-to-br from-[#0AC8B9]/10 to-[#091428] border border-[#0AC8B9]/40 p-4 rounded-lg relative overflow-hidden group shadow-[0_0_20px_rgba(10,200,185,0.1)]">
+                                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity"><Zap size={40} className="text-[#0AC8B9]"/></div>
+                                            <div className="text-xs text-[#0AC8B9] font-bold uppercase tracking-wider mb-1">净利润</div>
+                                            <div className="text-3xl font-black text-white font-mono drop-shadow-md">¥{profit.toFixed(2)}</div>
+                                            <div className="text-[10px] text-[#0AC8B9]/80 mt-2 font-bold">利润率: {margin.toFixed(1)}%</div>
                                         </div>
                                     </>
                                 ) : (
-                                    <>
-                                        <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg group hover:border-[#C8AA6E]/50 transition-all">
-                                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Active Users</div>
-                                            <div className="flex items-baseline gap-2">
-                                                <span className="text-2xl font-black text-[#F0E6D2] font-serif">{stats?.total_users}</span>
-                                                <span className="text-xs text-[#C8AA6E] font-bold px-1.5 py-0.5 bg-[#C8AA6E]/10 rounded border border-[#C8AA6E]/20">{stats?.pro_users} PRO</span>
-                                            </div>
-                                            <div className="w-full bg-slate-800 h-1.5 mt-4 rounded-full overflow-hidden">
-                                                <div className="h-full bg-[#C8AA6E]" style={{ width: `${(stats?.pro_users / stats?.total_users) * 100}%` }}></div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-[#010A13]/40 border border-slate-800 p-4 rounded-lg flex flex-col items-center justify-center text-slate-600 gap-2 col-span-3">
-                                            <EyeOff size={24} />
-                                            <span className="text-xs font-bold uppercase">财务数据仅超级管理员可见</span>
-                                        </div>
-                                    </>
+                                    <div className="col-span-4 bg-[#010A13]/40 border border-slate-800 p-8 rounded-lg flex flex-col items-center justify-center text-slate-600 gap-2">
+                                        <EyeOff size={32} />
+                                        <span className="text-sm font-bold uppercase">财务数据仅超级管理员可见</span>
+                                    </div>
                                 )}
                             </div>
-
-                            {/* 最近活跃用户表格 */}
                             <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden">
                                 <div className="px-4 py-3 bg-[#010A13]/80 border-b border-[#C8AA6E]/10 flex justify-between items-center">
-                                    <h3 className="text-sm font-bold text-[#C8AA6E] uppercase tracking-wider">Recent Activity</h3>
+                                    <h3 className="text-sm font-bold text-[#C8AA6E] uppercase tracking-wider">最近活跃用户</h3>
                                     <button onClick={fetchData} className="text-slate-500 hover:text-[#0AC8B9] transition"><RefreshCw size={14}/></button>
                                 </div>
                                 <table className="w-full text-left text-sm text-slate-400">
                                     <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
                                         <tr>
-                                            <th className="px-4 py-3">User</th>
-                                            <th className="px-4 py-3">Tier</th>
-                                            <th className="px-4 py-3">R1 Usage</th>
-                                            <th className="px-4 py-3">Last Active</th>
+                                            <th className="px-4 py-3">用户</th>
+                                            <th className="px-4 py-3">身份</th>
+                                            <th className="px-4 py-3">调用次数</th>
+                                            <th className="px-4 py-3">最后活跃</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-[#C8AA6E]/5">
@@ -333,7 +322,7 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                             <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors">
                                                 <td className="px-4 py-3 font-bold text-slate-300">{user.username}</td>
                                                 <td className="px-4 py-3">
-                                                    {user.role === 'pro' ? <span className="text-[#C8AA6E] bg-[#C8AA6E]/10 px-2 py-0.5 rounded text-[10px] border border-[#C8AA6E]/30 font-bold">PRO</span> : <span className="text-slate-500 text-[10px]">FREE</span>}
+                                                    {user.role === 'pro' || user.role === 'vip' ? <span className="text-[#C8AA6E] bg-[#C8AA6E]/10 px-2 py-0.5 rounded text-[10px] border border-[#C8AA6E]/30 font-bold">PRO</span> : <span className="text-slate-500 text-[10px]">FREE</span>}
                                                 </td>
                                                 <td className="px-4 py-3 font-mono text-[#0AC8B9]">{user.r1_used}</td>
                                                 <td className="px-4 py-3 text-xs">{user.last_active}</td>
@@ -348,172 +337,75 @@ const AdminDashboard = ({ token, onClose, username }) => {
                     {/* === Tab 2: 用户管理 === */}
                     {!loading && !error && activeTab === 'users' && (
                         <div className="animate-fade-in-up space-y-4">
-                            {/* 搜索栏 */}
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
                                     <Search className="absolute left-3 top-2.5 text-slate-500" size={16} />
-                                    <input 
-                                        type="text" 
-                                        placeholder="搜索用户名..." 
-                                        className="w-full bg-[#010A13]/60 border border-slate-700 rounded pl-10 pr-4 py-2 text-slate-200 focus:border-[#0AC8B9] outline-none"
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                    />
+                                    <input type="text" placeholder="搜索用户名..." className="w-full bg-[#010A13]/60 border border-slate-700 rounded pl-10 pr-4 py-2 text-slate-200 focus:border-[#0AC8B9] outline-none" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                                 </div>
                                 <button onClick={fetchUsers} className="bg-[#0AC8B9]/20 text-[#0AC8B9] px-4 rounded hover:bg-[#0AC8B9]/30 border border-[#0AC8B9]/30 transition">刷新</button>
                             </div>
-
-                            {/* 用户列表表格 */}
                             <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden min-h-[400px]">
                                 <table className="w-full text-left text-sm text-slate-400">
                                     <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
                                         <tr>
-                                            <th className="px-4 py-3">用户名 / 昵称</th>
+                                            <th className="px-4 py-3">用户名 / 游戏ID</th>
                                             <th className="px-4 py-3">角色</th>
                                             <th className="px-4 py-3">会员过期时间</th>
                                             <th className="px-4 py-3 text-right">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-[#C8AA6E]/5">
-                                        {users.map((user) => {
-                                            const gameName = getDisplayName(user);
-                                            return (
-                                                <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
-                                                    <td className="px-4 py-3">
-                                                        <div className="font-bold text-slate-200">{user.username}</div>
-                                                        <div className="text-xs text-[#0AC8B9]">{gameName || "未同步"}</div>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase
-                                                            ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : 
-                                                            user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 
-                                                            'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                                                            {user.role}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 font-mono text-xs">
-                                                        {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() + ' ' + new Date(user.membership_expire).toLocaleTimeString() : '-'}
-                                                    </td>
-                                                    <td className="px-4 py-3 flex justify-end gap-2">
-                                                        <button 
-                                                            onClick={() => { setActionUser(user); setActionType('rename'); setActionValue(user.username); }}
-                                                            className="p-1.5 text-blue-400 bg-blue-900/10 border border-blue-500/20 rounded hover:bg-blue-900/30 transition"
-                                                            title="修改用户名"
-                                                        >
-                                                            <PenTool size={12}/>
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }}
-                                                            className="flex items-center gap-1 bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition"
-                                                            title="增加会员天数"
-                                                        >
-                                                            <Plus size={12}/> 补单
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }}
-                                                            className="flex items-center gap-1 bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition"
-                                                            title="修改权限"
-                                                        >
-                                                            <Edit size={12}/> 权限
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }}
-                                                            className="p-1.5 text-red-400 bg-red-900/10 border border-red-500/20 rounded hover:bg-red-900/30 transition"
-                                                            title="删除用户"
-                                                        >
-                                                            <Trash2 size={12}/>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
+                                        {users.map((user) => (
+                                            <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
+                                                <td className="px-4 py-3">
+                                                    <div className="font-bold text-slate-200">{user.username}</div>
+                                                    <div className="text-xs text-[#0AC8B9]">{getDisplayName(user) || "未同步"}</div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{user.role}</span>
+                                                </td>
+                                                <td className="px-4 py-3 font-mono text-xs">
+                                                    {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() : '-'}
+                                                </td>
+                                                <td className="px-4 py-3 flex justify-end gap-2">
+                                                    <button onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }} className="bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition">补单</button>
+                                                    <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }} className="bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition">权限</button>
+                                                    <button onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
+                                                </td>
+                                            </tr>
+                                        ))}
                                     </tbody>
                                 </table>
-                                {users.length === 0 && <div className="text-center py-10 text-slate-500 text-xs">没有找到相关用户</div>}
                             </div>
-
-                            {/* 操作弹窗 (覆盖层) */}
+                            
+                            {/* 用户操作弹窗 */}
                             {actionUser && (
                                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-                                    <div className="bg-[#091428] border border-[#C8AA6E] p-6 rounded-lg w-full max-w-sm shadow-2xl animate-scale-in relative">
-                                        <button onClick={() => setActionUser(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white">
-                                            <X size={18} />
-                                        </button>
-
-                                        <h3 className="text-[#C8AA6E] font-bold text-lg mb-4 flex items-center gap-2">
-                                            {actionType === 'delete' ? <Trash2 size={20} className="text-red-500"/> : actionType === 'rename' ? <PenTool size={20}/> : actionType === 'add_days' ? <DollarSign size={20}/> : <ShieldAlert size={20}/>}
-                                            {actionType === 'add_days' && '人工补单 (加时长)'}
-                                            {actionType === 'set_role' && '修改角色'}
-                                            {actionType === 'rename' && '修改用户名'}
-                                            {actionType === 'delete' && '⚠️ 危险：删除用户'}
-                                        </h3>
+                                    <div className="bg-[#091428] border border-[#C8AA6E] p-6 rounded-lg w-full max-w-sm shadow-2xl relative">
+                                        <button onClick={() => setActionUser(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white"><X size={18} /></button>
+                                        <h3 className="text-[#C8AA6E] font-bold text-lg mb-4">管理操作: {actionUser.username}</h3>
                                         
-                                        <div className="bg-[#010A13] p-3 rounded border border-slate-700 mb-4">
-                                            <p className="text-slate-400 text-xs">目标用户</p>
-                                            <p className="text-white font-bold text-lg">{actionUser.username}</p>
-                                            <p className="text-[#0AC8B9] text-xs">{getDisplayName(actionUser) || "无游戏信息"}</p>
-                                        </div>
-
                                         {actionType === 'add_days' && (
-                                            <div className="mb-6">
-                                                <label className="block text-xs text-slate-500 mb-2">增加天数 (Days)</label>
-                                                <input 
-                                                    type="number" 
-                                                    className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none focus:border-[#C8AA6E] font-mono"
-                                                    value={actionValue}
-                                                    onChange={e => setActionValue(e.target.value)}
-                                                />
-                                                <div className="flex gap-2 mt-3">
-                                                    {[7, 30, 90, 365].map(d => (
-                                                        <button key={d} onClick={() => setActionValue(d.toString())} className="flex-1 bg-slate-800 text-xs py-2 rounded hover:bg-slate-700 text-slate-300 border border-slate-700">+{d}天</button>
-                                                    ))}
-                                                </div>
+                                            <div className="mb-4">
+                                                <label className="block text-xs text-slate-500 mb-2">增加天数</label>
+                                                <input type="number" className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none" value={actionValue} onChange={e => setActionValue(e.target.value)} />
                                             </div>
                                         )}
-
                                         {actionType === 'set_role' && (
-                                            <div className="mb-6">
-                                                <label className="block text-xs text-slate-500 mb-2">选择角色 (Role)</label>
-                                                <select className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none focus:border-[#C8AA6E]"
-                                                    value={actionValue} onChange={e => setActionValue(e.target.value)} >
-                                                    <option value="user">User (普通用户)</option>
+                                            <div className="mb-4">
+                                                <label className="block text-xs text-slate-500 mb-2">选择角色</label>
+                                                <select className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none" value={actionValue} onChange={e => setActionValue(e.target.value)}>
+                                                    <option value="user">User (普通)</option>
                                                     <option value="pro">Pro (会员)</option>
-                                                    <option value="admin">Admin (管理员)</option>
-                                                    <option value="banned">Banned (封禁)</option>
+                                                    <option value="admin">Admin (管理)</option>
                                                 </select>
                                             </div>
                                         )}
+                                        {actionType === 'delete' && <p className="text-red-400 text-sm mb-4">确定要删除该用户吗？操作不可逆。</p>}
 
-                                        {actionType === 'rename' && (
-                                            <div className="mb-6">
-                                                <label className="block text-xs text-slate-500 mb-2">新的用户名 (New Username)</label>
-                                                <input type="text" className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none focus:border-[#C8AA6E]"
-                                                    value={actionValue} onChange={e => setActionValue(e.target.value)} autoFocus />
-                                                <p className="text-[10px] text-yellow-500 mt-2">提示：该用户的 Tips、订单等数据将自动迁移。</p>
-                                            </div>
-                                        )}
-
-                                        {actionType === 'delete' && (
-                                            <div className="mb-6 bg-red-900/20 border border-red-500/30 p-3 rounded">
-                                                <p className="text-red-300 text-xs font-bold mb-2">您确定要执行此操作吗？</p>
-                                                <ul className="text-[10px] text-red-400 list-disc pl-4 space-y-1">
-                                                    <li>该操作不可逆，用户数据将被永久抹除。</li>
-                                                    <li>该用户将立即无法登录。</li>
-                                                </ul>
-                                            </div>
-                                        )}
-
-                                        <div className="flex gap-3 justify-end">
-                                            <button onClick={() => setActionUser(null)} className="px-4 py-2 text-slate-400 hover:text-white text-sm">取消</button>
-                                            <button 
-                                                onClick={handleUpdateUser} 
-                                                className={`px-6 py-2 font-bold rounded transition text-sm shadow-lg
-                                                    ${actionType === 'delete' 
-                                                        ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/30' 
-                                                        : 'bg-[#C8AA6E] hover:bg-[#b09358] text-black shadow-[#C8AA6E]/30'}`}
-                                            >
-                                                {actionType === 'delete' ? '确认删除' : '确认提交'}
-                                            </button>
+                                        <div className="flex justify-end gap-3">
+                                            <button onClick={() => setActionUser(null)} className="px-4 py-2 text-slate-400 text-sm">取消</button>
+                                            <button onClick={handleUpdateUser} className="px-6 py-2 bg-[#C8AA6E] text-black font-bold rounded text-sm hover:bg-[#b09358]">确定</button>
                                         </div>
                                     </div>
                                 </div>
@@ -521,98 +413,176 @@ const AdminDashboard = ({ token, onClose, username }) => {
                         </div>
                     )}
 
-                    {/* === 🔥 Tab 3: Sales Settlement (仅限超管可见) === */}
+                    {/* === Tab 3: 销售结算 === */}
                     {!loading && !error && activeTab === 'sales' && isSuperAdmin && (
                         <div className="space-y-6 animate-fade-in-up">
-                            <div className="flex justify-between items-end">
-                                <div>
-                                    <h3 className="text-xl font-bold text-[#F0E6D2] flex items-center gap-2">
-                                        <Wallet className="text-[#C8AA6E]" /> 销售合伙人结算表
-                                    </h3>
-                                    <p className="text-slate-400 text-xs mt-1">
-                                        此处显示所有销售人员的累计业绩。请根据【应付佣金】线下打款。
-                                    </p>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-xs text-slate-500 uppercase font-bold">本月待结算总额</div>
-                                    <div className="text-2xl font-black text-[#C8AA6E] font-mono">
-                                        ¥{totalCommission.toFixed(2)}
-                                    </div>
-                                </div>
-                            </div>
-
                             <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden">
                                 <table className="w-full text-left text-sm text-slate-400">
                                     <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
                                         <tr>
-                                            <th className="px-6 py-4">销售员 (Username)</th>
+                                            <th className="px-6 py-4">销售员</th>
                                             <th className="px-6 py-4">联系方式</th>
                                             <th className="px-6 py-4 text-right">推广单数</th>
                                             <th className="px-6 py-4 text-right">总销售额</th>
-                                            <th className="px-6 py-4 text-right text-[#C8AA6E]">应付佣金 (40%)</th>
+                                            <th className="px-6 py-4 text-right">历史已结</th>
+                                            <th className="px-6 py-4 text-right text-[#C8AA6E]">本期应付 (需结算)</th>
                                             <th className="px-6 py-4 text-right">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-[#C8AA6E]/5">
-                                        {Array.isArray(salesPartners) && salesPartners.length > 0 ? salesPartners.map((p, idx) => (
-                                            <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors group">
-                                                <td className="px-6 py-4">
-                                                    <div className="font-bold text-slate-200 text-base">{p.username}</div>
-                                                    <div className="text-xs text-slate-500">{p.game_name}</div>
+                                        {salesPartners.map((p, idx) => (
+                                            <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors">
+                                                <td className="px-6 py-4 font-bold text-slate-200">
+                                                    {p.username}
+                                                    <div className="text-[10px] text-slate-500 font-normal">{p.game_name}</div>
                                                 </td>
                                                 <td className="px-6 py-4 font-mono text-xs">{p.contact}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-slate-300">{p.order_count}</td>
+                                                <td className="px-6 py-4 text-right font-mono">{p.order_count}</td>
                                                 <td className="px-6 py-4 text-right font-mono">¥{p.total_sales}</td>
+                                                <td className="px-6 py-4 text-right font-mono text-slate-500">¥{p.paid_commission}</td>
                                                 <td className="px-6 py-4 text-right font-mono font-bold text-[#C8AA6E] text-lg">
-                                                    ¥{p.total_commission}
+                                                    ¥{p.pending_commission}
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
-                                                    <button 
-                                                        onClick={() => alert(`请线下转账 ¥${p.total_commission} 给 ${p.username}。\n\n目前系统仅提供记账功能，转账后请自行在 Excel 备注。`)}
-                                                        className="px-3 py-1.5 bg-[#C8AA6E]/10 border border-[#C8AA6E]/30 text-[#C8AA6E] rounded text-xs font-bold hover:bg-[#C8AA6E] hover:text-black transition-all flex items-center gap-1 ml-auto"
-                                                    >
-                                                        <ArrowUpRight size={12}/> 结算
-                                                    </button>
+                                                    {p.pending_commission > 0 ? (
+                                                        <button 
+                                                            onClick={() => handleSettle(p)}
+                                                            className="px-3 py-1.5 bg-[#C8AA6E] text-[#091428] rounded text-xs font-bold hover:bg-[#b09358] transition-all flex items-center gap-1 ml-auto shadow-lg shadow-amber-900/20"
+                                                        >
+                                                            <ArrowUpRight size={12}/> 结算打款
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-xs text-green-500 flex items-center justify-end gap-1">
+                                                            <CheckCircle2 size={12}/> 无需结算
+                                                        </span>
+                                                    )}
                                                 </td>
                                             </tr>
-                                        )) : (
-                                            <tr>
-                                                <td colSpan="6" className="p-10 text-center text-slate-600">
-                                                    {isSuperAdmin ? "暂无销售数据，快去招募合伙人吧！" : "Loading..."}
-                                                </td>
-                                            </tr>
-                                        )}
+                                        ))}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     )}
 
-                    {/* === Tab 4: 用户反馈 === */}
+                    {/* === Tab 4: 用户反馈 (更新版：支持筛选、回复、处理) === */}
                     {!loading && !error && activeTab === 'feedbacks' && (
-                        <div className="grid gap-4 animate-fade-in-up">
-                            {feedbacks.map((item) => (
-                                <div key={item._id} className="bg-[#010A13]/60 border border-slate-800 rounded-lg p-4 hover:border-[#0AC8B9]/30 transition-all group relative overflow-hidden">
-                                    <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-red-500/50 group-hover:bg-[#0AC8B9] transition-colors"></div>
-                                    <div className="flex justify-between items-start mb-3 pl-2">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded bg-slate-900 flex items-center justify-center border border-slate-700"><User size={14} className="text-[#0AC8B9]"/></div>
-                                            <div>
-                                                <div className="text-sm font-bold text-slate-200">{item.user_id}</div>
-                                                <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1"><Clock size={10}/> ID: {item._id}</div>
+                        <div className="space-y-4 animate-fade-in-up">
+                            {/* 工具栏 */}
+                            <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-slate-400 text-sm">筛选状态:</span>
+                                    <button 
+                                        onClick={() => setShowResolved(!showResolved)}
+                                        className={`px-3 py-1 rounded text-xs font-bold border transition-all ${
+                                            showResolved 
+                                            ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/40' 
+                                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                                        }`}
+                                    >
+                                        {showResolved ? "显示全部 (All)" : "只看未处理 (Pending)"}
+                                    </button>
+                                </div>
+                                <div className="text-slate-500 text-xs font-mono">
+                                    共 {feedbacks.length} 条记录
+                                </div>
+                            </div>
+
+                            {/* 列表 */}
+                            <div className="grid gap-4">
+                                {feedbacks.length === 0 ? (
+                                    <div className="text-center py-10 text-slate-500">
+                                        <CheckCircle2 size={48} className="mx-auto mb-2 opacity-20"/>
+                                        <p>暂无待处理反馈</p>
+                                    </div>
+                                ) : (
+                                    feedbacks.map((item) => (
+                                        <div key={item._id} className="bg-[#010A13]/60 border border-slate-800 rounded-lg p-4 hover:border-[#0AC8B9]/30 transition-all flex flex-col gap-3 group">
+                                            
+                                            {/* 头部信息 */}
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-2">
+                                                    <User size={14} className="text-[#0AC8B9]"/>
+                                                    <span className="text-sm font-bold text-slate-200">{item.user_id}</span>
+                                                    {item.status === 'resolved' && (
+                                                        <span className="text-[10px] bg-green-900/30 text-green-500 px-2 py-0.5 rounded border border-green-500/30">已处理</span>
+                                                    )}
+                                                </div>
+                                                <span className="text-[10px] text-slate-500 font-mono">
+                                                    {item.created_at ? new Date(item.created_at).toLocaleString() : 'Just now'}
+                                                </span>
+                                            </div>
+                                            
+                                            {/* 内容 */}
+                                            <div className="bg-black/20 p-3 rounded border border-white/5">
+                                                <p className="text-slate-300 text-sm whitespace-pre-wrap">{item.description}</p>
+                                            </div>
+                                            
+                                            {/* Context 代码块 (默认收起，hover展示细节如果太长可优化，这里简单处理) */}
+                                            {item.match_context && Object.keys(item.match_context).length > 0 && (
+                                                <div className="text-[10px] text-slate-600 font-mono truncate hover:text-slate-400 transition cursor-help" title="Context Data">
+                                                    Context: {JSON.stringify(item.match_context)}
+                                                </div>
+                                            )}
+
+                                            {/* 操作栏 (悬浮显示或常驻) */}
+                                            <div className="flex justify-end gap-2 pt-2 border-t border-white/5 mt-1">
+                                                
+                                                {/* 回复按钮 */}
+                                                <button 
+                                                    onClick={() => setReplyTarget(item)}
+                                                    className="px-3 py-1.5 bg-blue-600/10 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-600/20 flex items-center gap-1 transition"
+                                                >
+                                                    <MessageSquare size={12}/> 私信回复
+                                                </button>
+
+                                                {/* 标记处理按钮 */}
+                                                {item.status !== 'resolved' && (
+                                                    <button 
+                                                        onClick={() => handleResolveFeedback(item._id)}
+                                                        className="px-3 py-1.5 bg-green-600/10 text-green-400 border border-green-500/30 rounded text-xs hover:bg-green-600/20 flex items-center gap-1 transition"
+                                                    >
+                                                        <Check size={12}/> 标记已处理
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
-                                        <span className="text-[10px] bg-red-900/20 text-red-400 px-2 py-1 rounded border border-red-900/30 uppercase font-bold tracking-wider">Bug Report</span>
-                                    </div>
-                                    <div className="pl-2 mb-4"><p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">{item.description}</p></div>
-                                    <div className="pl-2">
-                                        <div className="bg-black/40 rounded p-3 font-mono text-[10px] border border-slate-800/50 text-[#0AC8B9]/70 overflow-x-auto custom-scrollbar">
-                                            <div className="flex items-center gap-2 mb-1 text-slate-500 font-bold uppercase tracking-wider"><Terminal size={10}/> Context Snapshot</div>
-                                            <pre>{JSON.stringify(item.match_context, null, 2)}</pre>
+                                    ))
+                                )}
+                            </div>
+                            
+                            {/* 私信回复弹窗 */}
+                            {replyTarget && (
+                                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+                                    <div className="bg-[#091428] border border-[#0AC8B9] p-6 rounded-lg w-full max-w-md shadow-2xl relative">
+                                        <button onClick={() => setReplyTarget(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white"><X size={18} /></button>
+                                        
+                                        <h3 className="text-[#0AC8B9] font-bold text-lg mb-4 flex items-center gap-2">
+                                            <MessageSquare size={18}/> 回复用户: {replyTarget.user_id}
+                                        </h3>
+                                        
+                                        <div className="bg-black/30 p-3 rounded mb-4 border border-white/10 text-xs text-slate-400 italic">
+                                            " {replyTarget.description.length > 50 ? replyTarget.description.substring(0,50) + '...' : replyTarget.description} "
+                                        </div>
+
+                                        <div className="mb-4">
+                                            <textarea 
+                                                className="w-full h-32 bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none focus:border-[#0AC8B9] resize-none"
+                                                placeholder="输入回复内容..."
+                                                value={replyContent}
+                                                onChange={e => setReplyContent(e.target.value)}
+                                            ></textarea>
+                                        </div>
+
+                                        <div className="flex justify-end gap-3">
+                                            <button onClick={() => setReplyTarget(null)} className="px-4 py-2 text-slate-400 text-sm">取消</button>
+                                            <button onClick={handleSendReply} className="px-6 py-2 bg-[#0AC8B9] text-black font-bold rounded text-sm hover:bg-[#0AC8B9]/80 flex items-center gap-2">
+                                                <Send size={14}/> 发送
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
-                            ))}
+                            )}
                         </div>
                     )}
                 </div>

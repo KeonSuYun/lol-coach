@@ -227,6 +227,10 @@ app.add_middleware(
 
 # ================= 模型定义 =================
 
+class MessageSend(BaseModel):  # <--- 确保这个类定义存在
+    receiver: str
+    content: str
+
 class WikiPostCreate(BaseModel):
     title: str
     content: str
@@ -278,6 +282,15 @@ class TipInput(BaseModel):
     enemy: str
     content: str
     is_general: bool
+
+class ResolveFeedbackRequest(BaseModel):
+    feedback_id: str
+
+class BlockRequest(BaseModel):
+    target_username: str
+
+class SettleRequest(BaseModel):
+    username: str
 
 class LikeInput(BaseModel):
     tip_id: str
@@ -334,6 +347,9 @@ class TavernPostUpdate(BaseModel):
     topic: Optional[str] = None
     image: Optional[str] = None
 
+class MessageSend(BaseModel):
+    receiver: str
+    content: str
 # ================= 🔐 核心权限逻辑 =================
 
 def verify_password(plain_password, hashed_password):
@@ -874,29 +890,30 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
 # ✨ 增强版用户信息接口 (返回 R1 使用情况)
 @app.get("/users/me")
 async def read_users_me(current_user: dict = Depends(get_current_user)):
-    # 调用数据库新方法，获取详细的使用情况
     status_info = db.get_user_usage_status(current_user['username'])
     
-    # 🔥 获取头衔信息 (默认只有"社区成员")
     my_titles = current_user.get("available_titles", [])
     if "社区成员" not in my_titles: my_titles.append("社区成员")
     
-    # 🔥 获取当前佩戴的头衔
-    active_title = current_user.get("active_title", "社区成员")
+    # 🔥 [修复] 强制获取未读数，如果没有则默认为 0
+    try:
+        unread_count = db.get_unread_count_total(current_user['username'])
+    except:
+        unread_count = 0
 
     return {
         "username": current_user['username'],
         "role": status_info.get("role", "user"),
         "is_pro": status_info.get("is_pro", False),
         "expire_at": current_user.get("membership_expire"),
-        # 返回 R1 的使用情况
         "r1_limit": status_info.get("r1_limit", 10),
         "r1_used": status_info.get("r1_used", 0),
         "r1_remaining": status_info.get("r1_remaining", 0),
-        
-        # 🔥 返回头衔数据
         "available_titles": my_titles,
-        "active_title": active_title,
+        "active_title": current_user.get("active_title", "社区成员"),
+        
+        # 🔥 [关键] 必须返回这个字段，前端才能显示红点
+        "unread_msg_count": unread_count,
         
         "game_profile": {
             "gameName": current_user.get("game_name"),
@@ -939,6 +956,234 @@ async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(
         raise HTTPException(status_code=500, detail="数据库更新失败")
             
     return {"status": "success", "msg": "同步成功"}
+
+# ==========================
+# 💬 私信 API 接口
+# ==========================
+@app.post("/messages")
+def send_msg(data: MessageSend, current_user: dict = Depends(get_current_user)):
+    """发送私信 (含安全校验)"""
+    # 1. 基础校验
+    if data.receiver == current_user['username']:
+        raise HTTPException(400, "不能给自己发消息")
+    
+    # 🔥 [新增] 内容风控：禁止空消息和超长消息
+    if not data.content.strip():
+        raise HTTPException(400, "消息内容不能为空")
+    if len(data.content) > 500:
+        raise HTTPException(400, "消息过长 (上限500字)")
+
+    # 2. 获取接收者并检查权限
+    receiver_user = db.users_col.find_one({"username": data.receiver})
+    if not receiver_user:
+        raise HTTPException(404, "用户不存在")
+        
+    # 权限检查：普通用户禁止直接私信管理员 (防止骚扰)
+    is_sender_admin = current_user.get("role") in ["admin", "root"]
+    is_receiver_admin = receiver_user.get("role") in ["admin", "root"]
+    
+    if is_receiver_admin and not is_sender_admin:
+        raise HTTPException(403, "普通用户无法直接私信管理员，请通过【反馈】功能联系")
+
+    # 3. 发送
+    success, msg = db.send_message(current_user['username'], data.receiver, data.content)
+    if not success: raise HTTPException(400, msg)
+    return {"status": "success"}
+
+@app.post("/users/block")
+def block_user_endpoint(data: BlockRequest, current_user: dict = Depends(get_current_user)):
+    """拉黑/解除拉黑 用户"""
+    if data.target_username == current_user['username']:
+        raise HTTPException(400, "不能拉黑自己")
+        
+    target = db.users_col.find_one({"username": data.target_username})
+    if not target:
+        raise HTTPException(404, "用户不存在")
+
+    my_username = current_user['username']
+    
+    # 检查是否已拉黑
+    me = db.users_col.find_one({"username": my_username})
+    blocked_list = me.get("blocked_users", [])
+    
+    if data.target_username in blocked_list:
+        # 已拉黑 -> 解除
+        db.users_col.update_one(
+            {"username": my_username},
+            {"$pull": {"blocked_users": data.target_username}}
+        )
+        return {"status": "success", "msg": "已解除拉黑", "is_blocked": False}
+    else:
+        # 未拉黑 -> 拉黑
+        db.users_col.update_one(
+            {"username": my_username},
+            {"$addToSet": {"blocked_users": data.target_username}}
+        )
+        return {"status": "success", "msg": "已拉黑该用户，对方将无法给您发送私信", "is_blocked": True}
+
+def parse_user_info(user_doc, default_name):
+    """
+    解析用户信息，优先读取同步后的游戏数据
+    """
+    icon_id = 29
+    display_name = default_name
+    
+    # 特殊账号处理
+    if default_name in ['admin', 'root']:
+        return 588, "管理员" # 588 是提莫队长头像
+
+    if not user_doc:
+        return icon_id, display_name
+
+    # 🔥 [核心修复] 优先从根目录读取 (sync_profile 存的位置)
+    # 你的数据库里存的是 profile_icon_id (下划线)，不是驼峰
+    if user_doc.get("profile_icon_id"):
+        icon_id = user_doc.get("profile_icon_id")
+    
+    # 获取游戏昵称
+    if user_doc.get("game_name"):
+        gn = user_doc.get("game_name")
+        tl = user_doc.get("tag_line") or user_doc.get("tagLine")
+        if gn and gn != "Unknown":
+            display_name = f"{gn} #{tl}" if tl else gn
+    
+    # 🍂 [兜底兼容] 如果根目录没有，再尝试从 game_profile 嵌套对象读取 (兼容旧数据)
+    elif user_doc.get("game_profile"):
+        profile = user_doc.get("game_profile")
+        if isinstance(profile, str):
+            try: profile = json.loads(profile)
+            except: profile = {}
+        
+        if isinstance(profile, dict):
+            # 兼容 camelCase 和 snake_case
+            icon_id = profile.get("profileIconId") or profile.get("profile_icon_id") or icon_id
+            gn = profile.get("gameName") or profile.get("game_name")
+            tl = profile.get("tagLine") or profile.get("tag_line")
+            if gn:
+                display_name = f"{gn} #{tl}" if tl else gn
+
+    return icon_id, display_name
+
+@app.delete("/messages/{contact}")
+def delete_conversation_endpoint(contact: str, current_user: dict = Depends(get_current_user)):
+    """删除与某人的会话 (物理删除)"""
+    success = db.delete_conversation(current_user['username'], contact)
+    if not success:
+        raise HTTPException(status_code=500, detail="删除失败")
+    return {"status": "success"}
+
+@app.get("/messages/conversations")
+def get_conversations(current_user: dict = Depends(get_current_user)):
+    """获取会话列表 (🚀 性能优化版：批量查询)"""
+    raw = db.get_my_conversations(current_user['username'])
+    res = []
+    
+    # 1. 提取所有联系人的 username
+    contact_ids = [item['_id'] for item in raw if item['_id']]
+    
+    # 2. 🔥 [优化] 批量查询所有相关用户，而不是在循环里一个个查
+    users_cursor = db.users_col.find({"username": {"$in": contact_ids}})
+    # 将结果转为字典方便查找: { "username": user_doc }
+    users_map = {u['username']: u for u in users_cursor}
+    
+    for item in raw:
+        contact_username = item['_id']
+        if not contact_username: continue
+            
+        last_msg = item['last_message']
+        
+        # 3. 直接从内存字典里取数据，不再查库
+        contact_user = users_map.get(contact_username)
+        
+        icon_id, nickname = parse_user_info(contact_user, contact_username)
+
+        res.append({
+            "id": contact_username,
+            "nickname": nickname,
+            "sender": contact_username,
+            "content": last_msg['content'],
+            "time": last_msg['created_at'].strftime("%H:%M"),
+            "unread": item['unread_count'] > 0,
+            "avatar": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png"
+        })
+        
+    return res
+
+@app.get("/users/profile/{target_input}")
+def get_user_public_profile(target_input: str, current_user: dict = Depends(get_current_user)):
+    """
+    智能搜索用户：支持 登录账号、游戏昵称、昵称#Tag
+    """
+    target = target_input.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="请输入用户名")
+
+    # 1. 第一优先级：精确匹配登录账号 (username)
+    user = db.users_col.find_one({"username": target})
+    
+    # 2. 第二优先级：匹配 游戏昵称#Tag (例如: Uzi#RNG)
+    if not user and "#" in target:
+        try:
+            parts = target.split("#")
+            gn_query = parts[0].strip()
+            tl_query = parts[1].strip()
+            # 使用正则忽略大小写
+            user = db.users_col.find_one({
+                "game_name": {"$regex": f"^{re.escape(gn_query)}$", "$options": "i"},
+                "tag_line": {"$regex": f"^{re.escape(tl_query)}$", "$options": "i"}
+            })
+        except:
+            pass
+
+    # 3. 第三优先级：仅匹配 游戏昵称 (模糊匹配，取第一个)
+    if not user:
+        user = db.users_col.find_one({
+            "game_name": {"$regex": f"^{re.escape(target)}$", "$options": "i"}
+        })
+
+    # 4. 兜底逻辑：如果是管理员账号但未注册 (通常不会发生，但为了前端不报错)
+    if not user:
+        if target.lower() in ['admin', 'root']:
+            return {
+                "username": target,
+                "nickname": "管理员",
+                "avatar": "https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/588.png"
+            }
+        raise HTTPException(status_code=404, detail="未找到该用户，请检查登录名或游戏ID")
+    
+    # 🔥 [关键] 获取真实的登录 username，确保私信发给正确的人
+    real_username = user['username']
+    icon_id, nickname = parse_user_info(user, real_username)
+    
+    return {
+        "username": real_username, # 返回真实ID，前端用这个发消息
+        "nickname": nickname,      # 返回显示名称 (游戏ID)
+        "avatar": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png"
+    }
+
+@app.get("/messages/{contact}")
+def get_chat(contact: str, before: str = None, current_user: dict = Depends(get_current_user)):
+    """
+    获取聊天记录
+    :param before: 可选，分页游标 (上一页第一条消息的 iso_time)
+    """
+    # 传递 before 参数给数据库
+    messages = db.get_chat_history(current_user['username'], contact, limit=50, before_time=before)
+    
+    # 查对方资料 (保持原逻辑)
+    contact_user = db.users_col.find_one({"username": contact})
+    icon_id, nickname = parse_user_info(contact_user, contact)
+
+    contact_info = {
+        "username": contact,
+        "nickname": nickname,
+        "avatar": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png"
+    }
+
+    return {
+        "messages": messages,
+        "contactInfo": contact_info
+    }
 
 # ==========================
 # ⚡ 爱发电 Webhook 接口
@@ -1041,13 +1286,20 @@ def submit_feedback(data: FeedbackInput, current_user: dict = Depends(get_curren
     return {"status": "success"}
 
 @app.get("/admin/feedbacks")
-def get_admin_feedbacks(current_user: dict = Depends(get_current_user)):
-    # 权限检查
+def get_admin_feedbacks(status: str = "pending", current_user: dict = Depends(get_current_user)):
     allowed_roles = ["admin", "root", "vip_admin"] 
     if current_user.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="权限不足")
-    return db.get_all_feedbacks()
-
+    return db.get_all_feedbacks(status=status)
+@app.post("/admin/feedbacks/resolve")
+def resolve_feedback_endpoint(req: ResolveFeedbackRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+        
+    if db.resolve_feedback(req.feedback_id):
+        return {"status": "success", "msg": "反馈已归档"}
+    
+    raise HTTPException(status_code=500, detail="操作失败")
 # 🟢 新增：获取用户列表接口
 @app.get("/admin/users")
 def get_admin_users(search: str = "", current_user: dict = Depends(get_current_user)):
@@ -1813,6 +2065,32 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"❌ WS Error: {e}")
         manager.disconnect(websocket)
 
+@app.get("/admin/sales/summary")
+def get_admin_sales_summary_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    return db.get_admin_sales_summary()
+
+# 2. 🔥 [修复] 监控中心统计接口
+@app.get("/admin/stats")
+def get_admin_stats_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    # 调用刚刚搬运到 database.py 里的方法
+    return db.get_admin_stats()
+@app.post("/admin/sales/settle")
+def settle_sales_endpoint(req: SettleRequest, current_user: dict = Depends(get_current_user)):
+    # 权限检查
+    if current_user.get("role") not in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+        
+    # 调用你刚才写的数据库方法
+    success, msg = db.settle_sales_partner(req.username, current_user['username'])
+    
+    if not success:
+        raise HTTPException(status_code=500, detail=msg)
+        
+    return {"status": "success", "msg": msg}
 # ==========================================
 # 🌟 静态文件与路由修复 
 # ==========================================
@@ -1873,25 +2151,6 @@ async def favicon(ext: str):
         return FileResponse(file_path, media_type=media_type)
         
     raise HTTPException(status_code=404)
-
-# 2. 捕获所有其他路径 -> 智能判断是文件还是页面
-@app.get("/{full_path:path}")
-async def catch_all(full_path: str):
-    # A. 优先检查 frontend/dist 下有没有这个文件 (例如 .exe, .png)
-    # 这样如果你把 exe 放在 frontend/dist/download/ 目录下，就能直接下载了
-    file_path = DIST_DIR / full_path
-    if file_path.exists() and file_path.is_file():
-        return FileResponse(file_path)
-
-    # B. 如果请求的是 API 或静态资源(assets)但没找到，返回 404
-    if full_path.startswith("api/") or full_path.startswith("assets/"):
-        raise HTTPException(status_code=404)
-        
-    # C. SPA 路由兜底：返回 index.html
-    index_path = DIST_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    return {"error": "Frontend build not found. Did you run 'npm run build'?"}
 
 # ================= 🚀 热更新接口 (无需重启) =================
 
@@ -2067,18 +2326,28 @@ def get_sales_dashboard(current_user: dict = Depends(get_current_user)):
     
     data = db.get_sales_dashboard_data(current_user['username'])
     return data
-@app.get("/admin/sales/summary")
-def get_admin_sales_summary_endpoint(current_user: dict = Depends(get_current_user)):
-    # 严查权限：必须是 admin/root 角色
-    if current_user.get("role") not in ["admin"]:
-        raise HTTPException(status_code=403, detail="权限不足")
-    
-    # 🔥 [新增] 硬锁：必须是用户名为 admin 或 root 的账号
-    # 如果您有特定的管理员账号名（比如 "YourName"），请也加到这个列表里
-    if current_user.get("username") not in ["admin"]:
-        raise HTTPException(status_code=403, detail="无权访问财务数据 (仅限超级管理员)")
-    
-    return db.get_admin_sales_summary()
+
+# ==========================================
+# 🚨 兜底路由 (必须放在所有 API 之后)
+# ==========================================
+
+# 2. 捕获所有其他路径 -> 智能判断是文件还是页面
+@app.get("/{full_path:path}")
+async def catch_all(full_path: str):
+    # A. 优先检查静态文件
+    file_path = DIST_DIR / full_path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(file_path)
+
+    # B. API 404 处理 (避免返回 HTML)
+    if full_path.startswith("api/") or full_path.startswith("assets/"):
+        raise HTTPException(status_code=404)
+        
+    # C. SPA 路由兜底：返回 index.html
+    index_path = DIST_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"error": "Frontend build not found. Did you run 'npm run build'?"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

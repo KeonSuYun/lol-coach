@@ -12,7 +12,7 @@ from bson.errors import InvalidId
 
 class KnowledgeBase:
     def __init__(self):
-        # 🟢 1. 获取 URI (兼容 MONGO_URI 和 MONGO_URL)
+        # 🟢 1. 获取 URI
         self.uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URL") or "mongodb://localhost:27017"
         
         self._log_connection_attempt()
@@ -23,7 +23,7 @@ class KnowledgeBase:
             # 🟢 2. 强制连通性检查
             self.client.admin.command('ping')
             
-            # 🟢 3. 智能数据库选择 (确保和 seed_data.py 逻辑一致)
+            # 🟢 3. 智能数据库选择
             try:
                 self.db = self.client.get_default_database()
                 print(f"✅ [Database] 使用 URI 指定的数据库: {self.db.name}")
@@ -42,11 +42,16 @@ class KnowledgeBase:
             self.otps_col = self.db['otps']
             self.orders_col = self.db['orders']
             self.sales_records_col = self.db['sales_records']
-            # === 社区模块集合 (Wiki & Tavern) ===
-            self.wiki_posts = self.db['wiki_posts']          # 绝活攻略
-            self.tavern_posts = self.db['tavern_posts']      # 酒馆动态
-            self.wiki_summaries = self.db['wiki_summaries']  # 英雄Wiki摘要(机制/对位表)
+            
+            # === 社区模块集合 ===
+            self.wiki_posts = self.db['wiki_posts']
+            self.tavern_posts = self.db['tavern_posts']
+            self.wiki_summaries = self.db['wiki_summaries']
             self.comments_col = self.db['comments']
+            
+            # === 私信模块集合 ===
+            self.messages_col = self.db['messages']
+            
             # === 索引初始化 ===
             self._init_indexes()
 
@@ -56,16 +61,11 @@ class KnowledgeBase:
             print(f"❌ [Database] 初始化发生未知错误: {e}")
 
     def _to_oid(self, id_str):
-        """安全转换 ObjectId"""
-        if not id_str or not isinstance(id_str, str):
-            return None
-        try:
-            return ObjectId(id_str)
-        except InvalidId:
-            return None
+        if not id_str or not isinstance(id_str, str): return None
+        try: return ObjectId(id_str)
+        except InvalidId: return None
 
     def _log_connection_attempt(self):
-        """辅助函数：打印连接目标，但隐藏密码"""
         try:
             if "@" in self.uri:
                 part_after_at = self.uri.split("@")[1]
@@ -76,30 +76,63 @@ class KnowledgeBase:
             print("🔌 [Database] 正在尝试连接 MongoDB...")
 
     def _init_indexes(self):
-        """创建索引"""
+        """创建索引 (含金融级并发防护)"""
         try:
+            # === 1. 基础业务索引 ===
             self.tips_col.create_index([("hero", 1), ("enemy", 1)])
             self.tips_col.create_index([("is_fake", 1), ("liked_by", -1)]) 
             self.corrections_col.create_index([("hero", 1), ("enemy", 1)])
+            
+            # 用户相关
             self.users_col.create_index("username", unique=True)
-            self.prompt_templates_col.create_index("mode", unique=True)
             self.users_col.create_index("device_id")
             self.users_col.create_index("ip")
+            
+            # 系统配置
+            self.prompt_templates_col.create_index("mode", unique=True)
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
+
+            # === 2. 订单与销售索引 (核心防护区) ===
+            # 订单号必须唯一
             self.orders_col.create_index("order_no", unique=True)
+            
+            # 销售记录查询优化
             self.sales_records_col.create_index([("salesperson", 1), ("created_at", -1)])
+            self.sales_records_col.create_index([("salesperson", 1), ("status", 1)]) # 用于快速筛选 pending/paid
+            
+            # 🔥🔥🔥 [防护 1] 防止并发双重支付 (同一订单号只能产生一条佣金)
+            # 作用：拦截多线程/网络重试导致的重复写佣金
+            self.sales_records_col.create_index("order_no", unique=True)
+
+            # 🔥🔥🔥 [防护 2] 防止并发双重首单 (同一个买家只能有一条"首单奖励")
+            # 作用：防止用户极速连点两单，骗取两份40%佣金
+            try:
+                self.sales_records_col.create_index(
+                    [("source_user", 1)], 
+                    unique=True, 
+                    partialFilterExpression={"type": "首单奖励"}
+                )
+            except Exception as e:
+                print(f"⚠️ [Index] 首单唯一索引创建警告 (可能已有旧数据冲突): {e}")
+
+            # === 3. 社区与私信索引 ===
             try:
                 self.wiki_posts.create_index([("hero_id", 1), ("category", 1)])
                 self.tavern_posts.create_index([("topic", 1), ("created_at", -1)])
                 self.comments_col.create_index([("post_id", 1), ("created_at", 1)])
+                # 私信索引
+                self.messages_col.create_index([("sender", 1), ("receiver", 1), ("created_at", -1)])
+                self.messages_col.create_index([("receiver", 1), ("read", 1)])
             except Exception as e:
                 print(f"⚠️ [Community] 索引创建警告: {e}")
-            print("✅ [Database] 索引检查完毕")
+
+            print("✅ [Database] 索引检查完毕 (已启用金融级并发防护)")
+
         except Exception as e:
-            print(f"⚠️ [Database] 索引创建警告: {e}")
+            print(f"⚠️ [Database] 索引创建总体警告: {e}")
 
     # ==========================
-    # 🔍 核心查询 (🔥 已加入智能兜底)
+    # 🔍 核心查询与数据获取
     # ==========================
     def get_champion_info(self, name_or_id):
         if not name_or_id: return None
@@ -125,37 +158,99 @@ class KnowledgeBase:
             or_conditions.append({"name": {"$regex": pattern, "$options": "i"}})
             or_conditions.append({"alias": {"$regex": pattern, "$options": "i"}})
 
-        # 1. 尝试从数据库查找
         result = self.champions_col.find_one({"$or": or_conditions})
         
-        # 2. 🔥 [关键修复] 智能兜底逻辑
-        # 如果数据库因为同步问题没找到，或者名字有偏差
-        # 只要前端传了名字，我们就信任它，构造一个临时对象返回
-        # 这样 server.py 就不会抛出 "系统未识别英雄" 的错误
+        # 智能兜底
         if not result:
             print(f"⚠️ [Database] 未找到英雄 '{name_or_id}' (DB Miss)，启用临时兜底模式。")
             return {
-                "id": name_or_id,
-                "name": name_or_id,
-                "alias": [name_or_id], 
-                "role": "unknown",
-                "tier": "unknown",
-                "mechanic_type": "通用英雄",
-                "power_spike": "全期"
+                "id": name_or_id, "name": name_or_id, "alias": [name_or_id], 
+                "role": "unknown", "tier": "unknown",
+                "mechanic_type": "通用英雄", "power_spike": "全期"
             }
-            
         return result
+
+    # ==========================
+    # 💬 私信系统
+    # ==========================
+    def get_unread_count_total(self, username):
+        if self.messages_col is None: return 0
+        return self.messages_col.count_documents({"receiver": username, "read": False})
+
+    def send_message(self, sender, receiver, content, msg_type="user"):
+        receiver_user = self.users_col.find_one({"username": receiver})
+        if not receiver_user: return False, "用户不存在"
+        if sender in receiver_user.get("blocked_users", []): return False, "消息被拒收"
+
+        msg = {
+            "sender": sender, "receiver": receiver, "content": content,
+            "type": msg_type, "read": False, "deleted_by": [],
+            "created_at": datetime.datetime.now(datetime.timezone.utc)
+        }
+        self.messages_col.insert_one(msg)
+        return True, "发送成功"
+
+    def get_my_conversations(self, username):
+        pipeline = [
+            {"$match": {
+                "$or": [{"sender": username}, {"receiver": username}],
+                "deleted_by": {"$ne": username}
+            }},
+            {"$sort": {"created_at": -1}},
+            {"$group": {
+                "_id": {"$cond": [{"$eq": ["$sender", username]}, "$receiver", "$sender"]},
+                "last_message": {"$first": "$$ROOT"},
+                "unread_count": {
+                    "$sum": {"$cond": [{"$and": [{"$eq": ["$receiver", username]}, {"$eq": ["$read", False]}]}, 1, 0]}
+                }
+            }},
+            {"$sort": {"last_message.created_at": -1}}
+        ]
+        try: return list(self.messages_col.aggregate(pipeline))
+        except: return []
+
+    def get_chat_history(self, user1, user2, limit=50, before_time=None):
+        self.messages_col.update_many(
+            {"sender": user2, "receiver": user1, "read": False, "deleted_by": {"$ne": user1}},
+            {"$set": {"read": True}}
+        )
+        query = {
+            "$or": [{"sender": user1, "receiver": user2}, {"sender": user2, "receiver": user1}],
+            "deleted_by": {"$ne": user1}
+        }
+        if before_time:
+            try:
+                if isinstance(before_time, str): b_time = datetime.datetime.fromisoformat(before_time.replace("Z", "+00:00"))
+                else: b_time = before_time
+                query["created_at"] = {"$lt": b_time}
+            except: pass
+
+        cursor = self.messages_col.find(query).sort("created_at", -1).limit(limit)
+        msgs = []
+        for m in cursor:
+            msgs.append({
+                "id": str(m["_id"]), "sender": m["sender"], "content": m["content"],
+                "type": m.get("type", "user"), "time": m["created_at"].strftime("%m-%d %H:%M"),
+                "iso_time": m["created_at"].isoformat(), "read": m.get("read", False)
+            })
+        return msgs[::-1]
+
+    def delete_conversation(self, operator, target_user):
+        if self.messages_col is None: return False
+        try:
+            self.messages_col.update_many(
+                {"$or": [{"sender": operator, "receiver": target_user}, {"sender": target_user, "receiver": operator}]},
+                {"$addToSet": {"deleted_by": operator}}
+            )
+            return True
+        except: return False
 
     # ==========================
     # ✨ 验证码管理
     # ==========================
     def save_otp(self, contact, code):
         expire_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
-        self.otps_col.update_one(
-            {"contact": contact},
-            {"$set": {"code": code, "expire_at": expire_time}}, 
-            upsert=True
-        )
+        self.otps_col.update_one({"contact": contact}, {"$set": {"code": code, "expire_at": expire_time}}, upsert=True)
 
     def validate_otp(self, contact, code):
         record = self.otps_col.find_one({"contact": contact})
@@ -166,18 +261,14 @@ class KnowledgeBase:
         return False
 
     # ==========================
-    # 💰 充值与会员系统 (修复时间时区问题)
+    # 💰 充值与会员系统
     # ==========================
     def upgrade_user_role(self, username, days=30):
-        # 🟢 统一使用 UTC 时区
         now = datetime.datetime.now(datetime.timezone.utc)
-        
         user = self.users_col.find_one({"username": username})
         if not user: return False
 
         current_expire = user.get("membership_expire")
-        
-        # 🔥 [修复] 如果数据库里的时间没有时区，强制加上 UTC，避免报错
         if current_expire and current_expire.tzinfo is None:
             current_expire = current_expire.replace(tzinfo=datetime.timezone.utc)
 
@@ -190,12 +281,33 @@ class KnowledgeBase:
         )
         return True
     
+    # 🔥 [修改] 核心：阶梯佣金处理逻辑 (首单40%, 复购15%)
     def process_afdian_order(self, order_no, username, amount, sku_detail):
-        if self.orders_col.find_one({"order_no": order_no}): return True
+        # ================= 1. 智能幂等性检查 (防止掉单) =================
+        existing_order = self.orders_col.find_one({"order_no": order_no})
+        
+        if existing_order:
+            # 如果订单已存在，检查是否遗漏了佣金记录 (即"掉单"情况)
+            user = self.users_col.find_one({"username": username})
+            if user and user.get("sales_ref"):
+                # 检查是否已存在佣金记录
+                existing_comm = self.sales_records_col.find_one({"order_no": order_no})
+                if not existing_comm:
+                    print(f"⚠️ [Order Fix] 发现掉单: {order_no}，正在尝试补录佣金...")
+                    # 允许程序继续向下执行，去跑佣金逻辑
+                    pass 
+                else:
+                    return True # 订单和佣金都存在，是完全重复的请求，直接返回成功
+            else:
+                return True # 普通用户且订单已存在，无需操作，直接返回
+
+        # ================= 2. 用户校验与充值计算 =================
         user = self.users_col.find_one({"username": username})
         if not user: return False
 
         amount_float = float(amount)
+        
+        # 计算增加的天数
         days_to_add = 0
         if amount_float >= 19.90: days_to_add = 30
         elif amount_float >= 6.90: days_to_add = 7
@@ -203,31 +315,61 @@ class KnowledgeBase:
 
         if days_to_add < 1: return False
 
+        # ================= 3. 执行充值与记录 =================
         if self.upgrade_user_role(username, days=days_to_add):
-            self.orders_col.insert_one({
-                "order_no": order_no, "username": username, "amount": amount,
-                "days_added": days_to_add, "sku": sku_detail,
-                "created_at": datetime.datetime.now(datetime.timezone.utc)
-            })
-            sales_ref = user.get("sales_ref")
-            if sales_ref:
-                prev_orders_count = self.orders_col.count_documents({
-                    "username": username, 
-                    "order_no": {"$ne": order_no}
-                })
-
-                if prev_orders_count == 0:
-                    commission = amount_float * 0.40
-                    self.sales_records_col.insert_one({
-                        "salesperson": sales_ref,
-                        "source_user": username,
-                        "order_amount": amount_float,
-                        "commission": commission,
-                        "rate": "40%",
-                        "order_no": order_no,
-                        "type": "first_month_bonus",
+            
+            # A. 记录订单 (使用 try-except 防止掉单修复时重复插入报错)
+            try:
+                if not existing_order: # 只有当订单真的不存在时才插入
+                    self.orders_col.insert_one({
+                        "order_no": order_no, "username": username, "amount": amount,
+                        "days_added": days_to_add, "sku": sku_detail,
                         "created_at": datetime.datetime.now(datetime.timezone.utc)
                     })
+            except Exception as e:
+                print(f"Order Insert Skip (Normal if fixing drop): {e}")
+
+            # B. 处理佣金 (Sales Ref Check)
+            sales_ref = user.get("sales_ref")
+            if sales_ref:
+                agent = self.users_col.find_one({"username": sales_ref})
+                
+                if agent:
+                    # 查询该用户之前的订单数 (排除当前这单)
+                    prev_orders_count = self.orders_col.count_documents({
+                        "username": username, "order_no": {"$ne": order_no}
+                    })
+
+                    # 💰 阶梯佣金配置
+                    commission_rate = 0.0
+                    commission_type = ""
+
+                    if prev_orders_count == 0:
+                        commission_rate = 0.40  # 首单 40%
+                        commission_type = "首单奖励"
+                    elif prev_orders_count == 1:
+                        commission_rate = 0.15  # 次单 15%
+                        commission_type = "复购奖励"
+                    else:
+                        commission_rate = 0.0   # 老用户无佣金
+                        commission_type = "老用户复购"
+
+                    # 只有产生佣金才写入记录
+                    if commission_rate > 0:
+                        commission = amount_float * commission_rate
+                        
+                        self.sales_records_col.insert_one({
+                            "salesperson": sales_ref,
+                            "source_user": username,
+                            "order_amount": amount_float,
+                            "commission": commission,
+                            "rate": f"{int(commission_rate * 100)}%",
+                            "order_no": order_no,
+                            "type": commission_type,
+                            "status": "pending", # 默认为待结算
+                            "created_at": datetime.datetime.now(datetime.timezone.utc)
+                        })
+
             return True
         return False
 
@@ -238,12 +380,8 @@ class KnowledgeBase:
         if role in ["pro", "vip", "svip"]:
             expire_at = user.get("membership_expire")
             if not expire_at: return role
-            
-            # 🔥 [修复] 时区兼容检查
             now = datetime.datetime.now(datetime.timezone.utc)
-            if expire_at.tzinfo is None:
-                expire_at = expire_at.replace(tzinfo=datetime.timezone.utc)
-                
+            if expire_at.tzinfo is None: expire_at = expire_at.replace(tzinfo=datetime.timezone.utc)
             if expire_at < now:
                 self.users_col.update_one({"username": username}, {"$set": {"role": "user"}})
                 return "user"
@@ -254,203 +392,73 @@ class KnowledgeBase:
         current_role = self.check_membership_status(username)
         user = self.users_col.find_one({"username": username})
         if not user: return {}
-
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
         today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
         usage_data = user.get("usage_stats", {})
-        
         r1_used = sum(usage_data.get("counts_reasoner", {}).values()) if usage_data.get("last_reset_date") == today_str else 0
-        LIMIT = 10 
-        return {
-            "is_pro": is_pro, "role": current_role, "r1_limit": LIMIT, 
-            "r1_used": r1_used, "r1_remaining": max(0, LIMIT - r1_used) if not is_pro else -1
-        }
+        return {"is_pro": is_pro, "role": current_role, "r1_limit": 10, "r1_used": r1_used, "r1_remaining": max(0, 10 - r1_used) if not is_pro else -1}
 
     def check_and_update_usage(self, username, mode, model_type="chat"):
-            """检查冷却时间与额度限制 (已修复 500 报错)"""
-            current_role = self.check_membership_status(username)
-            user = self.users_col.find_one({"username": username})
-            if not user: return False, "用户不存在", 0
+        current_role = self.check_membership_status(username)
+        user = self.users_col.find_one({"username": username})
+        if not user: return False, "用户不存在", 0
+        is_pro = current_role in ["vip", "svip", "admin", "pro"]
+        now = datetime.datetime.now(datetime.timezone.utc)
+        today_str = now.strftime("%Y-%m-%d")
+        usage_data = user.get("usage_stats", {})
+        
+        if usage_data.get("last_reset_date") != today_str:
+            usage_data = {"last_reset_date": today_str, "counts_chat": {}, "counts_reasoner": {}, "last_access": {}, "hourly_start": now.isoformat(), "hourly_count": 0}
+        
+        HOURLY_LIMIT = 30 if is_pro else 10
+        hourly_start_str = usage_data.get("hourly_start")
+        hourly_start = datetime.datetime.fromisoformat(hourly_start_str) if hourly_start_str else now
+        if hourly_start.tzinfo is None: hourly_start = hourly_start.replace(tzinfo=datetime.timezone.utc)
+        
+        if (now - hourly_start).total_seconds() > 3600: hourly_start, usage_data["hourly_count"] = now, 0
+        if usage_data.get("hourly_count", 0) >= HOURLY_LIMIT:
+            return False, f"操作过于频繁 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", 0
 
-            is_pro = current_role in ["vip", "svip", "admin", "pro"]
-            
-            # 🟢 [修复] 统一使用带时区的时间 (Offset-Aware)
-            now = datetime.datetime.now(datetime.timezone.utc)
-            today_str = now.strftime("%Y-%m-%d")
-            
-            usage_data = user.get("usage_stats", {})
-            
-            if usage_data.get("last_reset_date") != today_str:
-                usage_data = {
-                    "last_reset_date": today_str, "counts_chat": {}, "counts_reasoner": {}, "last_access": {},
-                    "hourly_start": usage_data.get("hourly_start", now.isoformat()), "hourly_count": 0 
-                }
-            
-            HOURLY_LIMIT = 30 if is_pro else 10
-            
-            # 🔥 [修复] 安全解析数据库时间
-            hourly_start_str = usage_data.get("hourly_start")
-            if hourly_start_str:
-                try:
-                    hourly_start = datetime.datetime.fromisoformat(hourly_start_str)
-                    # 如果读取的时间是 naive 的，强制转为 utc aware，避免减法报错
-                    if hourly_start.tzinfo is None:
-                        hourly_start = hourly_start.replace(tzinfo=datetime.timezone.utc)
-                except ValueError:
-                    hourly_start = now
-            else:
-                hourly_start = now
-            
-            hourly_count = usage_data.get("hourly_count", 0)
-            
-            # 现在减法安全了
-            if (now - hourly_start).total_seconds() > 3600:
-                hourly_start, hourly_count = now, 0
-                
-            if hourly_count >= HOURLY_LIMIT:
-                return False, f"操作过于频繁，请稍后重试 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", 0
+        COOLDOWN = 5 if is_pro else 15
+        last_time_str = usage_data.get("last_access", {}).get(mode)
+        if last_time_str:
+            try:
+                last_time = datetime.datetime.fromisoformat(last_time_str)
+                if last_time.tzinfo is None: last_time = last_time.replace(tzinfo=datetime.timezone.utc)
+                if (now - last_time).total_seconds() < COOLDOWN: return False, "AI思考中", int(COOLDOWN - (now - last_time).total_seconds())
+            except: pass
 
-            COOLDOWN = 5 if is_pro else 15
-            last_time_str = usage_data.get("last_access", {}).get(mode)
-            if last_time_str:
-                try:
-                    last_time = datetime.datetime.fromisoformat(last_time_str)
-                    if last_time.tzinfo is None:
-                        last_time = last_time.replace(tzinfo=datetime.timezone.utc)
-                    delta = (now - last_time).total_seconds()
-                    if delta < COOLDOWN: return False, f"AI思考中，请稍后再试", int(COOLDOWN-delta)
-                except: pass
-
-            if not is_pro and model_type == "reasoner" and sum(usage_data.get("counts_reasoner", {}).values()) >= 10:
-                return False, "深度思考限额已满", -1
-
-            if model_type == "chat":
-                current_chat_usage = sum(usage_data.get("counts_chat", {}).values())
-                security_limit = 100 if is_pro else 50
-                if current_chat_usage >= security_limit:
-                    return False, "系统安全风控：今日调用次数异常 (Limit Reached)", 0
-
-            if model_type == "reasoner": usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
-            else: usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
-                
-            usage_data["last_access"][mode] = now.isoformat()
-            usage_data.update({"hourly_count": hourly_count + 1, "hourly_start": hourly_start.isoformat()})
-            self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
-            return True, "OK", 0
+        if not is_pro and model_type == "reasoner" and sum(usage_data.get("counts_reasoner", {}).values()) >= 10: return False, "深度思考限额已满", -1
+        
+        if model_type == "reasoner": usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
+        else: usage_data["counts_chat"][mode] = usage_data["counts_chat"].get(mode, 0) + 1
+            
+        usage_data["last_access"][mode] = now.isoformat()
+        usage_data["hourly_count"] = usage_data.get("hourly_count", 0) + 1
+        usage_data["hourly_start"] = hourly_start.isoformat()
+        self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
+        return True, "OK", 0
 
     # ==========================
-    # 🔥 绝活社区核心逻辑
+    # 🔥 管理员 & 统计功能
     # ==========================
-    def add_tip(self, hero, enemy, content, author_id, is_general, title=None, tags=None, is_fake=False):
-        tip_doc = {
-            "hero": hero, "enemy": "general" if is_general else enemy,
-            "title": title or (content[:15] + "..." if len(content) > 15 else content),
-            "content": content, "tags": tags or ["实战经验"],
-            "author_id": author_id, "liked_by": [], "reward_granted": False,
-            "is_fake": is_fake, "is_polished": False,
-            "created_at": datetime.datetime.now(datetime.timezone.utc)
-        }
-        return self.tips_col.insert_one(tip_doc)
-
-    def toggle_like(self, tip_id, user_id):
-        if not (oid := self._to_oid(tip_id)): return False
-        try:
-            result = self.tips_col.find_one_and_update(
-                {"_id": ObjectId(tip_id), "liked_by": {"$ne": user_id}},
-                {"$push": {"liked_by": user_id}}, return_document=True 
-            )
-            if not result: return False
-            likes_count = len(result.get('liked_by', []))
-            if likes_count >= 10 and not result.get('reward_granted', False) and not result.get('is_fake', False):
-                author = result.get('author_id')
-                if self.upgrade_user_role(author, days=3):
-                    self.tips_col.update_one({"_id": ObjectId(tip_id)}, {"$set": {"reward_granted": True}})
-            return True
-        except: return False
-
-    def get_mixed_tips(self, hero, enemy, limit=10):
-        matchup_tips = list(self.tips_col.find({"hero": hero, "enemy": enemy}).sort([
-            ("is_fake", 1), ("liked_by", -1)
-        ]).limit(limit))
-        for t in matchup_tips: t['tag_label'] = "🔥 对位绝活"
-
-        if len(matchup_tips) < limit:
-            needed = limit - len(matchup_tips)
-            general_tips = list(self.tips_col.find({"hero": hero, "enemy": "general"}).sort([
-                ("is_fake", 1), ("liked_by", -1)
-            ]).limit(needed))
-            for t in general_tips: t['tag_label'] = "📚 英雄必修"
-            matchup_tips.extend(general_tips)
-
-        final_list = []
-        for t in matchup_tips:
-            author_role = self.check_membership_status(t["author_id"])
-            final_list.append({
-                "id": str(t['_id']), "title": t.get("title", "英雄技巧"), "content": t["content"],
-                "author": t["author_id"], "author_role": author_role, "author_avatar_key": author_role,
-                "likes": len(t.get("liked_by", [])), "tags": t.get("tags", []), "tag_label": t["tag_label"],
-                "is_pro_author": author_role in ["pro", "vip", "svip", "admin"]
-            })
-        return final_list
-
-    def get_tips_for_ui(self, hero, enemy, is_general):
-        return self.get_mixed_tips(hero, "general" if is_general else enemy)
-
-    def get_top_knowledge_for_ai(self, hero, enemy):
-        tips = self.get_mixed_tips(hero, enemy, limit=6)
-        return {
-            "general": [t['content'] for t in tips if t['tag_label'] == "📚 英雄必修"],
-            "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
-        }
-
-    def get_corrections(self, my_hero, enemy_hero):
-        if self.corrections_col is None: return []
-        query = {
-            "hero": {"$in": [my_hero, "general", "General"]},
-            "enemy": {"$in": [enemy_hero, "general", "General"]}
-        }
-        try:
-            results = list(self.corrections_col.find(query))
-            results.sort(key=lambda x: x.get('priority', 50), reverse=True)
-            return [r['content'] for r in results]
-        except Exception as e:
-            print(f"Error fetching corrections: {e}")
-            return []
-
+    
+    # 1. 基础用户管理
     def create_user(self, username, password, role="user", email="", device_id="unknown", ip="unknown", sales_ref=None):
         if self.get_user(username): return "USERNAME_TAKEN"
         if self.users_col.find_one({"email": email}): return "EMAIL_TAKEN"
-        try:
-            if device_id and device_id != "unknown_client_error" and self.users_col.count_documents({"device_id": device_id}) >= 3: return "DEVICE_LIMIT"
-            if ip and self.users_col.count_documents({"ip": ip, "created_at": {"$gte": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)}}) >= 5: return "IP_LIMIT"
-
-            self.users_col.insert_one({
-                "username": username, "password": password, "role": role,
-                "email": email, "device_id": device_id, "ip": ip, 
-                "created_at": datetime.datetime.now(datetime.timezone.utc),
-                "sales_ref": sales_ref
-            })
-            return True
-        except: return False 
+        # 简单频控
+        if device_id != "unknown" and self.users_col.count_documents({"device_id": device_id}) >= 3: return "DEVICE_LIMIT"
+        
+        self.users_col.insert_one({
+            "username": username, "password": password, "role": role,
+            "email": email, "device_id": device_id, "ip": ip, 
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+            "sales_ref": sales_ref
+        })
+        return True
 
     def get_user(self, username): return self.users_col.find_one({"username": username})
-    def get_all_feedbacks(self, limit=50): return [dict(doc, _id=str(doc['_id'])) for doc in self.feedback_col.find().sort('_id', -1).limit(limit)]
-    def get_prompt_template(self, mode: str): return self.prompt_templates_col.find_one({"mode": mode})
-    def get_game_constants(self): return self.config_col.find_one({"_id": "s15_rules"}) or {"patch_version": "Unknown"}
-    def delete_tip(self, tip_id):
-        if not (oid := self._to_oid(tip_id)): return False
-        try: return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0
-        except: return False
-    def get_tip_by_id(self, tip_id):
-        if not (oid := self._to_oid(tip_id)): return None
-        try:
-            tip = self.tips_col.find_one({"_id": ObjectId(tip_id)})
-            return dict(tip, id=str(tip['_id']), _id=None) if tip else None
-        except: return None
-    def submit_feedback(self, data):
-        data.update({'created_at': datetime.datetime.now(datetime.timezone.utc), 'status': 'pending'})
-        self.feedback_col.insert_one(data)
-
     def get_all_users(self, limit=20, search=""):
         query = {"username": {"$regex": search, "$options": "i"}} if search else {}
         users = list(self.users_col.find(query, {"password": 0, "usage_stats": 0}).sort("created_at", -1).limit(limit))
@@ -473,25 +481,47 @@ class KnowledgeBase:
             new_name = value.strip()
             if not new_name or self.users_col.find_one({"username": new_name}): return False, "无效或已占用"
             self.users_col.update_one({"username": username}, {"$set": {"username": new_name}})
+            # 级联更新
             self.tips_col.update_many({"author_id": username}, {"$set": {"author_id": new_name}})
             self.orders_col.update_many({"username": username}, {"$set": {"username": new_name}})
-            return True, f"更名成功"
+            self.messages_col.update_many({"sender": username}, {"$set": {"sender": new_name}})
+            self.messages_col.update_many({"receiver": username}, {"$set": {"receiver": new_name}})
+            return True, "更名成功"
         elif action == "delete":
             self.users_col.delete_one({"username": username})
             return True, "用户已删除"
         return False, "未知操作"
 
+    # 🔥 [修改] 销售报表：区分 待结算(Pending) 和 已结算(Paid)
     def get_admin_sales_summary(self):
         pipeline = [
             {"$group": {
-                "_id": "$salesperson", "total_commission": {"$sum": "$commission"},
-                "total_sales": {"$sum": "$order_amount"}, "order_count": {"$sum": 1},
+                "_id": "$salesperson", 
+                # 只统计 status != 'paid' 的作为待结算佣金
+                "pending_commission": {
+                    "$sum": {
+                        "$cond": [{"$ne": ["$status", "paid"]}, "$commission", 0]
+                    }
+                },
+                # 统计已结算总额
+                "paid_commission": {
+                    "$sum": {
+                        "$cond": [{"$eq": ["$status", "paid"]}, "$commission", 0]
+                    }
+                },
+                "total_sales": {"$sum": "$order_amount"}, 
+                "order_count": {"$sum": 1},
                 "last_order_date": {"$max": "$created_at"}
             }},
-            {"$sort": {"total_commission": -1}}
+            {"$sort": {"pending_commission": -1}} # 按待结算金额倒序
         ]
-        try: results = list(self.sales_records_col.aggregate(pipeline))
-        except Exception as e: return []
+        
+        try: 
+            results = list(self.sales_records_col.aggregate(pipeline))
+        except Exception as e: 
+            print(f"Agg Error: {e}")
+            return []
+            
         final_list = []
         for r in results:
             username = r["_id"]
@@ -500,150 +530,271 @@ class KnowledgeBase:
             game_name = "未同步"
             if user and user.get("game_profile"):
                 if isinstance(user["game_profile"], dict): game_name = user["game_profile"].get("gameName", "未同步")
-                elif isinstance(user["game_profile"], str):
-                    try: game_name = json.loads(user["game_profile"]).get("gameName", "未同步")
-                    except: pass
+            
             final_list.append({
-                "username": username, "game_name": game_name, "contact": contact,
-                "total_commission": round(r["total_commission"], 2), "total_sales": round(r["total_sales"], 2),
+                "username": username, 
+                "game_name": game_name, 
+                "contact": contact,
+                "pending_commission": round(r["pending_commission"], 2), # 待结算
+                "paid_commission": round(r["paid_commission"], 2),       # 已结算
+                "total_sales": round(r["total_sales"], 2),
                 "order_count": r["order_count"],
-                "last_active": r["last_order_date"].strftime("%Y-%m-%d %H:%M") if r["last_order_date"] else "-"
+                "last_active": r["last_order_date"].strftime("%Y-%m-%d") if r["last_order_date"] else "-"
             })
         return final_list
 
-    def get_sales_dashboard_data(self, username):
-            pipeline = [
-                {"$match": {"salesperson": username}},
-                {"$group": {
-                    "_id": None, "total_commission": {"$sum": "$commission"},
-                    "total_orders": {"$sum": 1}, "total_sales": {"$sum": "$order_amount"}
-                }}
-            ]
-            stats = list(self.sales_records_col.aggregate(pipeline))
-            base_data = stats[0] if stats else {"total_commission": 0, "total_orders": 0, "total_sales": 0}
-            today_start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            today_stats = self.sales_records_col.aggregate([
-                {"$match": {"salesperson": username, "created_at": {"$gte": today_start}}},
-                {"$group": {"_id": None, "today_earnings": {"$sum": "$commission"}}}
-            ])
-            today_data = list(today_stats)
-            today_earnings = today_data[0]['today_earnings'] if today_data else 0
-            recent_records = list(self.sales_records_col.find(
-                {"salesperson": username}, {"source_user": 1, "commission": 1, "created_at": 1, "rate": 1}
-            ).sort("created_at", -1).limit(10))
-            formatted_records = []
-            for r in recent_records:
-                formatted_records.append({
-                    "source": r.get("source_user", "未知用户")[:3] + "***",
-                    "amount": r.get("commission", 0),
-                    "time": r.get("created_at").strftime("%H:%M"),
-                    "rate": r.get("rate", "40%")
-                })
-            return {
-                "total_earnings": round(base_data['total_commission'], 2),
-                "today_earnings": round(today_earnings, 2),
-                "total_orders": base_data['total_orders'],
-                "conversion_rate": "40%",
-                "recent_records": formatted_records
+    # 🔥 [新增] 执行结算：将该用户所有未结算订单标记为已结算
+    def settle_sales_partner(self, salesperson, operator_name):
+        try:
+            # 🔥 [加固] 记录当前时间作为“结算截止点”
+            cutoff_time = datetime.datetime.now(datetime.timezone.utc)
+            
+            # 🔥 [加固] 查询条件增加时间限制：只结算截止时间之前的订单
+            query = {
+                "salesperson": salesperson, 
+                "status": {"$ne": "paid"},
+                "created_at": {"$lte": cutoff_time} # Less than or equal to cutoff
             }
+            
+            result = self.sales_records_col.update_many(
+                query,
+                {"$set": {
+                    "status": "paid",
+                    "settled_at": cutoff_time,
+                    "settled_by": operator_name
+                }}
+            )
+            
+            # 如果 result.modified_count 为 0，说明没有符合条件的订单
+            if result.modified_count == 0:
+                return True, "没有需要结算的订单 (或订单刚产生，请刷新后再试)"
+                
+            return True, f"成功结算 {result.modified_count} 笔订单 (截止至 {cutoff_time.strftime('%H:%M:%S')})"
+        except Exception as e:
+            return False, str(e)
 
-    def get_wiki_posts(self, hero_id=None, category=None, limit=20):
+    # 🔥 [新增] 全局统计看板数据源
+    def get_admin_stats(self):
+        total_users = self.users_col.count_documents({})
+        pro_users = self.users_col.count_documents({"role": {"$in": ["pro", "vip", "svip", "admin"]}})
+        
+        revenue_agg = list(self.orders_col.aggregate([{"$group": {"_id": None, "total": {"$sum": {"$toDouble": "$amount"}}}}]))
+        total_revenue = revenue_agg[0]['total'] if revenue_agg else 0.0
+
+        commission_agg = list(self.sales_records_col.aggregate([{"$group": {"_id": None, "total": {"$sum": "$commission"}}}]))
+        total_commissions = commission_agg[0]['total'] if commission_agg else 0.0
+
+        try:
+            pipeline = [
+                {"$project": {"chat_count": {"$ifNull": ["$usage_stats.hourly_count", 0]}}},
+                {"$group": {"_id": None, "total": {"$sum": "$chat_count"}}}
+            ]
+            usage_res = list(self.users_col.aggregate(pipeline))
+            total_calls = usage_res[0]['total'] * 10 if usage_res else 0
+        except: total_calls = 0
+
+        recent_users = []
+        cursor = self.users_col.find({}, {"username": 1, "role": 1, "usage_stats": 1}).sort("usage_stats.last_access", -1).limit(5)
+        for u in cursor:
+            usage = u.get("usage_stats", {})
+            r1_count = sum(usage.get("counts_reasoner", {}).values())
+            chat_count = sum(usage.get("counts_chat", {}).values())
+            last_access = "Long ago"
+            if usage.get("last_access"):
+                times = [v for k,v in usage["last_access"].items() if isinstance(v, str)]
+                if times: last_access = max(times).replace("T", " ")[:16]
+            recent_users.append({
+                "username": u["username"], "role": u.get("role", "user"),
+                "r1_used": r1_count + chat_count, "last_active": last_access
+            })
+
+        return {
+            "total_users": total_users, "pro_users": pro_users,
+            "total_revenue": total_revenue, "total_commissions": total_commissions,
+            "total_api_calls": total_calls, "recent_users": recent_users
+        }
+
+    # ==========================
+    # 销售仪表盘 (代理端)
+    # ==========================
+    def get_sales_dashboard_data(self, username):
+        pipeline = [{"$match": {"salesperson": username}}, {"$group": {"_id": None, "total_commission": {"$sum": "$commission"}, "total_orders": {"$sum": 1}, "total_sales": {"$sum": "$order_amount"}}}]
+        stats = list(self.sales_records_col.aggregate(pipeline))
+        base_data = stats[0] if stats else {"total_commission": 0, "total_orders": 0, "total_sales": 0}
+        
+        today_start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_stats = self.sales_records_col.aggregate([{"$match": {"salesperson": username, "created_at": {"$gte": today_start}}}, {"$group": {"_id": None, "today_earnings": {"$sum": "$commission"}}}])
+        today_data = list(today_stats)
+        
+        recent_records = list(self.sales_records_col.find({"salesperson": username}, {"source_user": 1, "commission": 1, "created_at": 1, "rate": 1, "type": 1}).sort("created_at", -1).limit(10))
+        formatted_records = []
+        for r in recent_records:
+            formatted_records.append({
+                "source": r.get("source_user", "未知")[:3] + "***",
+                "amount": r.get("commission", 0),
+                "time": r.get("created_at").strftime("%H:%M"),
+                "rate": r.get("rate", "40%"),
+                "type": r.get("type", "首单奖励")
+            })
+            
+        return {
+            "total_earnings": round(base_data['total_commission'], 2),
+            "today_earnings": round(today_data[0]['today_earnings'] if today_data else 0, 2),
+            "total_orders": base_data['total_orders'],
+            "recent_records": formatted_records
+        }
+
+    # ==========================
+    # 社区 & Wiki
+    # ==========================
+    def add_tip(self, hero, enemy, content, author_id, is_general, title=None, tags=None, is_fake=False):
+        tip_doc = {
+            "hero": hero, "enemy": "general" if is_general else enemy,
+            "title": title or (content[:15] + "..." if len(content) > 15 else content),
+            "content": content, "tags": tags or ["实战经验"],
+            "author_id": author_id, "liked_by": [], "reward_granted": False,
+            "is_fake": is_fake, "is_polished": False,
+            "created_at": datetime.datetime.now(datetime.timezone.utc)
+        }
+        return self.tips_col.insert_one(tip_doc)
+
+    def toggle_like(self, tip_id, user_id):
+        if not (oid := self._to_oid(tip_id)): return False
+        try:
+            result = self.tips_col.find_one_and_update(
+                {"_id": ObjectId(tip_id), "liked_by": {"$ne": user_id}},
+                {"$push": {"liked_by": user_id}}, return_document=True 
+            )
+            if not result: return False
+            if len(result.get('liked_by', [])) >= 10 and not result.get('reward_granted', False):
+                if self.upgrade_user_role(result.get('author_id'), days=3):
+                    self.tips_col.update_one({"_id": ObjectId(tip_id)}, {"$set": {"reward_granted": True}})
+            return True
+        except: return False
+
+    def get_mixed_tips(self, hero, enemy, limit=10):
+        matchup_tips = list(self.tips_col.find({"hero": hero, "enemy": enemy}).sort([("is_fake", 1), ("liked_by", -1)]).limit(limit))
+        for t in matchup_tips: t['tag_label'] = "🔥 对位绝活"
+        if len(matchup_tips) < limit:
+            needed = limit - len(matchup_tips)
+            general_tips = list(self.tips_col.find({"hero": hero, "enemy": "general"}).sort([("is_fake", 1), ("liked_by", -1)]).limit(needed))
+            for t in general_tips: t['tag_label'] = "📚 英雄必修"
+            matchup_tips.extend(general_tips)
+        
+        final_list = []
+        for t in matchup_tips:
+            role = self.check_membership_status(t["author_id"])
+            final_list.append({
+                "id": str(t['_id']), "title": t.get("title", "技巧"), "content": t["content"],
+                "author": t["author_id"], "author_role": role, "likes": len(t.get("liked_by", [])),
+                "tags": t.get("tags", []), "tag_label": t["tag_label"]
+            })
+        return final_list
+
+    def get_top_knowledge_for_ai(self, hero, enemy):
+        tips = self.get_mixed_tips(hero, enemy, limit=6)
+        return {
+            "general": [t['content'] for t in tips if t['tag_label'] == "📚 英雄必修"],
+            "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
+        }
+
+    def get_corrections(self, my_hero, enemy_hero):
+        if self.corrections_col is None: return []
+        try:
+            res = list(self.corrections_col.find({"hero": {"$in": [my_hero, "general"]}, "enemy": {"$in": [enemy_hero, "general"]}}))
+            return [r['content'] for r in res]
+        except: return []
+
+    def get_all_feedbacks(self, status="pending", limit=50):
         query = {}
-        if hero_id: query["hero_id"] = str(hero_id)
-        if category and category != "all": query["category"] = category
-        posts = list(self.wiki_posts.find(query).sort([("is_ai_pick", -1), ("likes", -1)]).limit(limit))
-        for p in posts:
-            p["id"] = str(p["_id"])
-            del p["_id"]
+        if status != "all":
+            # 兼容旧数据：没有 status 字段的视为 pending
+            query = {"$or": [{"status": status}, {"status": {"$exists": False}}]}
+        
+        # 按时间倒序
+        cursor = self.feedback_col.find(query).sort('created_at', -1).limit(limit)
+        return [dict(doc, _id=str(doc['_id'])) for doc in cursor]
+    def resolve_feedback(self, feedback_id):
+        if not self._to_oid(feedback_id): return False
+        try:
+            self.feedback_col.update_one(
+                {"_id": ObjectId(feedback_id)},
+                {"$set": {"status": "resolved", "resolved_at": datetime.datetime.now(datetime.timezone.utc)}}
+            )
+            return True
+        except:
+            return False
+    def get_prompt_template(self, mode): return self.prompt_templates_col.find_one({"mode": mode})
+    def get_game_constants(self): return self.config_col.find_one({"_id": "s15_rules"}) or {}
+    def delete_tip(self, tip_id): return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0 if self._to_oid(tip_id) else False
+    def get_tip_by_id(self, tip_id): return self.tips_col.find_one({"_id": ObjectId(tip_id)}) if self._to_oid(tip_id) else None
+    def submit_feedback(self, data): self.feedback_col.insert_one({**data, 'created_at': datetime.datetime.now(datetime.timezone.utc)})
+
+    # Wiki & Tavern Helpers
+    def get_wiki_posts(self, hero_id=None, category=None):
+        q = {}
+        if hero_id: q["hero_id"] = str(hero_id)
+        if category and category != "all": q["category"] = category
+        posts = list(self.wiki_posts.find(q).sort([("is_ai_pick", -1), ("likes", -1)]).limit(20))
+        for p in posts: p["id"] = str(p["_id"]); del p["_id"]
         return posts
 
     def create_wiki_post(self, data):
-        data["created_at"] = datetime.datetime.now(datetime.timezone.utc)
-        data["likes"] = 0
-        data["views"] = 0
-        data["is_ai_pick"] = False
-        data["ref_id"] = f"#U-{int(time.time()) % 10000:04d}"
+        data.update({"created_at": datetime.datetime.now(datetime.timezone.utc), "likes": 0, "views": 0, "is_ai_pick": False, "ref_id": f"#U-{int(time.time())%10000:04d}"})
         res = self.wiki_posts.insert_one(data)
-        data["id"] = str(res.inserted_id)
-        del data["_id"]
+        data["id"] = str(res.inserted_id); del data["_id"]
         return data
 
-    def get_tavern_posts(self, topic=None, limit=50):
-        query = {}
-        if topic and topic != "all": query["topic"] = topic
-        posts = list(self.tavern_posts.find(query).sort("created_at", -1).limit(limit))
-        for p in posts:
-            p["id"] = str(p["_id"])
-            del p["_id"]
+    def get_tavern_posts(self, topic=None):
+        q = {}
+        if topic and topic != "all": q["topic"] = topic
+        posts = list(self.tavern_posts.find(q).sort("created_at", -1).limit(50))
+        for p in posts: p["id"] = str(p["_id"]); del p["_id"]
         return posts
 
     def create_tavern_post(self, data):
-        data["created_at"] = datetime.datetime.now(datetime.timezone.utc)
-        data["likes"] = 0
-        data["comments"] = 0
+        data.update({"created_at": datetime.datetime.now(datetime.timezone.utc), "likes": 0, "comments": 0})
         res = self.tavern_posts.insert_one(data)
-        data["id"] = str(res.inserted_id)
-        del data["_id"]
+        data["id"] = str(res.inserted_id); del data["_id"]
         return data
 
     def get_wiki_summary(self, hero_id):
-        summary = self.wiki_summaries.find_one({"hero_id": str(hero_id)})
-        if summary:
-            summary["id"] = str(summary["_id"])
-            del summary["_id"]
-        return summary
+        s = self.wiki_summaries.find_one({"hero_id": str(hero_id)})
+        if s: s["id"] = str(s["_id"]); del s["_id"]
+        return s
 
     def add_comment(self, post_id, user_id, user_name, content):
-        if not (oid := self._to_oid(post_id)): return None
-        comment = {
-            "post_id": str(post_id), "user_id": str(user_id), "user_name": user_name,
-            "content": content, "likes": 0, "created_at": datetime.datetime.now(datetime.timezone.utc)
-        }
-        res = self.comments_col.insert_one(comment)
+        if not self._to_oid(post_id): return None
+        c = {"post_id": str(post_id), "user_id": str(user_id), "user_name": user_name, "content": content, "likes": 0, "created_at": datetime.datetime.now(datetime.timezone.utc)}
+        res = self.comments_col.insert_one(c)
         self.wiki_posts.update_one({"_id": ObjectId(post_id)}, {"$inc": {"comments": 1}})
         self.tavern_posts.update_one({"_id": ObjectId(post_id)}, {"$inc": {"comments": 1}})
-        comment["id"] = str(res.inserted_id)
-        del comment["_id"]
-        return comment
+        c["id"] = str(res.inserted_id); del c["_id"]
+        return c
 
     def get_comments(self, post_id):
         comments = list(self.comments_col.find({"post_id": str(post_id)}).sort("created_at", 1))
         for c in comments:
-            c["id"] = str(c["_id"])
-            del c["_id"]
-            if c.get("created_at"):
-                c["created_at"] = c["created_at"].strftime("%Y-%m-%d %H:%M")
+            c["id"] = str(c["_id"]); del c["_id"]
+            if c.get("created_at"): c["created_at"] = c["created_at"].strftime("%Y-%m-%d %H:%M")
         return comments
+
+    def get_wiki_post(self, post_id): return self.wiki_posts.find_one({"_id": ObjectId(post_id)}) if self._to_oid(post_id) else None
+    def get_tavern_post(self, post_id): return self.tavern_posts.find_one({"_id": ObjectId(post_id)}) if self._to_oid(post_id) else None
     
-    def get_wiki_post(self, post_id):
-        try:
-            post = self.wiki_posts.find_one({"_id": ObjectId(post_id)})
-            if post:
-                post["id"] = str(post["_id"])
-                del post["_id"]
-            return post
-        except: return None
-
-    def get_tavern_post(self, post_id):
-        try:
-            post = self.tavern_posts.find_one({"_id": ObjectId(post_id)})
-            if post:
-                post["id"] = str(post["_id"])
-                del post["_id"]
-            return post
-        except: return None
-
     def update_wiki_post(self, post_id, updates):
-        if not (oid := self._to_oid(post_id)): return False
+        if not self._to_oid(post_id): return False
         try:
-            for field in ["_id", "author_id", "created_at", "ref_id"]: updates.pop(field, None)
-            result = self.wiki_posts.update_one({"_id": ObjectId(post_id)}, {"$set": updates})
-            return result.modified_count > 0
+            for f in ["_id", "author_id", "created_at", "ref_id"]: updates.pop(f, None)
+            return self.wiki_posts.update_one({"_id": ObjectId(post_id)}, {"$set": updates}).modified_count > 0
         except: return False
 
     def update_tavern_post(self, post_id, updates):
+        if not self._to_oid(post_id): return False
         try:
-            for field in ["_id", "author_id", "created_at"]: updates.pop(field, None)
-            result = self.tavern_posts.update_one({"_id": ObjectId(post_id)}, {"$set": updates})
-            return result.modified_count > 0
+            for f in ["_id", "author_id", "created_at"]: updates.pop(f, None)
+            return self.tavern_posts.update_one({"_id": ObjectId(post_id)}, {"$set": updates}).modified_count > 0
         except: return False
+    
+    def delete_wiki_post(self, post_id): return self.wiki_posts.delete_one({"_id": ObjectId(post_id)}).deleted_count > 0 if self._to_oid(post_id) else False
+    def delete_tavern_post(self, post_id): return self.tavern_posts.delete_one({"_id": ObjectId(post_id)}).deleted_count > 0 if self._to_oid(post_id) else False

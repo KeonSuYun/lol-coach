@@ -15,6 +15,46 @@
     "priority": 120
   },
   {
+    "hero": "Ambessa",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **核心机制修正**：安贝萨（Ambessa）是**能量型战士**，核心机制是【被动：龙犬诡步】带来的**技能后冲刺**（类似卡莉丝塔的跳跃）。她**绝对没有**捡魂、复活或变身机制。严禁将其与佛耶戈混淆。她的打法是利用QA冲刺进行高频位移和拉扯。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
+    "hero": "Sylas",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **机制铁律**：塞拉斯的大招【其人之道】**只能偷取敌方英雄的 R 技能（终极技能）**。严禁建议偷取任何小技能（如阿卡丽W烟雾弹、小丑盒子、莫甘娜黑盾等）。不管小技能多强，塞拉斯都偷不到。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
+    "hero": "Viego",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **机制铁律**：佛耶戈（破败之王）捡魂后可以使用敌方的 Q/W/E，但**无法使用敌方的大招 (R)**。严禁建议“捡魂后开大反打”。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
+    "hero": "Ambessa",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **核心机制修正**：安贝萨（Ambessa）是**能量型战士**，核心机制是【被动：龙犬诡步】带来的**技能后冲刺**（类似卡莉丝塔的跳跃）。她**绝对没有**捡魂、复活或变身机制。严禁将其与佛耶戈混淆。她的打法是利用QA冲刺进行高频位移和拉扯。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
+    "hero": "Viego",
+    "enemy": "general",
+    "mutual": false,
+    "content": "⚠️ **机制修正**：佛耶戈的【君命已决】变身仅持续10秒。**严禁**建议“捡魂后去单带/推塔”，因为变身时间极短。捡魂的主要目的是：1. 刷新大招(R)进行斩杀/位移；2. 利用敌方小技能打出控制或爆发；3. 回复生命值以在团战中存活。",
+    "type": "RULE",
+    "priority": 200
+  },
+  {
     "hero": "Sylas",
     "enemy": "general",
     "mutual": false,

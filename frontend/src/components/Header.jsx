@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; 
+import axios from 'axios'; 
 import { 
   LogOut, Download, Zap, Brain, 
   Infinity as InfinityIcon, ChevronDown, 
   Settings, ShieldAlert, Home, LayoutDashboard, 
   Globe, Diamond, User, HelpCircle,
-  DollarSign, Gift 
+  DollarSign, MessageSquare 
 } from 'lucide-react';
 import HexCoreIcon from './HexCoreIcon';
-import ConsoleHeaderUser from './ConsoleHeaderUser'; // 确保路径正确
+import ConsoleHeaderUser from './ConsoleHeaderUser';
+import MessageModal from './modals/MessageModal'; 
+import { API_BASE_URL } from '../config/constants'; 
+import { toast } from 'react-hot-toast';
 
 const Header = ({ 
     version = "15.24.1", lcuStatus, userRole, setUserRole, currentUser, logout, setShowLoginModal,
@@ -16,7 +20,6 @@ const Header = ({
     userRank, setUserRank,
     onGoHome, onShowCommunity, onShowDownload, onShowProfile,
     onShowSettings, onShowAdmin, onShowGuide,
-    // 🔥 [新增] 接收打开销售中心的函数
     onShowSales 
 }) => {
   
@@ -24,17 +27,86 @@ const Header = ({
   const isPro = accountInfo?.is_pro === true;
   const r1Remaining = accountInfo?.r1_remaining;
 
+  // 私信状态管理
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  
+  const prevUnreadRef = useRef(0);
+
+  // 1. 监听 accountInfo (登录/刷新时触发)
+  useEffect(() => {
+      if (accountInfo?.unread_msg_count !== undefined) {
+          setUnreadCount(accountInfo.unread_msg_count);
+      }
+  }, [accountInfo]);
+
+  // 2. 独立轮询未读数 (每 10 秒)
+  useEffect(() => {
+      const fetchUnread = async () => {
+          if (!currentUser) return; 
+          
+          try {
+              const token = localStorage.getItem('access_token');
+              if (!token) return;
+              
+              // 请求用户信息
+              const res = await axios.get(`${API_BASE_URL}/users/me`, {
+                  headers: { Authorization: `Bearer ${token}` }
+              });
+              
+              // 🔥 [调试] 打印未读数，看看后端到底返回了什么
+              console.log("🔥 [Header] Unread Count from API:", res.data.unread_msg_count);
+
+              if (res.data.unread_msg_count !== undefined) {
+                  setUnreadCount(res.data.unread_msg_count);
+              }
+          } catch (e) {
+              console.error("Fetch unread failed", e);
+          }
+      };
+      
+      // 立即执行一次
+      fetchUnread();
+      
+      const timer = setInterval(fetchUnread, 10000);
+      return () => clearInterval(timer);
+  }, [currentUser]); // 依赖 currentUser，确保切换账号时重新请求
+
+  // 3. 消息增加时弹出提示
+  useEffect(() => {
+      if (unreadCount > prevUnreadRef.current) {
+          const diff = unreadCount - prevUnreadRef.current;
+          // 防止初始加载时弹出
+          if (prevUnreadRef.current !== 0 || diff > 0) {
+              toast(`📩 收到 ${diff} 条新私信`, { 
+                  duration: 5000,
+                  position: 'top-center',
+                  style: { 
+                      background: 'rgba(9, 20, 40, 0.95)', 
+                      color: '#fff', 
+                      border: '1px solid #0AC8B9',
+                      fontWeight: 'bold'
+                  }
+              });
+          }
+      }
+      prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
+
+  const handleMarkAllRead = () => {
+      setUnreadCount(0);
+  };
+
   // 智能段位计算
   const rawRank = accountInfo?.game_profile?.rank || userRank || "Unranked";
   const displayRank = (rawRank === "Unranked" || !rawRank) ? "Gold" : rawRank;
 
-  // 🔥 [修改] 优先显示游戏内昵称 (LCU GameName)，如果没有则显示登录用户名
-  // 这里的 username 字段仅用于 UI 展示，不影响逻辑上的 currentUser
   const displayDisplayName = accountInfo?.game_profile?.gameName || currentUser;
 
-  // 构造传递给 ConsoleHeaderUser 的数据对象
+  // 构造完整的用户数据对象
   const userData = {
-      username: displayDisplayName, // 展示用的名字 (昵称优先)
+      username: displayDisplayName, // UI显示的昵称
+      loginId: currentUser,         // 真实登录账号
       tag: accountInfo?.game_profile?.tagLine || accountInfo?.tag || "#HEX", 
       avatarUrl: accountInfo?.game_profile?.profileIconId 
           ? `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${accountInfo.game_profile.profileIconId}.png`
@@ -142,7 +214,7 @@ const Header = ({
               </button>
           </div>
 
-          {/* 🟢 [新增] 帮助/引导按钮 */}
+          {/* 帮助/引导按钮 */}
           <button 
               onClick={onShowGuide}
               className="p-2 text-slate-500 hover:text-[#0AC8B9] transition-colors rounded-full hover:bg-white/5"
@@ -164,29 +236,53 @@ const Header = ({
                   {showUserMenu && (
                       <>
                           <div className="fixed inset-0 z-30" onClick={() => setShowUserMenu(false)}></div>
-                          <div className="absolute top-full right-0 mt-2 w-48 bg-[#091428] border border-[#C8AA6E]/30 rounded-xl shadow-2xl py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
-                              <button onClick={() => {if(onShowProfile) onShowProfile(); setShowUserMenu(false);}} className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-white/5 flex items-center gap-2">
-                                    <User size={14} /> 个人主页
-                              </button>
+                          <div className="absolute top-full right-0 mt-2 w-56 bg-[#091428] border border-[#C8AA6E]/30 rounded-xl shadow-2xl py-1 z-40 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
+                              <div className="px-4 py-3 border-b border-white/5 bg-gradient-to-b from-white/5 to-transparent">
+                                  <p className="text-xs font-bold text-slate-100">已登录</p>
+                                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">{userData.loginId}</p>
+                              </div>
 
-                              {/* 🔥🔥🔥 [核心修改] 替换“设置”为“销售合伙人” 🔥🔥🔥 */}
-                              <button 
-                                  onClick={() => {
-                                      if(onShowSales) onShowSales(); 
-                                      setShowUserMenu(false);
-                                  }} 
-                                  className="w-full text-left px-4 py-2 text-xs font-bold text-amber-400 hover:bg-amber-900/20 flex items-center gap-2"
-                              >
-                                  <DollarSign size={14} /> 销售合伙人
-                                  <span className="bg-red-500 text-white text-[9px] px-1 rounded scale-90">内测</span>
-                              </button>
+                              <div className="p-1.5 space-y-0.5">
+                                  <button onClick={() => {if(onShowProfile) onShowProfile(); setShowUserMenu(false);}} className="w-full text-left px-4 py-2.5 text-xs text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-3 rounded-lg transition-colors group">
+                                        <User size={14} className="text-slate-500 group-hover:text-white"/> 个人主页
+                                  </button>
 
-                              {/* ❌❌❌ [已删除] “管理后台”按钮已移除 */}
+                                  {/* 私信入口 - 强制红点 */}
+                                  <button 
+                                      onClick={() => { setShowMessageModal(true); setShowUserMenu(false); }}
+                                      className="w-full text-left px-4 py-2.5 text-xs text-slate-300 hover:text-white hover:bg-gradient-to-r hover:from-cyan-900/40 hover:to-transparent flex items-center justify-between gap-3 rounded-lg transition-all group border border-transparent hover:border-cyan-500/20"
+                                  >
+                                      <div className="flex items-center gap-3">
+                                          <MessageSquare size={14} className={`transition-colors ${unreadCount > 0 ? 'text-red-400' : 'text-slate-500 group-hover:text-cyan-400'}`} />
+                                          <span className={unreadCount > 0 ? 'text-slate-200 font-bold' : ''}>我的私信</span>
+                                      </div>
+                                      {unreadCount > 0 && (
+                                          <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse min-w-[18px] text-center">
+                                              {unreadCount > 99 ? '99+' : unreadCount}
+                                          </span>
+                                      )}
+                                  </button>
+
+                                  {/* 销售合伙人 */}
+                                  <button 
+                                      onClick={() => {
+                                          if(onShowSales) onShowSales(); 
+                                          setShowUserMenu(false);
+                                      }} 
+                                      className="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-400 hover:bg-amber-900/20 flex items-center gap-3 rounded-lg transition-colors"
+                                  >
+                                      <DollarSign size={14} /> 销售合伙人
+                                      <span className="bg-red-500 text-white text-[9px] px-1 rounded scale-90">内测</span>
+                                  </button>
+                              </div>
                               
-                              <div className="h-[1px] bg-white/5 my-1"></div>
-                              <button onClick={logout} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-white/5 flex items-center gap-2">
-                                  <LogOut size={14} /> 退出登录
-                              </button>
+                              <div className="h-[1px] bg-white/5 my-1 mx-2"></div>
+                              
+                              <div className="p-1.5">
+                                  <button onClick={logout} className="w-full text-left px-4 py-2.5 text-xs text-slate-400 hover:text-red-300 hover:bg-red-900/20 flex items-center gap-3 rounded-lg transition-colors">
+                                      <LogOut size={14} /> 退出登录
+                                  </button>
+                              </div>
                           </div>
                       </>
                   )}
@@ -200,6 +296,14 @@ const Header = ({
               </button>
           )}
       </div>
+
+      {/* 挂载私信模态框 */}
+      <MessageModal 
+          isOpen={showMessageModal} 
+          onClose={() => setShowMessageModal(false)}
+          onMarkAllRead={handleMarkAllRead}
+          currentUser={userData} 
+      />
     </div>
   );
 };
