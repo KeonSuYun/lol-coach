@@ -1,6 +1,7 @@
 import React from 'react';
-import { Download, Zap, Map, Sword, Monitor, X, Cloud, Server, ExternalLink } from 'lucide-react';
+import { Download, Zap, Map, Sword, Monitor, X, Cloud, Server, ExternalLink, Copy, CheckCircle2 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/constants';
+import { toast } from 'react-hot-toast'; // 引入 toast 用于提示复制成功
 
 const DownloadModal = ({ isOpen, onClose }) => {
     if (!isOpen) return null;
@@ -8,15 +9,16 @@ const DownloadModal = ({ isOpen, onClose }) => {
     // 🔥 全员开放的直链地址 (后端会负责重定向到对象存储) - 现作为备用
     const DIRECT_LINK = `${API_BASE_URL}/download/client`;
 
-    // 🛠️ 环境变量读取逻辑 (修改版)
+    // 🛠️ 环境变量读取逻辑 (修改版 - 核心修复)
     // 优先级: 运行时注入(window._env_) > Vite构建时(import.meta.env) > Webpack/CRA(process.env)
     const getEnv = (key) => {
         // 1. 优先尝试读取运行时注入的变量 (Sealos/Docker 环境)
+        // 这里的 window._env_ 是我们在 index.html 和 Dockerfile 中配置注入的
         if (typeof window !== 'undefined' && window._env_ && window._env_[key]) {
             return window._env_[key];
         }
 
-        // 2. 回退到构建时变量 (本地开发环境)
+        // 2. 回退到构建时变量 (本地开发环境 npm run dev)
         try {
             return (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) 
                 || (typeof process !== 'undefined' && process.env && process.env[key]);
@@ -28,6 +30,24 @@ const DownloadModal = ({ isOpen, onClose }) => {
     // 🔗 123云盘配置 (最高优先级)
     const PAN123_LINK = getEnv('VITE_PAN_LINK') || getEnv('REACT_APP_PAN_LINK') || "#";
     const PAN123_PWD = getEnv('VITE_PAN_PWD') || getEnv('REACT_APP_PAN_PWD') || "----";
+
+    // ✨ 交互逻辑：点击链接时自动复制提取码
+    const handlePanClick = (e) => {
+        if (!PAN123_LINK || PAN123_LINK === '#') {
+            e.preventDefault();
+            toast.error("下载链接未配置，请联系管理员");
+            return;
+        }
+
+        // 如果有提取码，尝试复制
+        if (PAN123_PWD && PAN123_PWD !== '----') {
+            navigator.clipboard.writeText(PAN123_PWD).then(() => {
+                toast.success(`提取码 ${PAN123_PWD} 已复制，即将跳转...`, { duration: 3000 });
+            }).catch(() => {
+                // 忽略复制失败，不影响跳转
+            });
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -101,6 +121,7 @@ const DownloadModal = ({ isOpen, onClose }) => {
                                 href={PAN123_LINK}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={handlePanClick}
                                 className="group relative w-full py-4 bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2] hover:from-[#d9b877] hover:to-[#fff] text-[#091428] font-black text-lg rounded-lg shadow-[0_0_20px_rgba(200,170,110,0.3)] hover:scale-[1.02] transition-all flex flex-col items-center justify-center gap-1 overflow-hidden"
                             >
                                 <div className="flex items-center gap-2 relative z-10">
@@ -109,8 +130,10 @@ const DownloadModal = ({ isOpen, onClose }) => {
                                 </div>
                                 
                                 {/* 提取码显示 */}
-                                <div className="relative z-10 text-xs font-mono font-normal bg-[#091428]/10 px-2 py-0.5 rounded border border-[#091428]/20 mt-1">
-                                    提取码: {PAN123_PWD}
+                                <div className="relative z-10 text-xs font-mono font-normal bg-[#091428]/10 px-2 py-0.5 rounded border border-[#091428]/20 mt-1 flex items-center gap-1">
+                                    <span>提取码:</span>
+                                    <span className="font-bold select-all">{PAN123_PWD}</span>
+                                    <Copy size={10} className="opacity-50" />
                                 </div>
 
                                 <div className="absolute inset-0 bg-white/30 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
