@@ -884,7 +884,12 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
             detail="用户名或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+    if user.get("role") == "banned":
+        LOGIN_LIMIT_STORE[client_ip]["count"] += 1 
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该账号已被封禁 (Banned)，无法登录",
+        )
     # 登录成功，清除计数
     LOGIN_LIMIT_STORE[client_ip]["count"] = 0
     
@@ -1747,7 +1752,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         【博弈定性】：
         这是一场 [{my_mid_t}+{my_jg_t}] VS [{en_mid_t}+{en_jg_t}] 的节奏对抗。
         请在【前期博弈】中明确回答：
-        1. 河道主权：3分15秒河蟹刷新时，哪边中野更强？
+        1. 河道主权：3分30秒河蟹刷新时，哪边中野更强？
         2. 先手权：谁拥有推线游走的主动权？
         -------------------------------------------------------------
         """
@@ -2325,9 +2330,12 @@ def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict 
     raise HTTPException(status_code=500, detail="更新失败")
 @app.get("/sales/dashboard")
 def get_sales_dashboard(current_user: dict = Depends(get_current_user)):
-    # 任何注册用户都可以是销售，或者你可以加权限判断
-    # if current_user.get('role') not in ['pro', 'admin', 'sales']: ...
+    # 🔥🔥🔥 [修改] 增加权限验证：只有 管理员 或 销售 才能看
+    allowed_roles = ['admin', 'root', 'sales']
+    if current_user.get('role') not in allowed_roles:
+        raise HTTPException(status_code=403, detail="您不是销售合伙人，无法查看此数据")
     
+    # ... (后面的代码保持不变) ...
     data = db.get_sales_dashboard_data(current_user['username'])
     return data
 # ==========================

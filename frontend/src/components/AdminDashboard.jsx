@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
     ShieldAlert, X, Terminal, User, Clock, Activity, 
     DollarSign, TrendingUp, Users, Zap, AlertTriangle, 
-    Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool,
+    Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool,Ban,
     Wallet, ArrowUpRight, EyeOff, HandCoins, CheckCircle2, MessageSquare, Send, Check,
     // 🔥 [新增] 引入配置页所需的图标
     Cloud, Link, Save, Key, Settings
@@ -413,6 +413,17 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                 <td className="px-4 py-3 flex justify-end gap-2">
                                                     <button onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }} className="bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition">补单</button>
                                                     <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }} className="bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition">权限</button>
+                                                    <button 
+                                                        onClick={() => { 
+                                                            setActionUser(user); 
+                                                            setActionType('set_role'); 
+                                                            setActionValue('banned'); // 直接预设为封禁
+                                                        }} 
+                                                        className="bg-red-950/30 text-red-500 border border-red-500/30 px-2 py-1 rounded text-xs hover:bg-red-900/50 transition flex items-center gap-1"
+                                                        title="禁用账号 (封禁邮箱)"
+                                                    >
+                                                        <Ban size={12}/> 禁用
+                                                    </button>
                                                     <button onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
                                                 </td>
                                             </tr>
@@ -436,12 +447,21 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                         )}
                                         {actionType === 'set_role' && (
                                             <div className="mb-4">
-                                                <label className="block text-xs text-slate-500 mb-2">选择角色</label>
-                                                <select className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none" value={actionValue} onChange={e => setActionValue(e.target.value)}>
-                                                    <option value="user">User (普通)</option>
+                                                <label className="block text-xs text-slate-500 mb-2">选择角色身份</label>
+                                                <select 
+                                                    className="w-full bg-[#010A13] border border-slate-600 rounded p-3 text-white outline-none focus:border-[#C8AA6E]" 
+                                                    value={actionValue} 
+                                                    onChange={e => setActionValue(e.target.value)}
+                                                >
+                                                    <option value="user">User (普通用户)</option>
                                                     <option value="pro">Pro (会员)</option>
-                                                    <option value="admin">Admin (管理)</option>
+                                                    <option value="sales">Sales (销售合伙人)</option> {/* ✅ 新增 */}
+                                                    <option value="admin">Admin (管理员)</option>
+                                                    <option value="banned">🚫 Banned (封禁/禁用)</option> {/* ✅ 新增 */}
                                                 </select>
+                                                <p className="text-[10px] text-slate-500 mt-2">
+                                                    * 设为 <b>Banned</b> 后，该用户将无法登录 (邮箱即失效)。
+                                                </p>
                                             </div>
                                         )}
                                         {actionType === 'delete' && <p className="text-red-400 text-sm mb-4">确定要删除该用户吗？操作不可逆。</p>}

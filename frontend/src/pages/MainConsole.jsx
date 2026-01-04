@@ -46,7 +46,7 @@ const GUIDE_STEPS = [
     {
         target: '#analysis-tabs',
         title: "切换分析维度",
-        description: "想看对线技巧？选【王者私教】。想看大局运营？选【运营指挥】。根据局势灵活切换视角。",
+        description: "想看对线技巧或打野路线？选【王者私教】。想看大局运营？选【运营指挥】。系统会根据你的位置自动调整策略。",
     },
     {
         target: '#right-panel-enemy',
@@ -111,6 +111,64 @@ export default function MainConsole({ state, actions }) {
     const handleShowCommunity = () => {
         actions.setShowCommunity(true);
     };
+
+    useEffect(() => {
+        // 条件：已开始体验 AND 未连接客户端 AND 当前位置没有选择英雄
+        if (hasStarted && lcuStatus !== 'connected' && !blueTeam[userSlot]) {
+            const timer = setTimeout(() => {
+                toast((t) => (
+                    <div className="flex flex-col gap-3 min-w-[260px] animate-in slide-in-from-right duration-300">
+                        {/* 标题区 */}
+                        <div className="flex items-center gap-3 border-b border-white/10 pb-2">
+                            <span className="text-2xl animate-bounce">👋</span>
+                            <div>
+                                <span className="font-bold text-slate-200 text-sm block">不知道如何开始？</span>
+                                <span className="text-[10px] text-slate-500 block">HexCoach 战术助手</span>
+                            </div>
+                        </div>
+                        
+                        {/* 内容区 */}
+                        <div className="text-xs text-slate-400 leading-relaxed">
+                            <p className="mb-1">检测到您尚未连接游戏客户端。</p>
+                            <p>您可以直接点击左侧 <span className="text-[#C8AA6E] font-bold border border-[#C8AA6E]/30 px-1 rounded bg-[#C8AA6E]/10">圆圈卡片</span> 手动选择英雄，即可立即体验 AI 分析功能！</p>
+                        </div>
+
+                        {/* 按钮区 */}
+                        <div className="flex gap-2 pt-1">
+                            <button 
+                                className="flex-1 bg-gradient-to-r from-[#0AC8B9] to-[#089186] text-[#091428] text-xs font-bold py-2 px-3 rounded shadow-lg hover:brightness-110 active:scale-95 transition-all"
+                                onClick={() => { 
+                                    toast.dismiss(t.id); 
+                                    setShowGuide(true); // 打开完整教程
+                                }}
+                            >
+                                演示给我看
+                            </button>
+                            <button 
+                                className="px-3 py-2 text-slate-500 hover:text-slate-300 text-xs font-medium transition-colors"
+                                onClick={() => toast.dismiss(t.id)}
+                            >
+                                我知道了
+                            </button>
+                        </div>
+                    </div>
+                ), { 
+                    duration: 15000, // 显示 15 秒
+                    position: 'bottom-right',
+                    style: {
+                        background: 'rgba(15, 23, 42, 0.95)', // 深色背景
+                        border: '1px solid rgba(200, 170, 110, 0.4)', // 金色边框
+                        padding: '16px',
+                        boxShadow: '0 10px 40px -10px rgba(0,0,0,0.8)',
+                        backdropFilter: 'blur(10px)',
+                        maxWidth: '350px'
+                    }
+                });
+            }, 10000); // ⏳ 10秒无操作后触发
+            
+            return () => clearTimeout(timer);
+        }
+    }, [hasStarted, lcuStatus, blueTeam, userSlot]);
 
     if (!hasStarted) {
         return (
@@ -296,12 +354,13 @@ export default function MainConsole({ state, actions }) {
                                 isAnalyzing={isModeAnalyzing(analyzeType)} 
                             />
                         </div>
-                        {/* Tab */}
-                        {/* 🟢 [修改] 添加 id="analysis-tabs" 用于引导定位 */}
+                        
+                        {/* 🔥🔥🔥 [核心修改] Tab 区域：合并 Personal, 移除 Lane/Jungle 分开的选项 🔥🔥🔥 */}
                         <div id="analysis-tabs" className="grid grid-cols-3 gap-0 bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg overflow-hidden relative z-30 shadow-2xl">
                             {[
                                 { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
-                                { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线细节' },
+                                // 🟢 [合并] 使用 'personal' ID，后端 server.py 会根据 userRole 自动分流
+                                { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线/打野' }, 
                                 { id: 'team', label: '运营指挥', icon: <Brain size={18}/>, desc: '大局决策' },
                             ].map(tab => {
                                 const isActive = analyzeType === tab.id;

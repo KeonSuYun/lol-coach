@@ -263,17 +263,19 @@ const Header = ({
                                       )}
                                   </button>
 
-                                  {/* 销售合伙人 */}
-                                  <button 
-                                      onClick={() => {
-                                          if(onShowSales) onShowSales(); 
-                                          setShowUserMenu(false);
-                                      }} 
-                                      className="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-400 hover:bg-amber-900/20 flex items-center gap-3 rounded-lg transition-colors"
-                                  >
-                                      <DollarSign size={14} /> 销售合伙人
-                                      <span className="bg-red-500 text-white text-[9px] px-1 rounded scale-90">内测</span>
-                                  </button>
+                                  {/* 🔥 [修改] 销售合伙人 - 增加角色判断 */}
+                                  {['admin', 'root', 'sales'].includes(accountInfo?.role) && (
+                                      <button 
+                                          onClick={() => {
+                                              if(onShowSales) onShowSales(); 
+                                              setShowUserMenu(false);
+                                          }} 
+                                          className="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-400 hover:bg-amber-900/20 flex items-center gap-3 rounded-lg transition-colors"
+                                      >
+                                          <DollarSign size={14} /> 销售合伙人
+                                          <span className="bg-red-500 text-white text-[9px] px-1 rounded scale-90">内测</span>
+                                      </button>
+                                  )}
                               </div>
                               
                               <div className="h-[1px] bg-white/5 my-1 mx-2"></div>
