@@ -287,7 +287,7 @@ export default function MainConsole({ state, actions }) {
                                         onClick={() => handleCardClick(i, false)}
                                         className={`cursor-pointer transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-[#0AC8B9]/20 to-transparent border-l-2 border-[#0AC8B9]' : 'hover:bg-white/5 border-l-2 border-transparent'}`}
                                     >
-                                        <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={myTeamRoles[i]} />
+                                        <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={Object.keys(myLaneAssignments).find(k => myLaneAssignments[k] === c?.name) || myTeamRoles[i]} />
                                     </div>
                                 ))}
                             </div>
