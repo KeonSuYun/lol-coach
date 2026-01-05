@@ -285,7 +285,11 @@ export default function MainConsole({ state, actions }) {
                                     <div 
                                         key={i} 
                                         onClick={() => handleCardClick(i, false)}
-                                        className={`cursor-pointer transition-all duration-300 ${userSlot === i ? 'bg-gradient-to-r from-[#0AC8B9]/20 to-transparent border-l-2 border-[#0AC8B9]' : 'hover:bg-white/5 border-l-2 border-transparent'}`}
+                                        className={`cursor-pointer transition-all duration-300 rounded-sm overflow-hidden ${ // 🟢 加了 rounded-sm overflow-hidden 防止圆角溢出
+                                            userSlot === i 
+                                            ? 'bg-[#0AC8B9]/10 border-l-2 border-[#0AC8B9]'  // 🟢 选中：均匀的淡青色背景 + 左侧亮条
+                                            : 'hover:bg-white/5 border-l-2 border-transparent' // 未选中：悬停变亮
+                                        }`}
                                     >
                                         <ChampCard champ={c} idx={i} isEnemy={false} userSlot={userSlot} onSelectMe={setUserSlot} role={Object.keys(myLaneAssignments).find(k => myLaneAssignments[k] === c?.name) || myTeamRoles[i]} />
                                     </div>
@@ -333,6 +337,7 @@ export default function MainConsole({ state, actions }) {
                             <InviteCard 
                                 token={token}
                                 username={currentUser}
+                                accountInfo={accountInfo} // 🔥 [新增] 传入用户信息，用于判断绑定状态
                                 onUpdateSuccess={() => { actions.fetchUserInfo(); }}
                             />
                         )}

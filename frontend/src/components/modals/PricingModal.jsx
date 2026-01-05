@@ -71,7 +71,8 @@ const PricingModal = ({ isOpen, onClose, username }) => {
                     </p>
                     
                     <ul className="space-y-4">
-                        <FeatureItem icon={<Zap/>} text="R1 深度思考模型 (无删减)" />
+                        {/* 🔥 修改点：名词替换 */}
+                        <FeatureItem icon={<Zap/>} text="海克斯核心模型 (Hex Core)" />
                         <FeatureItem icon={<Gem/>} text="解锁 100+ 英雄绝活对位库" />
                         <FeatureItem icon={<CheckCircle2/>} text="无限次 AI 分析 (排位/匹配)" />
                         <FeatureItem icon={<Star/>} text="尊贵 PRO 身份标识" />

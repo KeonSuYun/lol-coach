@@ -185,45 +185,45 @@ const Header = ({
               </button>
 
               {/* 2. 核心模式 */}
-              <button
-                  onClick={() => setModelType('reasoner')}
-                  className={`
-                      relative px-3 py-1.5 rounded-md text-xs font-bold transition-all duration-300 flex items-center gap-2 group
-                      ${modelType === 'reasoner'
-                          ? 'bg-gradient-to-r from-amber-900/60 to-orange-900/60 text-amber-300 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]' 
-                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
-                      }
-                  `}
-                  title="核心模式：深度思考，能力强"
-              >
-                  <Brain size={14} className={`transition-colors ${modelType === 'reasoner' ? 'fill-amber-400 text-amber-400' : ''}`} />
-                  <span>核心</span>
-                  
-                  {/* 剩余次数显示 */}
-                  {currentUser && (
-                      <div className="ml-1 flex items-center">
-                          {isPro ? (
-                              <InfinityIcon size={12} className={`transition-colors ${modelType === 'reasoner' ? 'text-amber-300' : 'text-slate-600'}`} />
-                          ) : (
-                              <span className={`text-[9px] px-1.5 py-[1px] rounded-full font-mono border transition-all ${
-                                  modelType === 'reasoner'
-                                      ? 'bg-black/60 border-amber-500/40 text-amber-200'
-                                      : 'bg-slate-800 border-slate-700 text-slate-500'
-                              }`}>
-                                  {r1Remaining ?? '-'}
-                              </span>
-                          )}
-                      </div>
-                  )}
-                  
-                  {/* 激活光效 + 扫光动画 */}
-                  {modelType === 'reasoner' && (
-                      <>
-                        <div className="absolute inset-0 bg-amber-400/5 pointer-events-none rounded-md"></div>
-                        <div className="absolute top-0 -left-[100%] w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12 animate-[shimmer_3s_infinite] pointer-events-none"></div>
-                      </>
-                  )}
-              </button>
+            <button
+                onClick={() => setModelType('reasoner')}
+                className={`
+                    relative overflow-hidden px-3 py-1.5 rounded-md text-xs font-bold transition-all duration-300 flex items-center gap-2 group
+                    ${modelType === 'reasoner'
+                        ? 'bg-gradient-to-r from-amber-900/60 to-orange-900/60 text-amber-300 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]' 
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
+                    }
+                `}
+                title="核心模式：深度思考，能力强"
+            >
+                <Brain size={14} className={`transition-colors ${modelType === 'reasoner' ? 'fill-amber-400 text-amber-400' : ''}`} />
+                <span>核心</span>
+                
+                {/* 剩余次数显示 */}
+                {currentUser && (
+                    <div className="ml-1 flex items-center">
+                        {isPro ? (
+                            <InfinityIcon size={12} className={`transition-colors ${modelType === 'reasoner' ? 'text-amber-300' : 'text-slate-600'}`} />
+                        ) : (
+                            <span className={`text-[9px] px-1.5 py-[1px] rounded-full font-mono border transition-all ${
+                                modelType === 'reasoner'
+                                    ? 'bg-black/60 border-amber-500/40 text-amber-200'
+                                    : 'bg-slate-800 border-slate-700 text-slate-500'
+                            }`}>
+                                {r1Remaining ?? '-'}
+                            </span>
+                        )}
+                    </div>
+                )}
+                
+                {/* 激活光效 + 扫光动画 */}
+                {modelType === 'reasoner' && (
+                    <>
+                      <div className="absolute inset-0 bg-amber-400/5 pointer-events-none rounded-md"></div>
+                      <div className="absolute top-0 -left-[100%] w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12 animate-[shimmer_3s_infinite] pointer-events-none"></div>
+                    </>
+                )}
+            </button>
           </div>
 
           <button onClick={onShowGuide} className="p-2 text-slate-500 hover:text-[#0AC8B9] transition-colors rounded-full hover:bg-white/5" title="功能指引">

@@ -749,12 +749,58 @@ class KnowledgeBase:
             "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
         }
 
-    def get_corrections(self, my_hero, enemy_hero):
+    def get_corrections(self, my_hero, enemy_hero, my_role=None):
+        """
+        🔥 [修复+增强] 
+        1. 支持 Role 维度查询 (role_jungle_ganking)
+        2. 支持无空格名字匹配 (Lee Sin -> LeeSin)
+        """
         if self.corrections_col is None: return []
         try:
-            res = list(self.corrections_col.find({"hero": {"$in": [my_hero, "general"]}, "enemy": {"$in": [enemy_hero, "general"]}}))
+            # 1. 我方 Keys
+            hero_keys = [my_hero, "general"]
+            if my_hero and " " in my_hero: hero_keys.append(my_hero.replace(" ", ""))
+            
+            # 🔥 [补漏 1] 添加去空格版本，防止 "Lee Sin" 匹配不到数据库里的 "LeeSin"
+            if my_hero and " " in my_hero:
+                hero_keys.append(my_hero.replace(" ", ""))
+
+            # 2. 注入位置相关的 Keys
+            if my_role:
+                role_lower = my_role.lower()
+                # 添加基础位置 key，例如: role_jungle, role_mid
+                hero_keys.append(f"role_{role_lower}")
+                
+                # 🔥 特殊处理：如果是打野，把两大流派的规则都拉取出来
+                # 让 AI 根据规则文本里的“适用英雄列表”自己去判断
+                if role_lower == "jungle":
+                    hero_keys.append("role_jungle_ganking") # 节奏型
+                    hero_keys.append("role_jungle_farming") # 发育型
+
+            # 3. 构造查询
+            enemy_keys = [enemy_hero]
+            if enemy_hero and " " in enemy_hero: enemy_keys.append(enemy_hero.replace(" ", ""))
+
+            query = {
+                "$or": [
+                    # 情况 A: 我 vs 他 (及通用)
+                    {
+                        "hero": {"$in": hero_keys}, 
+                        "enemy": {"$in": enemy_keys + ["general"]}
+                    },
+                    # 情况 B: 他 (作为主要条目) 的通用特性 [引用 secure_data/corrections.json]
+                    {
+                        "hero": {"$in": enemy_keys},
+                        "enemy": "general"
+                    }
+                ]
+            }
+            
+            res = list(self.corrections_col.find(query))
             return [r['content'] for r in res]
-        except: return []
+            
+        except Exception as e:
+            return []
 
     def get_all_feedbacks(self, status="pending", limit=50):
         query = {}

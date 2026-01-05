@@ -617,7 +617,35 @@ export function useGameCore() {
     };
     const handleReportError = async () => {
         if (!currentUser) return setShowLoginModal(true);
-        try { await authAxios.post(`/feedback`, { match_context: { myHero: blueTeam[userSlot]?.name, mode: analyzeType }, description: inputContent }); alert("反馈已提交"); setShowFeedbackModal(false); setInputContent(""); } catch (e) {}
+        
+        // 1. 构建详细的对局快照 (Snapshot)
+        const contextData = {
+            mode: analyzeType,
+            myHero: blueTeam[userSlot]?.name || "Unknown",
+            userRole: userRole,
+            mapSide: mapSide, // 🔵🔴 红蓝方信息
+            // 📝 双方阵容 (只存英雄名，减小体积)
+            myTeam: blueTeam.map(c => c?.name || "Empty"),
+            enemyTeam: redTeam.map(c => c?.name || "Empty"),
+            // 🛤️ 分路分配情况 (有助于判断 AI 是否认错了对位)
+            laneAssignments: {
+                my: myLaneAssignments,
+                enemy: enemyLaneAssignments
+            }
+        };
+
+        try { 
+            await authAxios.post(`/feedback`, { 
+                match_context: contextData, 
+                description: inputContent 
+            }); 
+            // 2. 提示用户已上传快照
+            toast.success("反馈已提交 (已自动附带当前阵容快照)", { icon: '📸' });
+            setShowFeedbackModal(false); 
+            setInputContent(""); 
+        } catch (e) {
+            toast.error("反馈提交失败，请重试");
+        }
     };
 
     const handleTabClick = (mode) => { setAnalyzeType(mode); setActiveTab(0); };

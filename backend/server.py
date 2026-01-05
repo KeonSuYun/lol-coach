@@ -519,126 +519,118 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
     return candidates[:3]
 
 # 🟢 FastAPI 版本的邀请码接口 (已增加 30 天上限逻辑)
+# ================= 辅助函数 (请确保定义在接口上方) =================
+def calculate_new_expire(user_obj, days=3):
+    """计算会员过期时间：在当前剩余时间基础上增加，或从现在开始计算"""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    current_expire = user_obj.get('membership_expire')
+    
+    # 确保数据库取出的时间带时区信息
+    if current_expire and current_expire.tzinfo is None:
+        current_expire = current_expire.replace(tzinfo=datetime.timezone.utc)
+        
+    # 如果已过期或没有记录，从现在开始算
+    if not current_expire or current_expire < now:
+        return now + datetime.timedelta(days=days)
+    else:
+        # 如果没过期，在原基础上顺延
+        return current_expire + datetime.timedelta(days=days)
+
+# ================= 🔥🔥🔥 [重构] 双向绑定 + 连坐扣次接口 =================
 @app.post("/user/redeem_invite")
 async def redeem_invite(
     payload: InviteRequest, 
     current_user: dict = Depends(get_current_user) 
 ):
-    invite_code = payload.invite_code.strip()
-    if not invite_code:
-        raise HTTPException(status_code=400, detail="请输入邀请码")
+    target_username = payload.invite_code.strip()
+    if not target_username:
+        raise HTTPException(status_code=400, detail="请输入战友的契约代码")
 
-    # 1️⃣ 【必须先做】获取当前用户对象 (确保数据最新)
-    user = db.users_col.find_one({"_id": current_user["_id"]})
-    if not user:
+    if target_username == current_user['username']:
+        raise HTTPException(status_code=400, detail="无法与自己缔结契约")
+
+    # 1. 获取当前用户 (操作人 A)
+    user_a = db.users_col.find_one({"_id": current_user["_id"]})
+    if not user_a: 
         raise HTTPException(status_code=404, detail="用户数据同步错误")
 
-    # 2️⃣ 【再做】检查注册时间 (仅限3天内新用户)
-    register_time = user.get('created_at')
-    if register_time:
-        # 确保 register_time 带时区 (兼容旧数据)
-        if register_time.tzinfo is None:
-            register_time = register_time.replace(tzinfo=datetime.timezone.utc)
-        
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        # 计算注册时长
-        if (now - register_time).days > 3:
-            raise HTTPException(status_code=400, detail="仅限注册 3 天内的新用户领取新手福利")
+    # 2. 获取目标用户 (战友 B)
+    user_b = db.users_col.find_one({"username": target_username})
+    if not user_b:
+        raise HTTPException(status_code=404, detail="未找到该用户，请检查ID是否正确")
 
-    # 3️⃣ 检查是否已领取过
-    if user.get('invited_by'):
-        raise HTTPException(status_code=400, detail="您已经领取过新手福利了，无法重复领取")
+    # 3. 校验：战友 B 必须是“单身” (invited_by 字段必须为空)
+    if user_b.get('invited_by'):
+        raise HTTPException(status_code=400, detail=f"用户 [{target_username}] 已经有战友了，无法进行绑定。")
 
-    # 4️⃣ 获取邀请人并校验
-    inviter = db.users_col.find_one({"username": invite_code})
-    if not inviter:
-        raise HTTPException(status_code=404, detail="无效的邀请码（请输入朋友的用户名）")
-
-    if str(inviter['_id']) == str(user['_id']):
-        raise HTTPException(status_code=400, detail="不能邀请自己哦")
-    user_device = str(user.get("device_id", "unknown")).lower()
-    inviter_device = str(inviter.get("device_id", "unknown")).lower()
+    # 4. 防同设备刷号风控 (防止自己建小号互刷)
+    user_device = str(user_a.get("device_id", "unknown")).lower()
+    target_device = str(user_b.get("device_id", "unknown")).lower()
+    invalid_fps = ["unknown", "unknown_client_error", "none", ""]
     
-    # 2. 定义无效指纹列表 (这些指纹不参与比对，否则误伤正常用户)
-    invalid_fingerprints = ["unknown", "unknown_client_error", "none", ""]
-    
-    # 3. 核心校验：只有当设备指纹有效，且两者一致时，才拦截
-    if (user_device not in invalid_fingerprints) and (user_device == inviter_device):
-        print(f"🚫 [Security] 拦截同设备刷邀请: {user['username']} -> {inviter['username']} (DevID: {user_device})")
-        raise HTTPException(status_code=400, detail="系统检测到设备环境异常 (同设备不可互刷)")
-    # ================= 🔥 修复结束 (Fix End) 🔥 =================
-    # === 核心逻辑：加时间函数 ===
-    def calculate_new_expire(user_obj, days=3):
-        now = datetime.datetime.now(datetime.timezone.utc)
-        current_expire = user_obj.get('membership_expire')
-        
-        # 确保数据库里的时间带时区
-        if current_expire and current_expire.tzinfo is None:
-            current_expire = current_expire.replace(tzinfo=datetime.timezone.utc)
-            
-        # 如果已过期或没有时间，从现在开始算
-        if not current_expire or current_expire < now:
-            return now + datetime.timedelta(days=days)
-        else:
-            # 如果没过期，在原基础顺延
-            return current_expire + datetime.timedelta(days=days)
+    if (user_device not in invalid_fps) and (user_device == target_device):
+        print(f"🚫 [Security] 拦截同设备互刷: {user_a['username']} <-> {user_b['username']}")
+        raise HTTPException(status_code=400, detail="系统检测到设备环境异常 (同设备无法建立契约)")
 
-    # 1. 给【当前用户 (填写者)】加时间 - 永远成功 (+3天)
-    new_expire_user = calculate_new_expire(user, days=3)
+    # === 核心逻辑：更换次数与解绑处理 ===
     
+    MAX_CHANGES = 4
+    a_change_count = user_a.get('invite_change_count', 0)
+    
+    # 场景 A: 当前用户已有旧战友 (执行更换逻辑)
+    if user_a.get('invited_by'):
+        # 检查剩余次数
+        if a_change_count >= MAX_CHANGES:
+            raise HTTPException(status_code=400, detail=f"您的更换次数已耗尽 (0/{MAX_CHANGES})，契约已锁定。")
+        
+        old_partner_id = user_a['invited_by']
+        
+        # --- 对【旧战友 (C)】执行“连坐”处理 ---
+        # 1. 解除绑定 (恢复自由身)
+        # 2. 强制扣除 1 次更换机会 (因为关系破裂)
+        db.users_col.update_one(
+            {"_id": old_partner_id},
+            {
+                "$set": {"invited_by": None},
+                "$inc": {"invite_change_count": 1} 
+            }
+        )
+        
+        # A 的扣次将在下方 update_one 中统一执行 (原子操作)
+
+    # 场景 B: 当前用户是第一次绑定 -> 不扣次，直接建立关系
+    
+    # === 执行双向绑定 (A <-> B) ===
+    
+    # 1. 更新 A (操作人)
     db.users_col.update_one(
-        {"_id": user['_id']},
+        {"_id": user_a['_id']},
         {
             "$set": {
-                "membership_expire": new_expire_user,
-                "invited_by": inviter['_id'], # 记录邀请关系
-                "invite_time": datetime.datetime.now(datetime.timezone.utc),
-                # 如果是普通用户，升级为 pro
-                "role": "pro" if user.get('role', 'user') == 'user' else user.get('role')
+                "invited_by": user_b['_id'],           # 指向 B
+                "role": "pro",                         # 激活 Pro 身份
+                "membership_expire": calculate_new_expire(user_a, 3), # 加 3 天
+                "invite_time": datetime.datetime.now(datetime.timezone.utc)
+            },
+            # 如果 A 原本有战友，则本次操作算“更换”，次数+1；否则+0
+            "$inc": {"invite_change_count": 1 if user_a.get('invited_by') else 0}
+        }
+    )
+    
+    # 2. 更新 B (被绑定人)
+    # B 是被动绑定的，不扣除更换次数，直接获得奖励
+    db.users_col.update_one(
+        {"_id": user_b['_id']},
+        {
+            "$set": {
+                "invited_by": user_a['_id'],           # 指向 A (双向)
+                "role": "pro",                         # 激活 Pro 身份
+                "membership_expire": calculate_new_expire(user_b, 3)  # 加 3 天
             }
         }
     )
 
-    # 2. 给【邀请人】加时间 - 🔥 增加上限判断
-    # 限制：每人最多邀请 5 人 (5人 * 3天 = 15天封顶)
-    MAX_INVITES = 5 
-    
-    # 获取邀请人当前的有效邀请计数
-    current_invite_count = inviter.get('invite_count', 0)
-    
-    inviter_msg = ""
-
-    if current_invite_count < MAX_INVITES:
-        # 未达上限，给邀请人加时间
-        new_expire_inviter = calculate_new_expire(inviter, days=3)
-        
-        db.users_col.update_one(
-            {"_id": inviter['_id']},
-            {
-                "$set": {
-                    "membership_expire": new_expire_inviter,
-                    "role": "pro" if inviter.get('role', 'user') == 'user' else inviter.get('role')
-                },
-                "$inc": {"invite_count": 1} # 有效邀请计数+1
-            }
-        )
-        inviter_msg = " (邀请人也获得了奖励)"
-    else:
-        # 已达上限，不加时间
-        # 但依然记录计数(可选)，方便统计总热度，只是不发奖励
-        inviter_msg = " (但邀请人已达15天奖励上限)"
-        
-        db.users_col.update_one(
-            {"_id": inviter['_id']},
-            {"$inc": {"invite_count": 1}} # 计数依然+1，用于统计人气
-        )
-
-    return {
-        "status": "success",
-        "msg": f"兑换成功！您获得了 3 天 Pro 会员！{inviter_msg}",
-        "new_expire": new_expire_user.isoformat()
-    }
+    return {"status": "success", "msg": "🎉 契约缔结成功！双方 Pro 权限已激活。"}
 
 # 🔥 [修改 2] 直接读取本地 champions.json，复用主控台的数据源
 @app.get("/champions")
@@ -937,11 +929,17 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
     my_titles = current_user.get("available_titles", [])
     if "社区成员" not in my_titles: my_titles.append("社区成员")
     
-    # 🔥 [修复] 强制获取未读数，如果没有则默认为 0
     try:
         unread_count = db.get_unread_count_total(current_user['username'])
     except:
         unread_count = 0
+
+    # 🔥 [新增] 获取战友名字 (将 invited_by 的 ObjectId 转为 username)
+    partner_name = None
+    if current_user.get("invited_by"):
+        partner = db.users_col.find_one({"_id": current_user["invited_by"]})
+        if partner:
+            partner_name = partner["username"]
 
     return {
         "username": current_user['username'],
@@ -953,10 +951,12 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
         "r1_remaining": status_info.get("r1_remaining", 0),
         "available_titles": my_titles,
         "active_title": current_user.get("active_title", "社区成员"),
-        
-        # 🔥 [关键] 必须返回这个字段，前端才能显示红点
         "unread_msg_count": unread_count,
         
+        # 🔥 [新增] 返回给前端 InviteCard 使用
+        "invited_by": partner_name, 
+        "invite_change_count": current_user.get("invite_change_count", 0),
+
         "game_profile": {
             "gameName": current_user.get("game_name"),
             "tagLine": current_user.get("tag_line"),
@@ -1875,11 +1875,23 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             if primary_enemy != real_enemy_jg:
                 rag_enemy = "general"
 
+        # 异步获取知识库
         knowledge = await run_in_threadpool(db.get_top_knowledge_for_ai, data.myHero, rag_enemy)
+        
         if rag_enemy == "general":
             top_tips = knowledge.get("general", [])
         else:
             top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
+            
+        # 🔥🔥🔥 [补漏 2] 性能修复 + 逻辑修复 🔥🔥🔥
+        # 1. 传入 user_role_key 以获取位置通用修正
+        # 2. 使用 await run_in_threadpool 防止阻塞异步主线程
+        corrections = await run_in_threadpool(
+            db.get_corrections, 
+            data.myHero, 
+            rag_enemy, 
+            user_role_key
+        )
             
         corrections = db.get_corrections(data.myHero, rag_enemy)
 

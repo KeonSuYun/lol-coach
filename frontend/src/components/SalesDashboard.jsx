@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { X, TrendingUp, DollarSign, Users, Copy, CheckCircle2, Crown, ArrowUpRight, Gift, Rocket, Mail, Repeat } from 'lucide-react';
+import { X, TrendingUp, Heart, Users, Copy, CheckCircle2, Compass, Gift, Rocket, Mail, Repeat } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
 
-// 数字滚动组件
 const CountUp = ({ end, duration = 2000 }) => {
     const [count, setCount] = useState(0);
     useEffect(() => {
@@ -45,7 +44,6 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
             });
             setData(res.data);
         } catch (e) {
-            // 首次进入可能没有数据，这是正常的
             setData({ total_earnings: 0, today_earnings: 0, total_orders: 0, recent_records: [] });
         } finally {
             setLoading(false);
@@ -65,64 +63,64 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl animate-in fade-in duration-300">
             {/* 背景光效 */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-[#C8AA6E]/20 rounded-full blur-[120px] animate-pulse"></div>
-                <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-[#0AC8B9]/10 rounded-full blur-[100px]"></div>
+                <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-[#C8AA6E]/10 rounded-full blur-[120px] animate-pulse"></div>
             </div>
 
             <div className="w-full max-w-5xl bg-[#091428]/95 border border-[#C8AA6E]/30 rounded-2xl shadow-2xl relative flex flex-col md:flex-row overflow-hidden max-h-[90vh]">
                 
-                {/* 关闭按钮 */}
                 <button onClick={onClose} className="absolute top-4 right-4 z-20 text-slate-500 hover:text-white transition-colors p-1 bg-black/20 rounded-full hover:bg-white/10">
                     <X size={24} />
                 </button>
 
-                {/* === 左侧：营销文案与推广 (45%) === */}
+                {/* === 左侧：价值观与引路人 (45%) === */}
                 <div className="w-full md:w-[45%] bg-gradient-to-br from-[#010A13] to-[#0D131E] p-8 flex flex-col relative border-b md:border-b-0 md:border-r border-[#C8AA6E]/20">
-                    {/* 装饰 */}
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#C8AA6E] via-[#F0E6D2] to-[#C8AA6E]"></div>
                     
                     <div className="flex-1">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2] text-[#091428] text-xs font-black uppercase tracking-wider mb-6 shadow-lg shadow-[#C8AA6E]/20 animate-in slide-in-from-left duration-500">
-                            <Rocket size={12} /> 内测期 · 限量招募
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C8AA6E]/10 text-[#C8AA6E] border border-[#C8AA6E]/20 text-xs font-bold uppercase tracking-wider mb-6 animate-in slide-in-from-left duration-500">
+                            {/* 🔥 图标改为指南针，名称改为引路人 */}
+                            <Compass size={12} /> HexCoach 引路人计划
                         </div>
                         
                         <h1 className="text-3xl md:text-4xl font-black text-white mb-4 leading-tight">
-                            成为 HexCoach <br/>
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2]">合伙人</span>，共享红利
+                            认可价值，<br/>
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-[#F0E6D2]">传递火种</span>
                         </h1>
                         
-                        <div className="space-y-4 mb-8">
+                        <div className="space-y-6 mb-8">
                             <p className="text-sm text-slate-400 leading-relaxed">
-                                既然您认可 HexCoach 的价值，何不将它推荐给更多需要的玩家？
-                                <span className="text-[#C8AA6E] font-bold">内测期间</span>，我们为您准备了顶格的推广回报。
+                                如果 HexCoach 真的帮助您在对局中保持了冷静与思考，我们诚邀您成为社区的<b>引路人</b>。
+                                <br/><br/>
+                                您的一次分享，可能帮助另一位玩家找回竞技的尊严与乐趣。我们承诺：<b>每一份对好产品的支持，都值得被回馈。</b>
                             </p>
                             
-                            <ul className="space-y-3">
-                                {/* 🔥 [修正点] 更新为阶梯佣金说明 */}
+                            <ul className="space-y-4">
                                 <li className="flex items-start gap-3">
-                                    <div className="p-1.5 bg-[#C8AA6E]/10 rounded text-[#C8AA6E] mt-0.5"><DollarSign size={16}/></div>
+                                    <div className="p-1.5 bg-[#C8AA6E]/10 rounded text-[#C8AA6E] mt-0.5"><Heart size={16}/></div>
                                     <div>
-                                        <div className="text-sm font-bold text-slate-200">最高 40% 阶梯佣金</div>
+                                        {/* 🔥 去除“佣金”字眼，改为“支持回馈” */}
+                                        <div className="text-sm font-bold text-slate-200">可持续的支持回馈</div>
                                         <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                                            <span className="text-[#C8AA6E]">首单 40%</span>，<span className="text-blue-400">复购 15%</span>。<br/>
-                                            一次推广，持续锁定用户后续收益。
+                                            为感谢您的引路，我们将拿出 <span className="text-[#C8AA6E]">40%</span> 的首单收益与 <span className="text-blue-400">15%</span> 的复购收益回馈给您。这笔资金可用于支持您的电竞梦想。
                                         </div>
                                     </div>
                                 </li>
                                 <li className="flex items-start gap-3">
                                     <div className="p-1.5 bg-[#0AC8B9]/10 rounded text-[#0AC8B9] mt-0.5"><Gift size={16}/></div>
                                     <div>
-                                        <div className="text-sm font-bold text-slate-200">双赢机制</div>
-                                        <div className="text-xs text-slate-500 mt-0.5">通过您链接注册的好友，亦可获得 3 天 Pro 会员奖励。</div>
+                                        <div className="text-sm font-bold text-slate-200">把礼物带给战友</div>
+                                        <div className="text-xs text-slate-500 mt-0.5">
+                                            通过您链接注册的好友，亦可获得 3 天 Pro 权限。
+                                            <span className="opacity-70">（分享是最好的礼物）</span>
+                                        </div>
                                     </div>
                                 </li>
                             </ul>
                         </div>
                     </div>
 
-                    {/* 推广链接区域 */}
                     <div className="bg-[#1a1d26] p-4 rounded-xl border border-white/5">
-                        <p className="text-[10px] text-slate-500 font-bold uppercase mb-2 tracking-wider">您的专属邀请链接</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase mb-2 tracking-wider">您的专属引路链接</p>
                         <button 
                             onClick={handleCopy}
                             className="group w-full p-3 rounded-lg bg-black/40 border border-[#C8AA6E]/30 hover:border-[#C8AA6E] transition-all flex items-center justify-between relative overflow-hidden"
@@ -130,37 +128,33 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                             <span className="text-xs md:text-sm text-slate-300 font-mono truncate mr-2">{inviteLink}</span>
                             <div className="flex items-center gap-1.5 text-[#C8AA6E] font-bold text-xs uppercase bg-[#C8AA6E]/10 px-2 py-1 rounded">
                                 {copied ? <CheckCircle2 size={12}/> : <Copy size={12}/>}
-                                <span>{copied ? "成功" : "复制"}</span>
+                                <span>{copied ? "已复制" : "复制"}</span>
                             </div>
                         </button>
-                        <p className="text-[10px] text-slate-500 mt-2 text-center flex items-center justify-center gap-1">
-                            <Mail size={10} /> 结算通知将发送至您的账号注册邮箱
-                        </p>
                     </div>
                 </div>
 
-                {/* === 右侧：数据仪表盘 (55%) === */}
+                {/* === 右侧：回馈数据 (55%) === */}
                 <div className="w-full md:w-[55%] bg-[#050810]/50 p-8 flex flex-col">
                     
-                    {/* 结算说明提示框 */}
-                    <div className="mb-6 bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-700">
+                    <div className="mb-6 bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-start gap-3">
                         <div className="p-2 bg-blue-500/20 rounded-full text-blue-400">
                             <Mail size={18} />
                         </div>
                         <div>
-                            <h4 className="text-sm font-bold text-blue-100">收益如何提现？</h4>
+                            <h4 className="text-sm font-bold text-blue-100">回馈发放说明</h4>
                             <p className="text-xs text-blue-200/70 mt-1 leading-relaxed">
-                                我们会通过您<span className="text-white font-bold mx-1">注册账号时使用的邮箱</span>联系您进行收益结算。
-                                请务必关注您的邮箱收件箱（含垃圾邮件箱），以免错过打款通知。
+                                我们会定期通过您<span className="text-white font-bold mx-1">注册邮箱</span>与您联系结算。
+                                感谢您为社区发展做出的贡献。
                             </p>
                         </div>
                     </div>
 
-                    {/* 核心数据卡片 */}
                     <div className="grid grid-cols-2 gap-4 mb-6">
                         <div className="bg-gradient-to-br from-[#091428] to-[#0D131E] p-5 rounded-xl border border-[#C8AA6E]/20 shadow-lg relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={40} className="text-[#C8AA6E]"/></div>
-                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">累计总收益</div>
+                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Rocket size={40} className="text-[#C8AA6E]"/></div>
+                            {/* 🔥 改为“累计回馈” */}
+                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">累计回馈</div>
                             <div className="text-3xl font-black text-[#F0E6D2] font-mono">
                                 ¥{loading ? "..." : <CountUp end={data?.total_earnings || 0} />}
                             </div>
@@ -174,11 +168,10 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                         </div>
                     </div>
 
-                    {/* 入账列表 */}
                     <div className="flex-1 bg-[#010A13]/50 rounded-xl border border-white/5 flex flex-col overflow-hidden">
                         <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                             <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                                <Users size={16} className="text-[#0AC8B9]"/> 实时入账记录
+                                <Users size={16} className="text-[#0AC8B9]"/> 共建者记录
                             </h3>
                             <span className="text-[10px] text-slate-500 bg-black/40 px-2 py-0.5 rounded">最近10笔</span>
                         </div>
@@ -188,7 +181,6 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                                 data.recent_records.map((item, idx) => (
                                     <div key={idx} className="grid grid-cols-3 p-3 rounded-lg hover:bg-white/5 transition-colors items-center group animate-in slide-in-from-bottom-2 duration-500" style={{animationDelay: `${idx * 50}ms`}}>
                                         <div className="flex items-center gap-3">
-                                            {/* 头像 */}
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border 
                                                 ${item.type === '首单奖励' 
                                                     ? 'bg-amber-900/20 text-amber-400 border-amber-500/30' 
@@ -198,7 +190,6 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                                             </div>
                                             <div className="flex flex-col">
                                                 <span className="text-xs text-slate-200 font-bold">{item.source}</span>
-                                                {/* 🔥 动态显示类型和费率 */}
                                                 <span className={`text-[10px] flex items-center gap-1 ${item.type === '首单奖励' ? 'text-amber-500' : 'text-blue-400'}`}>
                                                     {item.type} <span className="opacity-50">({item.rate})</span>
                                                 </span>
@@ -214,10 +205,10 @@ export default function SalesDashboard({ isOpen, onClose, username, token }) {
                                 ))
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-3 opacity-60">
-                                    <div className="p-4 bg-white/5 rounded-full"><DollarSign size={24} /></div>
+                                    <div className="p-4 bg-white/5 rounded-full"><Rocket size={24} /></div>
                                     <div className="text-center">
-                                        <p className="text-sm font-bold">暂无收益</p>
-                                        <p className="text-xs mt-1">复制左侧链接，开启第一笔财富！</p>
+                                        <p className="text-sm font-bold">暂无记录</p>
+                                        <p className="text-xs mt-1">分享您的智慧与工具，回馈自然会来。</p>
                                     </div>
                                 </div>
                             )}

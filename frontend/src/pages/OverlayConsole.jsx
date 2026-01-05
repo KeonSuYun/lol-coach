@@ -40,14 +40,14 @@ const OverlayConsole = ({ state, actions }) => {
     };
 
     const mouseKey = fmt(currentShortcuts?.mouseMode || 'Tilde');
-    const refreshKey = fmt(currentShortcuts?.refresh || 'S'); // 显示字母 'F'
-    const scrollUpKey = fmt(currentShortcuts?.scrollUp || 'S'); // 显示字母 'S'
-    const scrollDownKey = fmt(currentShortcuts?.scrollDown || 'X'); // 显示字母 'X'
+    const refreshKey = fmt(currentShortcuts?.refresh || 'F'); 
+    const scrollUpKey = fmt(currentShortcuts?.scrollUp || 'S'); 
+    const scrollDownKey = fmt(currentShortcuts?.scrollDown || 'X'); 
     const toggleKey = fmt(currentShortcuts?.toggle || 'Home');
-    const modePrevKey = fmt(currentShortcuts?.modePrev || 'Z'); // 'Z'
-    const modeNextKey = fmt(currentShortcuts?.modeNext || 'C'); // 'C'
-    const prevPageKey = fmt(currentShortcuts?.prevPage || 'Left'); // 'A'
-    const nextPageKey = fmt(currentShortcuts?.nextPage || 'Right'); // 'D'
+    const modePrevKey = fmt(currentShortcuts?.modePrev || 'Z'); 
+    const modeNextKey = fmt(currentShortcuts?.modeNext || 'C'); 
+    const prevPageKey = fmt(currentShortcuts?.prevPage || 'A'); 
+    const nextPageKey = fmt(currentShortcuts?.nextPage || 'D'); 
 
     // 🔥 [更新] 引导文案，反映新的 Ctrl 左手键位
     const overlaySteps = useMemo(() => [
@@ -69,10 +69,10 @@ const OverlayConsole = ({ state, actions }) => {
         {
             target: '#overlay-content-area',
             title: "游戏内极简模式",
-            description: `进入游戏后，窗口将变身【透明阅读板】。\n快捷键已优化 (Ctrl组合)：\nCtrl+Z/C 切换模块\nCtrl+A/D 翻页\nCtrl+S/X 滚动\nCtrl+F 开始分析`,
+            description: `进入游戏后，窗口将变身【透明阅读板】。\n快捷键已优化 (Ctrl组合)：\nCtrl+${modePrevKey}/${modeNextKey} 切换模块\nCtrl+${prevPageKey}/${nextPageKey} 翻页\nCtrl+${scrollUpKey}/${scrollDownKey} 滚动\nCtrl+${refreshKey} 开始分析`,
             placement: 'center'
         }
-    ], [mouseKey, refreshKey, toggleKey]);
+    ], [mouseKey, refreshKey, toggleKey, modePrevKey, modeNextKey, prevPageKey, nextPageKey, scrollUpKey, scrollDownKey]);
 
     const currentResult = aiResults && aiResults[analyzeType] ? aiResults[analyzeType] : null;
     const isAnalyzing = isModeAnalyzing(analyzeType);

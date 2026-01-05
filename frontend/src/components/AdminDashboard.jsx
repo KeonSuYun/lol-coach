@@ -243,13 +243,23 @@ const AdminDashboard = ({ token, onClose, username }) => {
     const { revenue, commissions, apiCost, profit, margin } = calculateFinancials();
 
     const getDisplayName = (user) => {
+        // 1. 🔥 [修复] 优先读取数据库标准字段 (snake_case)
+        if (user.game_name) return `${user.game_name} #${user.tag_line || 'HEX'}`;
+        
+        // 2. 兼容旧数据 (camelCase)
         if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
+        
+        // 3. 兼容嵌套结构 (game_profile)
         try {
             if (user.game_profile) {
                 const p = typeof user.game_profile === 'string' ? JSON.parse(user.game_profile) : user.game_profile;
-                if (p.gameName) return `${p.gameName} #${p.tagLine || 'HEX'}`;
+                // 兼容内部可能出现的各种命名
+                const name = p.gameName || p.game_name;
+                const tag = p.tagLine || p.tag_line || 'HEX';
+                if (name) return `${name} #${tag}`;
             }
         } catch(e){}
+        
         return null;
     };
 
@@ -601,8 +611,10 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                             
                                             {/* Context 代码块 */}
                                             {item.match_context && Object.keys(item.match_context).length > 0 && (
-                                                <div className="text-[10px] text-slate-600 font-mono truncate hover:text-slate-400 transition cursor-help" title="Context Data">
-                                                    Context: {JSON.stringify(item.match_context)}
+                                                <div className="mt-2 p-2 bg-black/30 rounded border border-white/5 text-[10px] text-slate-500 font-mono whitespace-pre-wrap break-all overflow-x-auto">
+                                                    <span className="text-[#C8AA6E] font-bold block mb-1">Context Snapshot:</span>
+                                                    {/* 🔥 核心修改：null, 2 让 JSON 自动缩进换行，可读性极佳 */}
+                                                    {JSON.stringify(item.match_context, null, 2)}
                                                 </div>
                                             )}
 

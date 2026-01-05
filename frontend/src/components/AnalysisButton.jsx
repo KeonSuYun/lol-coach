@@ -79,7 +79,7 @@ export default function AnalysisButton({
                     {isAnalyzing ? (
                         <>
                             <div className="w-5 h-5 md:w-6 md:h-6 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                            <span className="text-sm md:text-base font-bold tracking-widest animate-pulse">R1 推演中...</span>
+                            <span className="text-sm md:text-base font-bold tracking-widest animate-pulse">HEX 推演中...</span>
                         </>
                     ) : (
                         <>
