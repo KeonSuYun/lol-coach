@@ -15,7 +15,7 @@ const PricingModal = ({ isOpen, onClose, username }) => {
 
   // 🔴 你的爱发电主页链接
   const AFDIAN_URL = "https://afdian.com/a/lol-couch";
-  const QQ_GROUP_ID = "857733055"; 
+  const QQ_GROUP_ID = "1076721838"; 
 
   const handleCopyQQ = () => {
     navigator.clipboard.writeText(QQ_GROUP_ID);
