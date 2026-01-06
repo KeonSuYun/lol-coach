@@ -97,15 +97,35 @@ def run_full_test():
 
     # 2.3 测试英雄数据检索 (get_champion_info)
     print(f"   Testing: 英雄数据检索智能兜底...")
-    hero = db.get_champion_info("LeeSin")
-    if hero and hero.get("name") == "Lee Sin":
-        print(f"{GREEN}   ✅ 精确查找成功: LeeSin -> Lee Sin{RESET}")
+    
+    # 🔥 [修复] 使用一个不存在的虚拟英雄 ID，避免与 seed_data 生成的真实数据(如 "盲僧")冲突
+    TEST_HERO_KEY = "TestDummyHero"
+    TEST_HERO_NAME = "Test Dummy Hero"
+    
+    # 先清理旧的测试脏数据
+    db.champions_col.delete_many({"id": TEST_HERO_KEY})
+    
+    # 插入专用测试数据
+    db.champions_col.insert_one({
+        "id": TEST_HERO_KEY, 
+        "name": TEST_HERO_NAME, 
+        "alias": ["测试假人"],
+        "title": "The Target Dummy"
+    })
+    
+    # 测试查找逻辑 (get_champion_info 会自动处理驼峰 TestDummyHero -> Test Dummy Hero)
+    hero = db.get_champion_info(TEST_HERO_KEY)
+    
+    if hero and hero.get("name") == TEST_HERO_NAME:
+        print(f"{GREEN}   ✅ 精确查找成功: {TEST_HERO_KEY} -> {TEST_HERO_NAME}{RESET}")
+        # 测试完毕后清理垃圾数据
+        db.champions_col.delete_one({"id": TEST_HERO_KEY})
     else:
-        print(f"{RED}   ❌ 精确查找失败 (可能数据库中没有导入英雄数据){RESET}")
+        print(f"{RED}   ❌ 精确查找失败. 期望: '{TEST_HERO_NAME}', 实际: '{hero.get('name') if hero else 'None'}'{RESET}")
         
-    # 测试兜底机制
-    unknown_hero = db.get_champion_info("NonExistentHero")
-    if unknown_hero and unknown_hero.get("id") == "NonExistentHero":
+    # 测试兜底机制 (查找一个绝对不存在的 ID)
+    unknown_hero = db.get_champion_info("NonExistentHero123")
+    if unknown_hero and unknown_hero.get("id") == "NonExistentHero123":
         print(f"{GREEN}   ✅ 智能兜底生效: 未知英雄未报错{RESET}")
     else:
         print(f"{RED}   ❌ 智能兜底失败{RESET}")

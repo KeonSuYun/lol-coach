@@ -68,7 +68,7 @@ def get_utc_now():
 
 # ✨✨✨ 同步 RAG 修正数据 (Corrections) ✨✨✨
 def sync_corrections_from_json(db):
-    print("\n🚀 [6/6] 同步 RAG 修正数据 (Corrections)...")
+    print("\n🚀 [5/5] 同步 RAG 修正数据 (Corrections)...")
     
     collection = db['corrections']
     all_data = []
@@ -163,32 +163,28 @@ def seed_data():
     
     champs_data = load_json("champions.json")
     if champs_data:
-        # 🔥🔥🔥 修复点2：先删除旧索引，防止 "duplicate key error" 🔥🔥🔥
         try:
             db.champions.drop_indexes()
             print("🔧 已清理旧索引 (解决重名冲突问题)")
         except Exception as e:
             print(f"⚠️ 索引清理跳过: {e}")
 
-        # 1. 清空旧数据
         delete_result = db.champions.delete_many({})
         print(f"🧹 已清空旧表 (删除了 {delete_result.deleted_count} 条)")
         
-        # 2. 内存字典：用于合并同一个英雄的不同分路数据
         hero_map = {}
 
         for hero in champs_data:
             try:
-                # 在 champions.json 中，"name" 是英文ID (如 "Malphite")
                 hero_english_id = hero.get("name") 
                 if not hero_english_id: continue
                 
                 role_raw = hero.get("role", "mid")
-                role_upper = role_raw.upper() # "TOP"
-                role_lower = role_raw.lower() # "top"
+                role_upper = role_raw.upper()
+                role_lower = role_raw.lower()
                 
                 stats_block = {
-                    "role": role_lower, # 存小写
+                    "role": role_lower,
                     "tier": parse_tier(hero.get("tier")),
                     "win_rate": parse_percent(hero.get("win_rate")),
                     "pick_rate": parse_percent(hero.get("pick_rate")),
@@ -196,31 +192,27 @@ def seed_data():
                 }
 
                 if hero_english_id not in hero_map:
-                    # 处理中文名显示
                     alias_list = hero.get("alias", [])
                     chinese_aliases = [a for a in alias_list if has_chinese(a)]
                     
-                    # 默认使用英文ID，如果有中文名则优先用中文名作为显示名称
                     display_name_cn = hero_english_id
                     if chinese_aliases:
-                        # 优先取列表第一个中文作为主要名字
                         display_name_cn = chinese_aliases[0]
+                    final_aliases = hero.get("alias", [])
+                    if str(hero_english_id) not in final_aliases:
+                        final_aliases.append(str(hero_english_id))
 
                     hero_map[hero_english_id] = {
-                        "id": str(hero_english_id),      # 英文ID: "Malphite"
-                        "_id": str(hero_english_id),     # 数据库主键 (强制唯一)
-                        
-                        "alias": str(hero_english_id),   
-                        "title": display_name_cn,        # "石头人"
-                        "name": display_name_cn,         # "石头人" (这里可能会重复，所以我们删除了索引)
-                        
-                        "key": str(hero_english_id),     # 冗余英文字段，双重保险
+                        "id": str(hero_english_id),
+                        "_id": str(hero_english_id),
+                        "alias": final_aliases,          # ✅ 修正：保存为列表，包含 ["盲僧", "李青", "Lee Sin"]
+                        "title": display_name_cn,
+                        "name": display_name_cn,
+                        "key": str(hero_english_id),
                         "tags": [t.capitalize() for t in hero.get("tags", [])],
                         "updated_at": get_utc_now(),
-                        
                         "positions": {},
                         "roles": [role_lower],
-                        
                         "tier": stats_block["tier"],
                         "win_rate": stats_block["win_rate"],
                         "pick_rate": stats_block["pick_rate"],
@@ -282,6 +274,57 @@ def seed_data():
         s15_json["_id"] = "s15_rules"
         db.config.replace_one({"_id": "s15_rules"}, s15_json, upsert=True)
         print("✅ S15 规则已更新")
+
+    # =====================================================
+    # 4. 🔥🔥🔥 [核心] 管理员权限自动修复 🔥🔥🔥
+    # =====================================================
+    print("\n🚀 [4/5] 🛡️ 检查并修复管理员 (Root) 权限...")
+    
+    target_username = "admin" # 您的管理员用户名
+    users_col = db['users']
+    
+    # 查找该用户
+    admin_user = users_col.find_one({"username": target_username})
+    
+    # 定义 Root 权限属性
+    root_attributes = {
+        "role": "root",          # 最高权限
+        "is_pro": True,          # 也是 Pro 会员
+        "active_title": "官方/传说", # 自动佩戴传说头衔
+        # 永不过期的会员时间 (设为 2099 年)
+        "membership_expire": datetime.datetime(2099, 12, 31, tzinfo=datetime.timezone.utc),
+        # 赋予无限额度 (或者极大值)
+        "r1_remaining": 99999
+    }
+
+    if admin_user:
+        # 场景 A: 账号已存在 -> 强制覆盖权限 (提权)
+        # 只有当权限不对时才打印日志，避免每次重启都刷屏
+        if admin_user.get("role") != "root" or not admin_user.get("is_pro"):
+            users_col.update_one(
+                {"username": target_username},
+                {"$set": root_attributes}
+            )
+            print(f"   🔧 检测到 [{target_username}] 权限异常，已强制修复为 ROOT (超级管理员)")
+        else:
+            print(f"   ✅ [{target_username}] 权限正常 (Root)")
+            
+    else:
+        # 场景 B: 账号不存在 -> 自动创建默认管理员
+        print(f"   ⚠️ 用户 [{target_username}] 不存在，正在自动初始化...")
+        
+        default_password = "admin" # 初始密码
+        
+        new_admin_doc = {
+            "username": target_username,
+            "password": pwd_context.hash(default_password),
+            "email": "admin@hex.gg", # 默认邮箱
+            "created_at": get_utc_now(),
+            **root_attributes # 展开 root 属性
+        }
+        
+        users_col.insert_one(new_admin_doc)
+        print(f"   🎉 超级管理员已创建! 账号: {target_username} / 密码: {default_password}")
 
     # =====================================================
     # 5. 调用修正数据

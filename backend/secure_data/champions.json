@@ -14,7 +14,7 @@
     "alias": ["铁血狼母", "安贝萨"],
     "role": "top",
     "tier": "T1",
-    "tags": ["fighter", "mobility"],
+    "tags": ["fighter", "mobility","skirmisher"],
     "win_rate": "50.87%",
     "pick_rate": "9.73%",
     "ban_rate": "48.38%"

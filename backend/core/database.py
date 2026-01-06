@@ -235,6 +235,50 @@ class KnowledgeBase:
             })
         return msgs[::-1]
 
+    def broadcast_message(self, sender, content):
+            """
+            全员广播消息 (高效批量插入版)
+            :param sender: 发送者用户名 (通常是 admin/root)
+            :param content: 消息内容
+            :return: (bool, str) -> (是否成功, 结果描述)
+            """
+            if self.messages_col is None:
+                return False, "消息服务未初始化"
+                
+            try:
+                # 1. 获取所有用户 (只取 username 字段以节省内存)
+                # 排除掉发送者自己 (可选，这里我们选择排除，避免自己收到自己的广播)
+                cursor = self.users_col.find({"username": {"$ne": sender}}, {"username": 1})
+                
+                # 2. 构建批量消息对象
+                messages_to_insert = []
+                now = datetime.datetime.now(datetime.timezone.utc)
+                
+                for user in cursor:
+                    receiver = user['username']
+                    msg = {
+                        "sender": sender,
+                        "receiver": receiver,
+                        "content": content,
+                        "type": "system",  # 标记为系统广播
+                        "read": False,
+                        "deleted_by": [],
+                        "created_at": now
+                    }
+                    messages_to_insert.append(msg)
+                
+                # 3. 执行批量插入 (如果用户量极大，建议分片插入，这里假设在万级以内)
+                if messages_to_insert:
+                    result = self.messages_col.insert_many(messages_to_insert)
+                    count = len(result.inserted_ids)
+                    return True, f"成功向 {count} 位用户发送广播"
+                else:
+                    return True, "没有其他用户需要发送"
+                    
+            except Exception as e:
+                print(f"❌ Broadcast Error: {e}")
+                return False, f"广播失败: {str(e)}"
+
     def delete_conversation(self, operator, target_user):
         if self.messages_col is None: return False
         try:
@@ -393,19 +437,43 @@ class KnowledgeBase:
         user = self.users_col.find_one({"username": username})
         if not user: return {}
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
+        
+        # --- R1 (核心) 统计 ---
         today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
         usage_data = user.get("usage_stats", {})
-        base_limit = 10
+        base_limit = 3
         bonus = usage_data.get("bonus_r1", 0)
         total_limit = base_limit + bonus
         r1_used = sum(usage_data.get("counts_reasoner", {}).values()) if usage_data.get("last_reset_date") == today_str else 0
         
+        # --- Chat (快速) 统计 [新增逻辑] ---
+        bonus_chat = usage_data.get("bonus_chat", 0)
+        base_hourly = 30 if is_pro else 10
+        chat_limit = base_hourly + bonus_chat
+        
+        # 计算当前小时已用 (逻辑同 check_and_update_usage)
+        chat_used = 0
+        hourly_start_str = usage_data.get("hourly_start")
+        if hourly_start_str:
+            try:
+                now = datetime.datetime.now(datetime.timezone.utc)
+                hourly_start = datetime.datetime.fromisoformat(hourly_start_str)
+                if hourly_start.tzinfo is None: hourly_start = hourly_start.replace(tzinfo=datetime.timezone.utc)
+                # 如果距离上次记录起始时间超过1小时，则当前已用视为0
+                if (now - hourly_start).total_seconds() <= 3600:
+                    chat_used = usage_data.get("hourly_count", 0)
+            except:
+                chat_used = 0
+
         return {
             "is_pro": is_pro, 
             "role": current_role, 
-            "r1_limit": total_limit, # 返回包含奖励的总额度
+            "r1_limit": total_limit, 
             "r1_used": r1_used, 
-            "r1_remaining": max(0, total_limit - r1_used) if not is_pro else -1
+            "r1_remaining": max(0, total_limit - r1_used) if not is_pro else -1,
+            # 🔥 新增返回字段
+            "chat_hourly_limit": chat_limit,
+            "chat_used": chat_used
         }
 
     def check_and_update_usage(self, username, mode, model_type="chat"):
@@ -415,19 +483,22 @@ class KnowledgeBase:
         if not user: return False, "用户不存在", 0
         
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
+        
+        # 深度思考余额硬性检查
         if model_type == "reasoner":
                 explicit_balance = user.get("r1_remaining")
-                # 只有当字段存在(不为None) 且 余额耗尽(<=0) 时才拦截
                 if explicit_balance is not None and explicit_balance <= 0:
                     return False, "深度思考次数不足 (余额已耗尽)", -1
+        
         now = datetime.datetime.now(datetime.timezone.utc)
         today_str = now.strftime("%Y-%m-%d")
         
-        # 2. 初始化或重置每日统计
+        # 2. 初始化或重置每日统计 (🔥 修改：需要保留 bonus_chat)
         usage_data = user.get("usage_stats", {})
         if usage_data.get("last_reset_date") != today_str:
-            # 保留 bonus_r1 不被重置
-            current_bonus = usage_data.get("bonus_r1", 0)
+            current_bonus_r1 = usage_data.get("bonus_r1", 0)
+            current_bonus_chat = usage_data.get("bonus_chat", 0) # 🔥 继承快速模型奖励
+            
             usage_data = {
                 "last_reset_date": today_str, 
                 "counts_chat": {}, 
@@ -435,11 +506,16 @@ class KnowledgeBase:
                 "last_access": {}, 
                 "hourly_start": now.isoformat(), 
                 "hourly_count": 0,
-                "bonus_r1": current_bonus # 继承奖励次数
+                "bonus_r1": current_bonus_r1,
+                "bonus_chat": current_bonus_chat # 🔥 写入新一天的记录
             }
         
         # 3. 小时频控 (防刷)
-        HOURLY_LIMIT = 30 if is_pro else 10
+        # 🔥 修改：应用 bonus_chat 提升快速模型上限
+        bonus_chat = usage_data.get("bonus_chat", 0)
+        base_hourly = 30 if is_pro else 10
+        HOURLY_LIMIT = base_hourly + bonus_chat
+        
         hourly_start_str = usage_data.get("hourly_start")
         hourly_start = datetime.datetime.fromisoformat(hourly_start_str) if hourly_start_str else now
         if hourly_start.tzinfo is None: hourly_start = hourly_start.replace(tzinfo=datetime.timezone.utc)
@@ -461,12 +537,10 @@ class KnowledgeBase:
                     return False, "AI思考中", int(COOLDOWN - (now - last_time).total_seconds())
             except: pass
 
-        # 5. 🔥🔥🔥 [核心修改] 深度思考 (R1) 次数限制检查 (含奖励逻辑)
+        # 5. 🔥 修改 2：深度思考 (R1) 次数限制检查 (10 -> 3)
         if not is_pro and model_type == "reasoner":
-            # 获取奖励次数 (默认为 0)
             bonus = usage_data.get("bonus_r1", 0)
-            # 每日基础 10 次 + 奖励次数
-            daily_r1_limit = 10 + bonus
+            daily_r1_limit = 3 + bonus  # 🔥 这里改为 3
             
             used_today = sum(usage_data.get("counts_reasoner", {}).values())
             
@@ -483,10 +557,8 @@ class KnowledgeBase:
         usage_data["hourly_count"] = usage_data.get("hourly_count", 0) + 1
         usage_data["hourly_start"] = hourly_start.isoformat()
         
-        # 7. 保存到数据库
         self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
         return True, "OK", 0
-
     # ==========================
     # 🔥 管理员 & 统计功能
     # ==========================
@@ -510,14 +582,30 @@ class KnowledgeBase:
         return True
 
     def get_user(self, username): return self.users_col.find_one({"username": username})
-    def get_all_users(self, limit=20, search=""):
+    # 找到 get_all_users 方法
+    def get_all_users(self, limit=20, search="", skip=0):
+        """
+        🔥 [修改] 支持分页 skip/limit，并返回 (list, total) 元组
+        """
         query = {"username": {"$regex": search, "$options": "i"}} if search else {}
-        users = list(self.users_col.find(query, {"password": 0, "usage_stats": 0}).sort("created_at", -1).limit(limit))
+        
+        # 1. 获取总数
+        total = self.users_col.count_documents(query)
+        
+        # 2. 分页查询
+        cursor = self.users_col.find(query, {"password": 0, "usage_stats": 0})\
+            .sort("created_at", -1)\
+            .skip(skip)\
+            .limit(limit)
+            
+        users = list(cursor)
         for u in users:
             u["_id"] = str(u["_id"])
             if u.get("created_at"): u["created_at"] = u["created_at"].isoformat()
             if u.get("membership_expire"): u["membership_expire"] = u["membership_expire"].isoformat()
-        return users
+            
+        # 返回 (数据列表, 总条数)
+        return users, total
 
     def admin_update_user(self, username, action, value):
         user = self.users_col.find_one({"username": username})
@@ -645,7 +733,7 @@ class KnowledgeBase:
         except: total_calls = 0
 
         recent_users = []
-        cursor = self.users_col.find({}, {"username": 1, "role": 1, "usage_stats": 1}).sort("usage_stats.last_access", -1).limit(5)
+        cursor = self.users_col.find({}, {"username": 1, "role": 1, "usage_stats": 1}).sort("usage_stats.last_access", -1).limit(50)
         for u in cursor:
             usage = u.get("usage_stats", {})
             r1_count = sum(usage.get("counts_reasoner", {}).values())
@@ -749,58 +837,57 @@ class KnowledgeBase:
             "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
         }
 
-    def get_corrections(self, my_hero, enemy_hero, my_role=None):
-        """
-        🔥 [修复+增强] 
-        1. 支持 Role 维度查询 (role_jungle_ganking)
-        2. 支持无空格名字匹配 (Lee Sin -> LeeSin)
-        """
-        if self.corrections_col is None: return []
+    def get_corrections(self, my_hero, enemy_hero, my_role=None, mode=None):
+        if self.corrections_col is None:
+            return []
+
         try:
-            # 1. 我方 Keys
+            # 1) 我方 Keys
             hero_keys = [my_hero, "general"]
-            if my_hero and " " in my_hero: hero_keys.append(my_hero.replace(" ", ""))
-            
-            # 🔥 [补漏 1] 添加去空格版本，防止 "Lee Sin" 匹配不到数据库里的 "LeeSin"
             if my_hero and " " in my_hero:
                 hero_keys.append(my_hero.replace(" ", ""))
 
-            # 2. 注入位置相关的 Keys
+            # 2) 注入位置 Keys & 模式处理
             if my_role:
                 role_lower = my_role.lower()
-                # 添加基础位置 key，例如: role_jungle, role_mid
                 hero_keys.append(f"role_{role_lower}")
-                
-                # 🔥 特殊处理：如果是打野，把两大流派的规则都拉取出来
-                # 让 AI 根据规则文本里的“适用英雄列表”自己去判断
-                if role_lower == "jungle":
-                    hero_keys.append("role_jungle_ganking") # 节奏型
-                    hero_keys.append("role_jungle_farming") # 发育型
 
-            # 3. 构造查询
+                if role_lower == "jungle":
+                    if mode == "role_jungle_farming":
+                        hero_keys.append("role_jungle_farming")
+                    elif mode == "role_jungle_ganking": 
+                        # ✅ server.py 传过来的新默认值
+                        hero_keys.append("role_jungle_ganking")
+                    else:
+                        # 兜底
+                        hero_keys.append("role_jungle_ganking")
+
+            # 3) 敌方 Keys
             enemy_keys = [enemy_hero]
-            if enemy_hero and " " in enemy_hero: enemy_keys.append(enemy_hero.replace(" ", ""))
+            if enemy_hero and " " in enemy_hero:
+                enemy_keys.append(enemy_hero.replace(" ", ""))
 
             query = {
                 "$or": [
-                    # 情况 A: 我 vs 他 (及通用)
                     {
-                        "hero": {"$in": hero_keys}, 
+                        "hero": {"$in": hero_keys},
                         "enemy": {"$in": enemy_keys + ["general"]}
                     },
-                    # 情况 B: 他 (作为主要条目) 的通用特性 [引用 secure_data/corrections.json]
                     {
                         "hero": {"$in": enemy_keys},
                         "enemy": "general"
                     }
                 ]
             }
-            
-            res = list(self.corrections_col.find(query))
-            return [r['content'] for r in res]
-            
+
+            # 按优先级排序 (priority 越高越前)
+            res = list(self.corrections_col.find(query).sort("priority", -1))
+            return res
+
         except Exception as e:
+            print("get_corrections error:", e)
             return []
+
 
     def get_all_feedbacks(self, status="pending", limit=50):
         query = {}
@@ -811,15 +898,18 @@ class KnowledgeBase:
         # 按时间倒序
         cursor = self.feedback_col.find(query).sort('created_at', -1).limit(limit)
         return [dict(doc, _id=str(doc['_id'])) for doc in cursor]
-    def resolve_feedback(self, feedback_id, adopt=False, reward=1):
+    def resolve_feedback(self, feedback_id, adopt=False, reward=1, reward_type="r1"):
         if not (oid := self._to_oid(feedback_id)): return False
         try:
-            # A. 更新反馈状态
+            # 如果不采纳(adopt=False)，则奖励归零
+            actual_reward = reward if (adopt and reward_type != 'none') else 0
+            
             update_doc = {
                 "status": "resolved", 
                 "resolved_at": datetime.datetime.now(datetime.timezone.utc),
                 "adopted": adopt,
-                "reward_granted": reward if adopt else 0
+                "reward_granted": actual_reward,
+                "reward_type": reward_type if adopt else None # 记录奖励类型
             }
             
             feedback = self.feedback_col.find_one_and_update(
@@ -830,14 +920,24 @@ class KnowledgeBase:
             
             if not feedback: return False
 
-            # B. 如果采纳，给用户发奖 (原子操作 $inc 增加 bonus_r1)
-            if adopt and feedback.get("user_id"):
+            # 如果采纳，给用户发奖
+            if adopt and feedback.get("user_id") and actual_reward > 0:
                 username = feedback["user_id"]
-                self.users_col.update_one(
-                    {"username": username},
-                    {"$inc": {"usage_stats.bonus_r1": reward}}
-                )
-                print(f"🎁 [Reward] 用户 {username} 获得 {reward} 次 【海克斯核心】充能")
+                inc_field = {}
+                
+                # 根据类型增加对应的 bonus
+                if reward_type == "r1":
+                    inc_field = {"usage_stats.bonus_r1": actual_reward}
+                    print(f"🎁 [Reward] 用户 {username} 获得 {actual_reward} 次【核心模型】")
+                elif reward_type == "chat":
+                    inc_field = {"usage_stats.bonus_chat": actual_reward}
+                    print(f"🎁 [Reward] 用户 {username} 获得 {actual_reward} 次【快速模型】上限")
+                
+                if inc_field:
+                    self.users_col.update_one(
+                        {"username": username},
+                        {"$inc": inc_field}
+                    )
                 
             return True
         except Exception as e:
