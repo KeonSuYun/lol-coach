@@ -10,6 +10,29 @@ const loadState = (key, defaultVal) => {
     } catch (e) { return defaultVal; }
 };
 
+// 🔥 [配置] 默认演示阵容 (中文名 + 中文称号 + 腾讯图床 + 完整Tags)
+const DEFAULT_BLUE = [
+    { key: "Malphite", name: "熔岩巨兽", title: "墨菲特", tags: ["Tank", "Fighter"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Malphite.png" },
+    { key: "LeeSin", name: "盲僧", title: "李青", tags: ["Fighter", "Assassin"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/LeeSin.png" },
+    { key: "Ahri", name: "九尾妖狐", title: "阿狸", tags: ["Mage", "Assassin"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Ahri.png" },
+    { key: "Jinx", name: "暴走萝莉", title: "金克丝", tags: ["Marksman"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Jinx.png" },
+    { key: "Thresh", name: "魂锁典狱长", title: "锤石", tags: ["Support", "Fighter"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Thresh.png" }
+];
+
+const DEFAULT_RED = [
+    { key: "Aatrox", name: "暗裔剑魔", title: "亚托克斯", tags: ["Fighter", "Tank"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Aatrox.png" },
+    { key: "JarvanIV", name: "德玛西亚皇子", title: "嘉文四世", tags: ["Tank", "Fighter"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/JarvanIV.png" },
+    { key: "Syndra", name: "暗黑元首", title: "辛德拉", tags: ["Mage"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Syndra.png" },
+    { key: "Kaisa", name: "虚空之女", title: "卡莎", tags: ["Marksman"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Kaisa.png" },
+    { key: "Nautilus", name: "深海泰坦", title: "诺提勒斯", tags: ["Tank", "Support"], image_url: "https://game.gtimg.cn/images/lol/act/img/champion/Nautilus.png" }
+];
+
+// 强制预设位置
+const DEFAULT_ROLES = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"];
+
+const DEFAULT_MY_LANES = { "TOP": "熔岩巨兽", "JUNGLE": "盲僧", "MID": "九尾妖狐", "ADC": "暴走萝莉", "SUPPORT": "魂锁典狱长" };
+const DEFAULT_ENEMY_LANES = { "TOP": "暗裔剑魔", "JUNGLE": "德玛西亚皇子", "MID": "暗黑元首", "ADC": "虚空之女", "SUPPORT": "深海泰坦" };
+
 export function useGameCore() {
     const [version, setVersion] = useState("V15.2");
     const [championList, setChampionList] = useState([]);
@@ -29,15 +52,28 @@ export function useGameCore() {
     const [sendChatTrigger, setSendChatTrigger] = useState(0);
     const [showSalesDashboard, setShowSalesDashboard] = useState(false);
     
-    const [blueTeam, setBlueTeam] = useState(() => loadState('blueTeam', Array(5).fill(null)));
-    const [redTeam, setRedTeam] = useState(() => loadState('redTeam', Array(5).fill(null)));
-    const [myTeamRoles, setMyTeamRoles] = useState(() => loadState('myTeamRoles', Array(5).fill("")));
-    const [userRole, setUserRole] = useState(() => loadState('userRole', ''));
+    // 默认加载演示阵容
+    const [blueTeam, setBlueTeam] = useState(() => loadState('blueTeam', DEFAULT_BLUE));
+    const [redTeam, setRedTeam] = useState(() => loadState('redTeam', DEFAULT_RED));
+    
+    // 默认使用标准位置数组
+    const [myTeamRoles, setMyTeamRoles] = useState(() => loadState('myTeamRoles', DEFAULT_ROLES));
+    
+    const [userRole, setUserRole] = useState(() => loadState('userRole', 'JUNGLE'));
     const [lcuRealRole, setLcuRealRole] = useState("");
-    const [userSlot, setUserSlot] = useState(0);
+    
+    // 默认选中盲僧 (Index 1)
+    const [userSlot, setUserSlot] = useState(() => {
+        const saved = localStorage.getItem('userSlot');
+        return saved ? JSON.parse(saved) : 1; 
+    });
+
     const [lcuStatus, setLcuStatus] = useState("disconnected");
     const [userRank, setUserRank] = useState(() => loadState('userRank', 'Gold'));
-    const [mapSide, setMapSide] = useState(() => loadState('mapSide', "unknown"));
+    
+    // 🔥 [修改] 默认设置为蓝色方 (Blue Side)
+    const [mapSide, setMapSide] = useState(() => loadState('mapSide', "blue"));
+    
     const [showDownloadModal, setShowDownloadModal] = useState(false);
     const [extraMechanics, setExtraMechanics] = useState({});
     const [gamePhase, setGamePhase] = useState("None"); 
@@ -49,10 +85,10 @@ export function useGameCore() {
     const [roleMapping, setRoleMapping] = useState({}); 
 
     const [enemyLaneAssignments, setEnemyLaneAssignments] = useState(() =>
-        loadState('enemyLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
+        loadState('enemyLaneAssignments', DEFAULT_ENEMY_LANES)
     );
     const [myLaneAssignments, setMyLaneAssignments] = useState(() =>
-        loadState('myLaneAssignments', { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })
+        loadState('myLaneAssignments', DEFAULT_MY_LANES)
     );
 
     const [useThinkingModel, setUseThinkingModel] = useState(() => loadState('useThinkingModel', false));
@@ -87,7 +123,7 @@ export function useGameCore() {
     const [rawLcuData, setRawLcuData] = useState(null);
 
     const wsRef = useRef(null);
-    const isRemoteUpdate = useRef(false); // 🔥 防止循环广播标记
+    const isRemoteUpdate = useRef(false);
 
     const broadcastState = (type, payload) => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -95,7 +131,6 @@ export function useGameCore() {
         }
     };
 
-    // 1. 监听分路变化并广播
     useEffect(() => {
         if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
         if (Object.keys(myLaneAssignments).some(k => myLaneAssignments[k])) {
@@ -103,7 +138,6 @@ export function useGameCore() {
         }
     }, [myLaneAssignments, enemyLaneAssignments]);
 
-    // 2. 监听阵容变化并广播
     useEffect(() => {
          if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
          if (blueTeam.some(c => c) || redTeam.some(c => c)) {
@@ -111,16 +145,14 @@ export function useGameCore() {
          }
     }, [blueTeam, redTeam]);
 
-    // 🔥 [核心修复] 辅助函数：标准化名称 (去空格/小写)
     const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
 
-    // 🔥 [核心修复] 猜测分路逻辑 (复用于敌我双方)
+    // Tags 安全检查
     const guessRoles = (team) => {
         const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
         const assignedIndices = new Set();
         
         const findHeroForRole = (roleId, tagFallbackFn) => {
-            // 1. 优先查数据库预设分路 (Role Mapping)
             for (let i = 0; i < team.length; i++) {
                 const hero = team[i];
                 if (!hero || assignedIndices.has(i)) continue;
@@ -129,7 +161,6 @@ export function useGameCore() {
                 const dbRoles = roleMapping[cleanKey] || roleMapping[cleanName];
                 if (dbRoles && dbRoles.includes(roleId)) { assignedIndices.add(i); return hero.name; }
             }
-            // 2. 兜底查 Tags (Marksman, Mage, etc.)
             for (let i = 0; i < team.length; i++) {
                 const hero = team[i];
                 if (!hero || assignedIndices.has(i)) continue;
@@ -138,13 +169,14 @@ export function useGameCore() {
             return "";
         };
 
-        roles["JUNGLE"] = findHeroForRole("JUNGLE", c => c.tags.includes("Jungle") || (c.tags.includes("Assassin") && !c.tags.includes("Mage")));
-        roles["SUPPORT"] = findHeroForRole("SUPPORT", c => c.tags.includes("Support") || c.tags.includes("Tank"));
-        roles["ADC"] = findHeroForRole("ADC", c => c.tags.includes("Marksman"));
-        roles["MID"] = findHeroForRole("MID", c => c.tags.includes("Mage") || c.tags.includes("Assassin"));
-        roles["TOP"] = findHeroForRole("TOP", c => c.tags.includes("Fighter") || c.tags.includes("Tank"));
+        const hasTag = (hero, tag) => hero.tags && Array.isArray(hero.tags) && hero.tags.includes(tag);
+
+        roles["JUNGLE"] = findHeroForRole("JUNGLE", c => hasTag(c, "Jungle") || (hasTag(c, "Assassin") && !hasTag(c, "Mage")));
+        roles["SUPPORT"] = findHeroForRole("SUPPORT", c => hasTag(c, "Support") || hasTag(c, "Tank"));
+        roles["ADC"] = findHeroForRole("ADC", c => hasTag(c, "Marksman"));
+        roles["MID"] = findHeroForRole("MID", c => hasTag(c, "Mage") || hasTag(c, "Assassin"));
+        roles["TOP"] = findHeroForRole("TOP", c => hasTag(c, "Fighter") || hasTag(c, "Tank"));
         
-        // 3. 填补剩余空位
         Object.keys(roles).filter(r => !roles[r]).forEach(r => {
             for (let i = 0; i < team.length; i++) {
                 if (team[i] && !assignedIndices.has(i)) {
@@ -155,43 +187,36 @@ export function useGameCore() {
         return roles;
     };
 
-    // 🔥 [核心修复] 自动同步我方分路 (解决 MF 显示在 MID 的问题)
+    // 自动同步我方分路
     useEffect(() => {
-        // 只有当阵容非空时才执行
         if (blueTeam.some(c => c !== null)) {
             setMyLaneAssignments(prev => {
                 const next = { ...prev };
-                
-                // 策略 A: 优先使用 LCU 分配的位置 (myTeamRoles)
                 let usedLcuRoles = false;
                 const usedNames = new Set();
 
                 blueTeam.forEach((hero, idx) => {
                     if (!hero) return;
-                    const assignedRole = myTeamRoles[idx]; // "TOP", "JUNGLE" ...
-                    
+                    const assignedRole = myTeamRoles[idx];
                     if (assignedRole && ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].includes(assignedRole)) {
-                        next[assignedRole] = hero.name; // 强行校准：该位置就是这个英雄
+                        next[assignedRole] = hero.name;
                         usedNames.add(hero.name);
                         usedLcuRoles = true;
                     }
                 });
 
-                // 策略 B: 如果 LCU 没给位置 (比如盲选)，则使用猜测算法
                 if (!usedLcuRoles) {
                     const guesses = guessRoles(blueTeam);
                     Object.keys(guesses).forEach(role => {
                         if (guesses[role]) next[role] = guesses[role];
                     });
                 } else {
-                    // 清理不在当前阵容里的旧数据
                     const currentNames = blueTeam.map(c => c?.name).filter(Boolean);
                     Object.keys(next).forEach(r => {
                         if (next[r] && !currentNames.includes(next[r])) next[r] = "";
                     });
                 }
 
-                // 只有数据真的变了才更新，避免死循环
                 if (JSON.stringify(prev) !== JSON.stringify(next)) {
                     return next;
                 }
@@ -200,7 +225,7 @@ export function useGameCore() {
         }
     }, [blueTeam, myTeamRoles, roleMapping]);
 
-    // 自动同步敌方分路 (保持不变)
+    // 自动同步敌方分路
     useEffect(() => {
         if (redTeam.some(c => c !== null)) {
             const guesses = guessRoles(redTeam);
@@ -218,7 +243,7 @@ export function useGameCore() {
         }
     }, [redTeam, roleMapping]);
 
-    // WebSocket / IPC 逻辑保持不变，确保 isRemoteUpdate 正常工作
+    // IPC & WebSocket
     useEffect(() => {
         if (window.require) return; 
         let ws; let timer;
@@ -239,7 +264,6 @@ export function useGameCore() {
                         setLcuProfile(msg.data);
                         if (token) axios.post(`${API_BASE_URL}/users/sync_profile`, msg.data, { headers: { Authorization: `Bearer ${token}` } }).catch(e=>{});
                     }
-                    // 同步处理
                     if (msg.type === 'SYNC_LANE_ASSIGNMENTS') {
                         isRemoteUpdate.current = true;
                         if (JSON.stringify(myLaneAssignments) !== JSON.stringify(msg.data.my)) setMyLaneAssignments(msg.data.my);
@@ -356,7 +380,6 @@ export function useGameCore() {
         }
     }, [championList, token]); 
 
-    // 辅助函数保持不变
     const handleSaveShortcuts = (newShortcuts) => {
         setCurrentShortcuts(newShortcuts);
         if (window.require) {
@@ -379,7 +402,6 @@ export function useGameCore() {
         } else if (lcuStatus === 'disconnected') hasAutoSynced.current = false;
     }, [lcuStatus, handleSyncProfile]);
 
-    // LocalStorage Sync
     useEffect(() => { localStorage.setItem('blueTeam', JSON.stringify(blueTeam)); }, [blueTeam]);
     useEffect(() => { localStorage.setItem('redTeam', JSON.stringify(redTeam)); }, [redTeam]);
     useEffect(() => { localStorage.setItem('myTeamRoles', JSON.stringify(myTeamRoles)); }, [myTeamRoles]);
@@ -391,8 +413,9 @@ export function useGameCore() {
     useEffect(() => { localStorage.setItem('useThinkingModel', JSON.stringify(useThinkingModel)); }, [useThinkingModel]);
     useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
     useEffect(() => { localStorage.setItem('mapSide', mapSide); }, [mapSide]);
+    useEffect(() => { localStorage.setItem('userSlot', JSON.stringify(userSlot)); }, [userSlot]);
 
-    // Init & Auth
+    // 初始化时拉取中文版数据
     useEffect(() => {
         axios.get(`${API_BASE_URL}/champions/roles`).then(res => setRoleMapping(res.data)).catch(e => console.error(e));
         const storedToken = localStorage.getItem("access_token");
@@ -401,14 +424,21 @@ export function useGameCore() {
         
         const initData = async () => {
             try {
+                // 请求 DDragon 的中文数据
                 const vRes = await fetch(`${DDRAGON_BASE}/api/versions.json`);
                 const versions = await vRes.json();
                 setVersion(versions[0]);
                 const cRes = await fetch(`${DDRAGON_BASE}/cdn/${versions[0]}/data/zh_CN/championFull.json`);
                 const cData = await cRes.json();
+                
+                // 使用腾讯源 (gtimg.cn)
                 setChampionList(Object.values(cData.data).map(c => ({
-                    id: c.key, key: c.id, name: c.name, title: c.title, tags: c.tags,
-                    image_url: `${DDRAGON_BASE}/cdn/${versions[0]}/img/champion/${c.id}.png`,
+                    id: c.key, 
+                    key: c.id, 
+                    name: c.name, 
+                    title: c.title, 
+                    tags: c.tags,
+                    image_url: `https://game.gtimg.cn/images/lol/act/img/champion/${c.id}.png`,
                 })));
             } catch (e) {}
         };
@@ -478,7 +508,6 @@ export function useGameCore() {
         }
     };
 
-    // ... (handleLogin, handleRegister, logout, etc 保持不变)
     const handleLogin = async () => {
         try {
             const formData = new FormData(); formData.append("username", authForm.username); formData.append("password", authForm.password);
@@ -572,7 +601,10 @@ export function useGameCore() {
         setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" });
         setAiResults({ bp: null, personal: null, team: null });
         setMapSide("unknown"); 
-        ['blueTeam','redTeam','myTeamRoles','enemyLaneAssignments','myLaneAssignments','aiResults', 'mapSide'].forEach(k => localStorage.removeItem(k));
+        ['blueTeam','redTeam','myTeamRoles','enemyLaneAssignments','myLaneAssignments','aiResults', 'mapSide', 'userSlot'].forEach(k => localStorage.removeItem(k));
+        // Reset userSlot to default
+        setUserSlot(1); 
+        setUserRole('JUNGLE');
     };
 
     const handleAnalyze = async (mode, forceRestart = false) => {
