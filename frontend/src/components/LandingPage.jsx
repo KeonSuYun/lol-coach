@@ -30,7 +30,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
   }, []);
 
   return (
-    <div className="w-full min-h-screen bg-[#06070a] text-slate-200 overflow-x-hidden selection:bg-[#C8AA6E]/30 font-sans">
+    // 🔥 [优化] 背景色调整为 Slate-900 风格
+    <div className="w-full min-h-screen bg-[#0F172A] text-slate-200 overflow-x-hidden selection:bg-[#C8AA6E]/30 font-sans">
       <Toaster position="top-center" />
       
       <DownloadModal 
@@ -39,7 +40,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
       />
       
       {/* === 1. 顶部导航栏 === */}
-      <nav className="fixed top-0 left-0 w-full z-50 bg-[#06070a]/90 backdrop-blur-md border-b border-white/5 transition-all duration-300 h-20">
+      {/* 🔥 [优化] 导航栏背景色同步 */}
+      <nav className="fixed top-0 left-0 w-full z-50 bg-[#0F172A]/90 backdrop-blur-md border-b border-white/5 transition-all duration-300 h-20">
         <div className="max-w-[1800px] mx-auto px-6 h-full flex items-center justify-between">
           
           {/* A. 左侧 Logo 区 */}
@@ -113,7 +115,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
 
       {/* === 2. Hero Section (主视觉) === */}
       <div className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-6 overflow-hidden">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[800px] bg-gradient-to-b from-[#0b1629] via-[#091428] to-transparent rounded-full blur-[100px] -z-10 opacity-80"></div>
+        {/* 🔥 [优化] 顶部光晕颜色微调 */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[800px] bg-gradient-to-b from-[#1e293b] via-[#0F172A] to-transparent rounded-full blur-[100px] -z-10 opacity-80"></div>
         
         <div className="max-w-[1200px] mx-auto text-center relative z-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase mb-6 animate-in fade-in slide-in-from-bottom-4">
@@ -151,7 +154,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
       </div>
 
       {/* === 3. 核心价值 (2x2 Grid) === */}
-      <div id="core-features" className="w-full bg-[#030406] py-24 border-t border-white/5 relative">
+      {/* 🔥 [优化] 背景色调整为 Slate-950 (更深一点) */}
+      <div id="core-features" className="w-full bg-[#020617] py-24 border-t border-white/5 relative">
         <div className="max-w-[1400px] mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-black text-white mb-4">不是代打，<span className="text-[#0AC8B9]">是赋能</span></h2>
@@ -161,7 +165,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             
             {/* 卡片 1: BP */}
-            <div className="group bg-[#091428] p-6 rounded-2xl border border-white/5 hover:border-blue-500/30 transition-all hover:-translate-y-2 relative overflow-hidden">
+            <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-blue-500/30 transition-all hover:-translate-y-2 relative overflow-hidden">
                 <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400 mb-4 group-hover:bg-blue-500/20 transition-colors">
                         <MousePointer2 size={24} />
@@ -181,7 +185,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
             </div>
 
             {/* 卡片 2: 对线 */}
-            <div className="group bg-[#091428] p-6 rounded-2xl border border-white/5 hover:border-purple-500/30 transition-all hover:-translate-y-2 relative overflow-hidden">
+            <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-purple-500/30 transition-all hover:-translate-y-2 relative overflow-hidden">
                 <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-400 mb-4 group-hover:bg-purple-500/20 transition-colors">
                         <Lightbulb size={24} className="fill-current"/>
@@ -202,7 +206,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
             </div>
 
             {/* 卡片 3: 局内 (Decision) */}
-            <div className="group bg-[#091428] p-6 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-all hover:-translate-y-2 relative overflow-hidden opacity-90 hover:opacity-100">
+            <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-all hover:-translate-y-2 relative overflow-hidden opacity-90 hover:opacity-100">
                 <div className="absolute top-4 right-[-35px] rotate-45 bg-slate-800 text-slate-400 text-[10px] font-bold px-10 py-1 shadow-lg border-y border-slate-700 z-10">
                     DEV
                 </div>
@@ -233,7 +237,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
             </div>
 
             {/* 卡片 4: 复盘 */}
-            <div className="group bg-[#091428] p-6 rounded-2xl border border-white/5 hover:border-green-500/30 transition-all hover:-translate-y-2 relative overflow-hidden opacity-90 hover:opacity-100">
+            <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-green-500/30 transition-all hover:-translate-y-2 relative overflow-hidden opacity-90 hover:opacity-100">
                 <div className="absolute top-4 right-[-35px] rotate-45 bg-slate-800 text-slate-400 text-[10px] font-bold px-10 py-1 shadow-lg border-y border-slate-700 z-10">
                     DEV
                 </div>
@@ -268,8 +272,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
       </div>
 
       {/* === 4. 第一顺位：战术教练模块 (Coaching Module) === */}
-      {/* === 4. 第一顺位：战术教练模块 (Coaching Module) === */}
-      <div id="coaching-module" className="w-full bg-[#030508] py-32 border-t border-white/5 relative overflow-hidden">
+      {/* 🔥 [优化] 背景色调整 */}
+      <div id="coaching-module" className="w-full bg-[#0F172A] py-32 border-t border-white/5 relative overflow-hidden">
         {/* 背景装饰 (深蓝系) */}
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-blue-900/10 rounded-full blur-[100px] -z-10"></div>
         
@@ -301,7 +305,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     {/* 模块 1：对线 */}
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-blue-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-blue-400 shrink-0">
                             <Swords size={24}/>
                         </div>
                         <div>
@@ -312,7 +316,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                     
                     {/* 模块 2：打野 (新增/修改) */}
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
                             <Map size={24}/>
                         </div>
                         <div>
@@ -323,7 +327,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
 
                     {/* 模块 3：团战 */}
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-red-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-red-400 shrink-0">
                             <Target size={24}/>
                         </div>
                         <div>
@@ -334,7 +338,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
 
                     {/* 模块 4：阵容 */}
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-emerald-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-emerald-400 shrink-0">
                             <Layers size={24}/>
                         </div>
                         <div>
@@ -418,7 +422,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
       </div>
 
       {/* === 5. 第二顺位：赛后复盘模块 (Post-Match Module) === */}
-      <div id="postmatch-module" className="w-full bg-[#04060C] py-32 border-t border-white/5 relative overflow-hidden">
+      {/* 🔥 [优化] 背景色调整 */}
+      <div id="postmatch-module" className="w-full bg-[#020617] py-32 border-t border-white/5 relative overflow-hidden">
         {/* 背景装饰 (紫色系) */}
         <div className="absolute top-1/2 left-0 -translate-y-1/2 w-[800px] h-[800px] bg-purple-900/10 rounded-full blur-[120px] -z-10"></div>
         
@@ -507,7 +512,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-purple-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-purple-400 shrink-0">
                             <Award size={24}/>
                         </div>
                         <div>
@@ -516,7 +521,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                     </div>
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-red-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-red-400 shrink-0">
                             <AlertCircle size={24}/>
                         </div>
                         <div>
@@ -525,7 +530,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                     </div>
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-[#0AC8B9] shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-[#0AC8B9] shrink-0">
                             <Microscope size={24}/>
                         </div>
                         <div>
@@ -534,7 +539,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                     </div>
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-pink-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-pink-400 shrink-0">
                             <Target size={24}/>
                         </div>
                         <div>
@@ -549,7 +554,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
       </div>
 
       {/* === 6. 第三顺位：局内决策引擎 (In-Game Module) === */}
-      <div id="ingame-module" className="w-full bg-[#020304] py-32 border-t border-white/5 relative overflow-hidden">
+      {/* 🔥 [优化] 背景色调整 */}
+      <div id="ingame-module" className="w-full bg-[#0F172A] py-32 border-t border-white/5 relative overflow-hidden">
         {/* 背景装饰 */}
         <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-[#C8AA6E]/5 rounded-full blur-[120px] -z-10 opacity-50"></div>
         <div className="absolute inset-0 bg-[url('https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/magic-pattern-sprite.png')] opacity-[0.02] -z-10"></div>
@@ -583,7 +589,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-green-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-green-400 shrink-0">
                             <Compass size={24}/>
                         </div>
                         <div>
@@ -592,7 +598,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                     </div>
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
                             <Activity size={24}/>
                         </div>
                         <div>
@@ -601,7 +607,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                     </div>
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-red-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-red-400 shrink-0">
                             <Target size={24}/>
                         </div>
                         <div>
@@ -610,7 +616,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                     </div>
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#091428] rounded-lg border border-white/10 text-blue-400 shrink-0">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-blue-400 shrink-0">
                             <Brain size={24}/>
                         </div>
                         <div>
@@ -691,7 +697,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
         </div>
       </div>
 
-      {/* === 7. 技术与合规 (Tech Stack) === */}
+      {/* === 7. 技术与合规 (Tech Stack) - 删除了 CV 文案 === */}
       <div className="w-full bg-gradient-to-b from-[#091428] to-[#050810] py-20 px-6 border-t border-white/5">
         <div className="max-w-5xl mx-auto bg-[#020304] rounded-3xl border border-[#C8AA6E]/10 p-8 md:p-12 relative overflow-hidden">
             
@@ -700,15 +706,16 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                     <div className="inline-flex items-center gap-2 mb-4 text-[#0AC8B9] font-mono text-xs font-bold tracking-wider">
                         <ShieldCheck size={14}/> SAFE & COMPLIANT
                     </div>
+                    {/* 🔥 [优化] 文案修改：强调纯净数据流 */}
                     <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
-                        LCU 官方接口 + <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0AC8B9] to-blue-400">CV 视觉分析</span>
+                        LCU 官方接口 + <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0AC8B9] to-blue-400">纯净数据流</span>
                     </h2>
                     <p className="text-slate-400 leading-relaxed mb-6">
                         我们严格遵守游戏公平性原则。HexCoach 采用非入侵式技术架构：
                         <br/>
                         1. 通过官方 **LCU 接口** 获取基础对局信息。
                         <br/>
-                        2. 结合 **CV 计算机视觉** 识别屏幕公开信息（如计分板、小地图）。
+                        2. 基于 **实时数据** 进行深度战术推演。
                         <br/>
                         <span className="text-white font-bold">绝不读取内存，绝不注入代码。</span> 我们不修改游戏数据，只是帮你更好地处理已有的信息。
                     </p>
@@ -729,6 +736,29 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 </div>
             </div>
         </div>
+      </div>
+
+      {/* 🔥 [位置调整] 共建理念板块移动到这里 */}
+      <div className="w-full bg-[#040508] py-20 border-t border-white/5 relative overflow-hidden">
+          <div className="max-w-4xl mx-auto px-6 text-center">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700 text-slate-400 text-xs font-bold uppercase mb-6">
+                  <MessageSquare size={12} /> Community Driven
+              </div>
+              
+              <h2 className="text-2xl md:text-4xl font-bold text-white mb-6">
+                  Hex Coach 不是一个 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200">“永远正确”</span> 的系统
+              </h2>
+              
+              <div className="text-slate-400 leading-relaxed text-sm md:text-base space-y-4 max-w-2xl mx-auto">
+                  <p>
+                      它在不断学习，也需要真实玩家的反馈。如果你发现 AI 的判断与实际对局存在明显偏差，
+                      或你能给出更好的对局理解，我们欢迎你把这些反馈在社区分享出来。
+                  </p>
+                  <p className="text-slate-500 text-xs mt-4 pt-4 border-t border-white/5">
+                      * 经过管理员审核的有效反馈，会获得额外的 <span className="text-[#0AC8B9]">模型使用次数</span> 或 <span className="text-[#C8AA6E]">会员时长</span> 奖励。
+                  </p>
+              </div>
+          </div>
       </div>
 
       {/* Footer */}

@@ -5,61 +5,118 @@ import {
     DollarSign, TrendingUp, Users, Zap, AlertTriangle, 
     Database, Server, RefreshCw, Search, Plus, Edit, Trash2, PenTool, Ban,
     Wallet, ArrowUpRight, EyeOff, HandCoins, CheckCircle2, MessageSquare, Send, Check,
-    // 🔥 [新增] 引入配置页所需的图标
-    Cloud, Link, Save, Key, Settings, Briefcase, Gift // 🔥 [修复] 添加 Gift
+    Cloud, Link, Save, Key, Settings, Briefcase, Gift, Lock,
+    ChevronLeft, ChevronRight, Megaphone // 🔥 新增广播图标
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
 
-const COST_PER_CALL = 0.0043; 
+const COST_PER_CALL = 0.01; 
+
+// 🔥 [新增] 通用分页组件 (内部组件)
+const Pagination = ({ currentPage, totalCount, pageSize, onPageChange }) => {
+    const totalPages = Math.ceil(totalCount / pageSize);
+    if (totalPages <= 1) return null;
+
+    return (
+        <div className="flex items-center justify-end gap-3 p-3 bg-[#010A13]/40 border-t border-[#C8AA6E]/10 shrink-0">
+            <span className="text-[10px] text-slate-500">
+                共 {totalCount} 条，第 {currentPage} / {totalPages} 页
+            </span>
+            <div className="flex gap-1">
+                <button 
+                    onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded bg-slate-800 border border-slate-700 text-slate-400 disabled:opacity-30 hover:text-white hover:border-[#C8AA6E] transition-all"
+                >
+                    <ChevronLeft size={14} />
+                </button>
+                <button 
+                    onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded bg-slate-800 border border-slate-700 text-slate-400 disabled:opacity-30 hover:text-white hover:border-[#C8AA6E] transition-all"
+                >
+                    <ChevronRight size={14} />
+                </button>
+            </div>
+        </div>
+    );
+};
 
 const AdminDashboard = ({ token, onClose, username }) => {
     const [activeTab, setActiveTab] = useState('overview'); 
-    
-    // 数据状态
-    const [feedbacks, setFeedbacks] = useState([]);
-    const [showResolved, setShowResolved] = useState(false); // 🔥 是否显示已处理
-    const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [usingMockData, setUsingMockData] = useState(false);
+    const [currentUserRole, setCurrentUserRole] = useState("user"); // 存储当前管理员的真实权限
 
-    // 用户管理状态
+    // --- 分页与数据状态 ---
+    
+    // 1. 监控中心 (前端分页)
+    const [stats, setStats] = useState(null);
+    const [monitorPage, setMonitorPage] = useState(1); // 页码状态
+
+    // 2. 用户管理 (后端分页)
     const [users, setUsers] = useState([]); 
+    const [usersTotal, setUsersTotal] = useState(0); // 总条数
+    const [usersPage, setUsersPage] = useState(1);   // 页码
     const [searchQuery, setSearchQuery] = useState("");
     const [actionUser, setActionUser] = useState(null); 
     const [actionType, setActionType] = useState(null); 
     const [actionValue, setActionValue] = useState("");
 
-    // 销售结算状态
+    // 3. 销售结算 (前端分页)
     const [salesPartners, setSalesPartners] = useState([]);
+    const [salesPage, setSalesPage] = useState(1); // 页码
 
-    // 🔥 私信回复状态
+    // 4. 用户反馈 (前端分页)
+    const [feedbacks, setFeedbacks] = useState([]);
+    const [feedbackPage, setFeedbackPage] = useState(1); // 页码
+    const [showResolved, setShowResolved] = useState(false); // 是否显示已处理
+    
+    // 5. 广播相关状态 (🔥 新增)
+    const [broadcastContent, setBroadcastContent] = useState("");
+    const [isBroadcasting, setIsBroadcasting] = useState(false);
+    
+    // 私信回复状态
     const [replyTarget, setReplyTarget] = useState(null); // 当前要回复的反馈对象 {id, user_id}
     const [replyContent, setReplyContent] = useState("");
 
-    // 🔥 [新增] 下载配置状态
+    // 系统配置状态
     const [downloadConfig, setDownloadConfig] = useState({ pan_url: "", pan_pwd: "" });
     const [configLoading, setConfigLoading] = useState(false);
 
-    const isSuperAdmin = username === "admin" || username === "root";
+    // 通用加载/错误状态
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [usingMockData, setUsingMockData] = useState(false);
 
+    // 🛡️ 权限判断逻辑
+    useEffect(() => {
+        // 每次打开面板，先核实一次身份
+        axios.get(`${API_BASE_URL}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+            .then(res => setCurrentUserRole(res.data.role))
+            .catch(() => {});
+    }, [token]);
+
+    // 🔥🔥🔥 核心定义：isRoot 
+    const isRoot = currentUserRole === 'root'; // 超级管理员 (老板)
+
+    // 🔥 Tab 过滤：使用 isRoot 而不是 isSuperAdmin
     const TABS = [
         { id: 'overview', label: '监控中心', icon: Activity },
         { id: 'users', label: '用户管理', icon: Users },
-        ...(isSuperAdmin ? [{ id: 'sales', label: '销售结算', icon: Wallet }] : []),
+        // 🔥 仅 Root 可见 Sales, Broadcast 和 Config
+        ...(isRoot ? [{ id: 'sales', label: '销售结算', icon: Wallet }] : []),
         { id: 'feedbacks', label: '用户反馈', icon: Database },
-        // 🔥 [新增] 系统配置 Tab (仅管理员可见)
-        ...(isSuperAdmin ? [{ id: 'config', label: '系统配置', icon: Settings }] : []),
+        ...(isRoot ? [{ id: 'broadcast', label: '全员广播', icon: Megaphone }] : []), // 🔥 新增广播入口
+        ...(isRoot ? [{ id: 'config', label: '系统配置', icon: Settings }] : []),
     ];
 
     // ================= 1. 数据获取逻辑 =================
 
-    const fetchData = async () => {
-        setLoading(true);
+    const fetchData = async (isAutoRefresh = false) => {
+        if (!isAutoRefresh) setLoading(true);
         setError(null);
         try {
-            // 🔥 获取反馈 (根据 showResolved 状态传参)
+            // 获取反馈
             const statusParam = showResolved ? 'all' : 'pending';
             const resFeedbacks = await axios.get(`${API_BASE_URL}/admin/feedbacks`, {
                 params: { status: statusParam },
@@ -67,46 +124,62 @@ const AdminDashboard = ({ token, onClose, username }) => {
             });
             setFeedbacks(Array.isArray(resFeedbacks.data) ? resFeedbacks.data : []);
 
-            // 获取统计数据 (仅在概览页或首次加载时)
+            // 获取统计数据 (核心监控数据)
+            // 加上时间戳防止缓存
             if (activeTab === 'overview' || !stats) {
                 try {
-                    const resStats = await axios.get(`${API_BASE_URL}/admin/stats`, {
+                    const resStats = await axios.get(`${API_BASE_URL}/admin/stats?_t=${Date.now()}`, {
                         headers: { Authorization: `Bearer ${token}` }
                     });
                     setStats(resStats.data);
                     setUsingMockData(false);
                 } catch (statsErr) {
-                    setUsingMockData(true);
-                    setStats({
-                        total_users: 0, pro_users: 0, total_revenue: 0, 
-                        total_commissions: 0, total_api_calls: 0, recent_users: []
-                    });
+                    if (!isAutoRefresh && !stats) {
+                        setUsingMockData(true);
+                        setStats({
+                            total_users: 0, pro_users: 0, total_revenue: 0, 
+                            total_commissions: 0, total_api_calls: 0, recent_users: []
+                        });
+                    }
                 }
             }
 
         } catch (err) {
             if (err.response && err.response.status === 403) {
-                setError("⛔ 权限拒绝：非管理员账号");
+                setError("⛔ 权限拒绝：您的账号没有管理员权限");
             } else {
-                setError("数据连接失败: " + err.message);
+                console.error("Dashboard Sync Error:", err);
             }
         } finally {
-            setLoading(false);
+            if (!isAutoRefresh) setLoading(false);
         }
     };
 
-    const fetchUsers = async () => {
+    // 🔥 [核心] 用户列表：支持后端分页
+    const fetchUsers = async (page = 1) => {
         try {
             const res = await axios.get(`${API_BASE_URL}/admin/users`, {
-                params: { search: searchQuery },
+                params: { search: searchQuery, page: page, limit: 10 }, // 10条/页
                 headers: { Authorization: `Bearer ${token}` }
             });
-            setUsers(Array.isArray(res.data) ? res.data : []);
-        } catch (err) { setUsers([]); }
+            
+            // 兼容 { items, total } 新格式 和 [list] 旧格式
+            if (res.data.items) {
+                setUsers(res.data.items);
+                setUsersTotal(res.data.total);
+            } else {
+                setUsers(res.data);
+                setUsersTotal(res.data.length);
+            }
+            setUsersPage(page);
+        } catch (err) { 
+            setUsers([]); 
+            setUsersTotal(0);
+        }
     };
 
     const fetchSalesPartners = async () => {
-        if (!isSuperAdmin) return;
+        if (!isRoot) return;
         try {
             const res = await axios.get(`${API_BASE_URL}/admin/sales/summary`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -115,122 +188,139 @@ const AdminDashboard = ({ token, onClose, username }) => {
         } catch (err) { setSalesPartners([]); }
     };
 
-    // 🔥 [新增] 获取配置函数
     const fetchConfig = async () => {
         setConfigLoading(true);
         try {
             const res = await axios.get(`${API_BASE_URL}/api/config/client`);
-            // 确保数据存在，防止 null 报错
             setDownloadConfig({
                 pan_url: res.data.pan_url || "",
                 pan_pwd: res.data.pan_pwd || ""
             });
         } catch (e) {
             console.error("Config load failed", e);
-            toast.error("加载配置失败");
         } finally {
             setConfigLoading(false);
         }
     };
 
-    // ================= 2. 操作逻辑 =================
+    // ================= 2. Effect Hooks (包含自动刷新) =================
 
-    const handleUpdateUser = async () => {
-        if (!actionUser) return;
-        try {
-            await axios.post(`${API_BASE_URL}/admin/user/update`, {
-                username: actionUser.username,
-                action: actionType,
-                value: actionValue
-            }, { headers: { Authorization: `Bearer ${token}` } });
-            
-            toast.success("用户操作成功！");
-            setActionUser(null);
-            fetchUsers(); 
-        } catch (err) {
-            toast.error("操作失败: " + (err.response?.data?.detail || err.message));
-        }
-    };
+    useEffect(() => { 
+        fetchData(); 
+        
+        // 🔥🔥🔥 10秒自动刷新，保证监控列表是实时的
+        const timer = setInterval(() => {
+            if (activeTab === 'overview') {
+                fetchData(true); // true = 静默刷新
+            }
+        }, 10000);
 
-    const handleSettle = async (partner) => {
-        if (partner.pending_commission <= 0) {
-            toast("该用户当前没有待结算的佣金。", { icon: 'ℹ️' });
-            return;
-        }
-        const confirmMsg = `即将结算用户 [${partner.username}] 的佣金。\n\n💰 本次结算金额：¥${partner.pending_commission}\n\n⚠️ 注意：此操作仅在数据库中标记状态为“已结算”，请确保您已通过微信/支付宝线下转账给对方。`;
-        if (!window.confirm(confirmMsg)) return;
-        try {
-            await axios.post(`${API_BASE_URL}/admin/sales/settle`, { username: partner.username }, { headers: { Authorization: `Bearer ${token}` } });
-            toast.success("✅ 状态更新成功！佣金已归档。");
-            fetchSalesPartners(); 
-        } catch (err) {
-            toast.error("❌ 结算失败: " + (err.response?.data?.detail || err.message));
-        }
-    };
-
-    // 🔥 [修改] 标记反馈处理函数：支持采纳奖励
-    const handleResolveFeedback = async (id, adopt = false) => {
-        try {
-            await axios.post(`${API_BASE_URL}/admin/feedbacks/resolve`, 
-                { feedback_id: id, adopt: adopt, reward: 1 }, // 🔥 固定奖励 1 次
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            
-            const actionText = adopt ? "已采纳并奖励用户！" : "已归档 (无奖励)";
-            toast.success(actionText);
-            
-            // 乐观更新 UI：从列表中移除
-            setFeedbacks(prev => prev.filter(f => f._id !== id));
-        } catch (err) {
-            toast.error("操作失败: " + (err.response?.data?.detail || err.message));
-        }
-    };
-
-    // 🔥 [新增] 发送私信回复
-    const handleSendReply = async () => {
-        if (!replyContent.trim()) return;
-        try {
-            await axios.post(`${API_BASE_URL}/messages`, {
-                receiver: replyTarget.user_id,
-                content: replyContent
-            }, { headers: { Authorization: `Bearer ${token}` } });
-            
-            toast.success(`已私信回复 ${replyTarget.user_id}`);
-            setReplyTarget(null);
-            setReplyContent("");
-        } catch (err) {
-            toast.error("发送失败: " + (err.response?.data?.detail || err.message));
-        }
-    };
-
-    // 🔥 [新增] 保存配置函数
-    const handleSaveConfig = async () => {
-        try {
-            setConfigLoading(true); // 复用 loading 状态
-            await axios.post(`${API_BASE_URL}/admin/config/client`, downloadConfig, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            toast.success("✅ 下载链接已更新，用户端立即生效！");
-        } catch (e) {
-            toast.error("保存失败: " + (e.response?.data?.detail || e.message));
-        } finally {
-            setConfigLoading(false);
-        }
-    };
-
-    // ================= 3. Effect Hooks =================
-
-    useEffect(() => { fetchData(); }, [token]); // 初始加载
+        return () => clearInterval(timer);
+    }, [token, activeTab]); 
 
     useEffect(() => {
-        // 切换 Tab 或 切换反馈筛选时 重新获取
-        if (activeTab === 'users') fetchUsers();
-        if (activeTab === 'sales') fetchSalesPartners();
-        if (activeTab === 'feedbacks') fetchData(); 
-        // 🔥 [新增] 切换到配置页时加载
+        // 切换 Tab 时重置页码并刷新数据
+        if (activeTab === 'users') fetchUsers(1); 
+        if (activeTab === 'sales') { fetchSalesPartners(); setSalesPage(1); }
+        if (activeTab === 'feedbacks') { fetchData(); setFeedbackPage(1); }
         if (activeTab === 'config') fetchConfig();
     }, [activeTab, searchQuery, showResolved]);
 
+    // ================= 3. 操作逻辑 =================
+    
+    const handleUpdateUser = async () => { 
+        if (!actionUser) return; 
+        try { 
+            await axios.post(`${API_BASE_URL}/admin/user/update`, { 
+                username: actionUser.username, 
+                action: actionType, 
+                value: actionValue 
+            }, { headers: { Authorization: `Bearer ${token}` } }); 
+            toast.success("操作成功"); 
+            setActionUser(null); 
+            fetchUsers(usersPage); // 刷新当前页
+        } catch (err) { 
+            toast.error(err.response?.data?.detail || "操作失败"); 
+        } 
+    };
+
+    const handleSettle = async (partner) => { 
+        if(!confirm("确定结算?")) return; 
+        try { 
+            await axios.post(`${API_BASE_URL}/admin/sales/settle`, { username: partner.username }, { headers: { Authorization: `Bearer ${token}` } }); 
+            toast.success("已结算"); 
+            fetchSalesPartners(); 
+        } catch(e){ 
+            toast.error("结算失败"); 
+        } 
+    };
+
+    const handleResolveFeedback = async (id, adopt, type) => { 
+        try { 
+            // 默认奖励 1 次，如果选归档则 adopt=false
+            await axios.post(`${API_BASE_URL}/admin/feedbacks/resolve`, { 
+                feedback_id: id, 
+                adopt: adopt, 
+                reward: 1, 
+                reward_type: type 
+            }, { headers: { Authorization: `Bearer ${token}` } }); 
+            
+            toast.success("已处理"); 
+            setFeedbacks(p => p.filter(f => f._id !== id)); 
+        } catch(e){ 
+            toast.error("操作失败"); 
+        } 
+    };
+
+    const handleSendReply = async () => { 
+        if(!replyContent) return; 
+        try { 
+            await axios.post(`${API_BASE_URL}/messages`, { receiver: replyTarget.user_id, content: replyContent }, { headers: { Authorization: `Bearer ${token}` } }); 
+            toast.success("已发送"); 
+            setReplyTarget(null); 
+            setReplyContent(""); 
+        } catch(e){ 
+            toast.error("发送失败"); 
+        } 
+    };
+
+    // 🔥 [新增] 广播发送处理
+    const handleBroadcast = async () => {
+        if (!broadcastContent.trim()) return toast.error("请输入广播内容");
+        
+        // 二次确认，防止误触
+        if (!window.confirm("⚠️ 高危操作警告 ⚠️\n\n确定要向【全服所有用户】发送这条消息吗？\n此操作不可撤销！")) {
+            return;
+        }
+
+        setIsBroadcasting(true);
+        try {
+            const res = await axios.post(`${API_BASE_URL}/admin/broadcast`, 
+                { content: broadcastContent },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            toast.success(res.data.msg);
+            setBroadcastContent(""); // 清空输入框
+        } catch (e) {
+            toast.error(e.response?.data?.detail || "广播发送失败");
+        } finally {
+            setIsBroadcasting(false);
+        }
+    };
+
+    const handleSaveConfig = async () => { 
+        try { 
+            setConfigLoading(true); 
+            await axios.post(`${API_BASE_URL}/admin/config/client`, downloadConfig, { headers: { Authorization: `Bearer ${token}` } }); 
+            toast.success("已保存"); 
+        } catch(e){ 
+            toast.error("保存失败"); 
+        } finally { 
+            setConfigLoading(false); 
+        } 
+    };
+
+    // 辅助显示
     const calculateFinancials = () => {
         if (!stats) return { revenue: 0, commissions: 0, apiCost: 0, profit: 0, margin: 0 };
         const revenue = stats.total_revenue || 0;
@@ -243,24 +333,35 @@ const AdminDashboard = ({ token, onClose, username }) => {
     const { revenue, commissions, apiCost, profit, margin } = calculateFinancials();
 
     const getDisplayName = (user) => {
-        // 1. 🔥 [修复] 优先读取数据库标准字段 (snake_case)
         if (user.game_name) return `${user.game_name} #${user.tag_line || 'HEX'}`;
-        
-        // 2. 兼容旧数据 (camelCase)
         if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
-        
-        // 3. 兼容嵌套结构 (game_profile)
         try {
             if (user.game_profile) {
                 const p = typeof user.game_profile === 'string' ? JSON.parse(user.game_profile) : user.game_profile;
-                // 兼容内部可能出现的各种命名
                 const name = p.gameName || p.game_name;
                 const tag = p.tagLine || p.tag_line || 'HEX';
                 if (name) return `${name} #${tag}`;
             }
         } catch(e){}
-        
         return null;
+    };
+
+    // 获取用户使用次数
+    const getUserUsage = (user) => {
+        if (user.usage_stats) {
+            const r1 = Object.values(user.usage_stats.counts_reasoner || {}).reduce((a, b) => a + b, 0);
+            const chat = Object.values(user.usage_stats.counts_chat || {}).reduce((a, b) => a + b, 0);
+            return r1 + chat;
+        }
+        if (user.r1_used !== undefined) return user.r1_used;
+        return "-";
+    };
+
+    // 🔥 前端分页数据切片 helper
+    const getPaginatedData = (data, page, size = 10) => {
+        if (!data || !Array.isArray(data)) return [];
+        const start = (page - 1) * size;
+        return data.slice(start, start + size);
     };
 
     return (
@@ -278,7 +379,8 @@ const AdminDashboard = ({ token, onClose, username }) => {
                         <div>
                             <h2 className="text-xl font-bold text-[#F0E6D2] tracking-wider font-serif">HEXTECH 管理后台</h2>
                             <p className="text-[10px] text-[#0AC8B9] font-mono tracking-widest uppercase flex items-center gap-1">
-                                <Server size={10}/> 系统在线 {isSuperAdmin && <span className="text-red-500 ml-2 font-bold">[超级管理员]</span>}
+                                <Server size={10}/> 
+                                {isRoot ? <span className="text-red-500 font-bold">[ROOT ACCESS]</span> : <span className="text-blue-400 font-bold">[ADMIN MODE]</span>}
                             </p>
                         </div>
                     </div>
@@ -307,8 +409,8 @@ const AdminDashboard = ({ token, onClose, username }) => {
                     
                     {loading && activeTab === 'overview' && (
                         <div className="h-full flex flex-col items-center justify-center text-[#0AC8B9] animate-pulse gap-3">
-                            <Activity size={48} />
-                            <span className="font-mono text-sm">正在连接神经网络...</span>
+                            <RefreshCw size={48} className="animate-spin"/>
+                            <span className="font-mono text-sm">正在同步节点数据...</span>
                         </div>
                     )}
                     
@@ -318,7 +420,7 @@ const AdminDashboard = ({ token, onClose, username }) => {
                         </div>
                     )}
 
-                    {/* === Tab 1: 监控中心 === */}
+                    {/* === Tab 1: 监控中心 (前端分页) === */}
                     {!loading && !error && activeTab === 'overview' && (
                         <div className="space-y-6 animate-fade-in-up">
                             {usingMockData && (
@@ -328,7 +430,7 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                 </div>
                             )}
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                {isSuperAdmin ? (
+                                {isRoot ? (
                                     <>
                                         <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 p-4 rounded-lg relative overflow-hidden group hover:border-[#C8AA6E]/50 transition-all">
                                             <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={40} className="text-[#C8AA6E]"/></div>
@@ -362,102 +464,135 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                     </div>
                                 )}
                             </div>
-                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden">
-                                <div className="px-4 py-3 bg-[#010A13]/80 border-b border-[#C8AA6E]/10 flex justify-between items-center">
-                                    <h3 className="text-sm font-bold text-[#C8AA6E] uppercase tracking-wider">最近活跃用户</h3>
-                                    <button onClick={fetchData} className="text-slate-500 hover:text-[#0AC8B9] transition"><RefreshCw size={14}/></button>
+                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden flex flex-col h-[520px]">
+                                <div className="px-4 py-3 bg-[#010A13]/80 border-b border-[#C8AA6E]/10 flex justify-between items-center shrink-0">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-sm font-bold text-[#C8AA6E] uppercase tracking-wider">最近活跃用户 (Live)</h3>
+                                        <div className="flex items-center gap-1 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/30">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                                            <span className="text-[10px] text-green-400 font-bold">50</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => fetchData(false)} className="text-slate-500 hover:text-[#0AC8B9] transition flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-white/5">
+                                        <RefreshCw size={12}/> 立即刷新
+                                    </button>
                                 </div>
-                                <table className="w-full text-left text-sm text-slate-400">
-                                    <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
-                                        <tr>
-                                            <th className="px-4 py-3">用户</th>
-                                            <th className="px-4 py-3">身份</th>
-                                            <th className="px-4 py-3">调用次数</th>
-                                            <th className="px-4 py-3">最后活跃</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#C8AA6E]/5">
-                                        {stats?.recent_users?.map((user, idx) => (
-                                            <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors">
-                                                <td className="px-4 py-3 font-bold text-slate-300">{user.username}</td>
-                                                <td className="px-4 py-3">
-                                                    {user.role === 'pro' || user.role === 'vip' ? <span className="text-[#C8AA6E] bg-[#C8AA6E]/10 px-2 py-0.5 rounded text-[10px] border border-[#C8AA6E]/30 font-bold">PRO</span> : <span className="text-slate-500 text-[10px]">FREE</span>}
-                                                </td>
-                                                <td className="px-4 py-3 font-mono text-[#0AC8B9]">{user.r1_used}</td>
-                                                <td className="px-4 py-3 text-xs">{user.last_active}</td>
+                                <div className="flex-1 overflow-auto custom-scrollbar bg-[#010A13]/20">
+                                    <table className="w-full text-left text-sm text-slate-400 relative">
+                                        <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-4 py-3 bg-[#091428]">用户身份</th>
+                                                <th className="px-4 py-3 bg-[#091428]">权限组</th>
+                                                <th className="px-4 py-3 bg-[#091428]">核心调用</th>
+                                                <th className="px-4 py-3 bg-[#091428]">最后活跃</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-[#C8AA6E]/5">
+                                            {/* 🔥 使用前端分页 getPaginatedData */}
+                                            {getPaginatedData(stats?.recent_users, monitorPage).map((user, idx) => {
+                                                const gameId = getDisplayName(user);
+                                                const isActiveNow = user.last_active && (new Date() - new Date(user.last_active) < 10 * 60 * 1000);
+                                                return (
+                                                    <tr key={idx} className={`transition-colors ${isActiveNow ? 'bg-[#0AC8B9]/5 hover:bg-[#0AC8B9]/10' : 'hover:bg-[#C8AA6E]/5'}`}>
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex flex-col">
+                                                                <span className={`font-bold ${isActiveNow ? 'text-white' : 'text-slate-200'}`}>{user.username}</span>
+                                                                {gameId ? (
+                                                                    <span className="text-xs text-[#0AC8B9] font-mono mt-0.5">{gameId}</span>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-slate-600 italic mt-0.5">未同步</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {user.role === 'pro' || user.role === 'vip' 
+                                                                ? <span className="text-[#C8AA6E] bg-[#C8AA6E]/10 px-2 py-0.5 rounded text-[10px] border border-[#C8AA6E]/30 font-bold flex items-center w-fit gap-1"><CheckCircle2 size={10}/> PRO</span> 
+                                                                : <span className="text-slate-500 text-[10px] border border-slate-700 px-2 py-0.5 rounded">FREE</span>}
+                                                        </td>
+                                                        <td className="px-4 py-3 font-mono text-[#0AC8B9] font-bold">{user.r1_used}</td>
+                                                        <td className="px-4 py-3 text-xs font-mono text-slate-500">
+                                                            {user.last_active ? (
+                                                                <span className={isActiveNow ? 'text-green-400 font-bold' : ''}>
+                                                                    {new Date(user.last_active).toLocaleString()}
+                                                                </span>
+                                                            ) : '-'}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {/* 🔥 分页控件 */}
+                                <Pagination 
+                                    currentPage={monitorPage} 
+                                    totalCount={stats?.recent_users?.length || 0} 
+                                    pageSize={10} 
+                                    onPageChange={setMonitorPage} 
+                                />
                             </div>
                         </div>
                     )}
 
-                    {/* === Tab 2: 用户管理 === */}
+                    {/* === Tab 2: 用户管理 (后端分页) === */}
                     {!loading && !error && activeTab === 'users' && (
                         <div className="animate-fade-in-up space-y-4">
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
                                     <Search className="absolute left-3 top-2.5 text-slate-500" size={16} />
-                                    <input type="text" placeholder="搜索用户名..." className="w-full bg-[#010A13]/60 border border-slate-700 rounded pl-10 pr-4 py-2 text-slate-200 focus:border-[#0AC8B9] outline-none" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                                    <input type="text" placeholder="搜索用户名..." className="w-full bg-[#010A13]/60 border border-slate-700 rounded pl-10 pr-4 py-2 text-slate-200 focus:border-[#0AC8B9] outline-none" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && fetchUsers(1)} />
                                 </div>
-                                <button onClick={fetchUsers} className="bg-[#0AC8B9]/20 text-[#0AC8B9] px-4 rounded hover:bg-[#0AC8B9]/30 border border-[#0AC8B9]/30 transition">刷新</button>
+                                <button onClick={() => fetchUsers(1)} className="bg-[#0AC8B9]/20 text-[#0AC8B9] px-4 rounded hover:bg-[#0AC8B9]/30 border border-[#0AC8B9]/30 transition">刷新</button>
                             </div>
-                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden min-h-[400px]">
-                                <table className="w-full text-left text-sm text-slate-400">
-                                    <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
-                                        <tr>
-                                            <th className="px-4 py-3">用户名 / 游戏ID</th>
-                                            <th className="px-4 py-3">角色</th>
-                                            <th className="px-4 py-3">会员过期时间</th>
-                                            <th className="px-4 py-3 text-right">操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#C8AA6E]/5">
-                                        {users.map((user) => (
-                                            <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
-                                                <td className="px-4 py-3">
-                                                    <div className="font-bold text-slate-200">{user.username}</div>
-                                                    <div className="text-xs text-[#0AC8B9]">{getDisplayName(user) || "未同步"}</div>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{user.role}</span>
-                                                </td>
-                                                <td className="px-4 py-3 font-mono text-xs">
-                                                    {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() : '-'}
-                                                </td>
-                                                <td className="px-4 py-3 flex justify-end gap-2">
-                                                    <button onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }} className="bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition">补单</button>
-                                                    <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }} className="bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition">权限</button>
-                                                    
-                                                    {/* 🔥 [新增] 设为销售按钮 */}
-                                                    <button 
-                                                        onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue('sales'); }} 
-                                                        className="bg-emerald-900/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-xs hover:bg-emerald-900/40 transition flex items-center gap-1"
-                                                        title="设为销售合伙人"
-                                                    >
-                                                        <Briefcase size={12}/> 销售
-                                                    </button>
-
-                                                    {/* 🔥 [新增] 禁用/封号按钮 */}
-                                                    <button 
-                                                        onClick={() => { 
-                                                            setActionUser(user); 
-                                                            setActionType('set_role'); 
-                                                            setActionValue('banned'); // 直接预设为封禁
-                                                        }} 
-                                                        className="bg-red-950/30 text-red-500 border border-red-500/30 px-2 py-1 rounded text-xs hover:bg-red-900/50 transition flex items-center gap-1"
-                                                        title="禁用账号 (封禁邮箱)"
-                                                    >
-                                                        <Ban size={12}/> 禁用
-                                                    </button>
-
-                                                    <button onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
-                                                </td>
+                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden h-[550px] flex flex-col">
+                                <div className="flex-1 overflow-auto custom-scrollbar">
+                                    <table className="w-full text-left text-sm text-slate-400 relative">
+                                        <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-4 py-3 bg-[#091428]">用户 / 游戏ID</th>
+                                                <th className="px-4 py-3 bg-[#091428]">角色</th>
+                                                <th className="px-4 py-3 bg-[#091428]">总调用</th>
+                                                <th className="px-4 py-3 bg-[#091428]">会员过期时间</th>
+                                                {isRoot && <th className="px-4 py-3 bg-[#091428] text-right">操作</th>}
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-[#C8AA6E]/5">
+                                            {users.map((user) => (
+                                                <tr key={user._id} className="hover:bg-[#C8AA6E]/5 transition-colors">
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-bold text-slate-200">{user.username}</div>
+                                                        <div className="text-xs text-[#0AC8B9]">{getDisplayName(user) || "未同步"}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] border font-bold uppercase ${user.role === 'admin' ? 'bg-red-900/30 text-red-400 border-red-500/30' : user.role === 'pro' ? 'bg-[#C8AA6E]/20 text-[#C8AA6E] border-[#C8AA6E]/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{user.role}</span>
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono text-white">
+                                                        {getUserUsage(user)}
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono text-xs">
+                                                        {user.membership_expire ? new Date(user.membership_expire).toLocaleDateString() : '-'}
+                                                    </td>
+                                                    {isRoot && (
+                                                        <td className="px-4 py-3 flex justify-end gap-2">
+                                                            <button onClick={() => { setActionUser(user); setActionType('add_days'); setActionValue("30"); }} className="bg-green-900/20 text-green-400 border border-green-500/30 px-2 py-1 rounded text-xs hover:bg-green-900/40 transition">补单</button>
+                                                            <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue(user.role); }} className="bg-blue-900/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs hover:bg-blue-900/40 transition">权限</button>
+                                                            <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue('sales'); }} className="bg-emerald-900/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-xs hover:bg-emerald-900/40 transition flex items-center gap-1" title="设为销售合伙人"><Briefcase size={12}/> 销售</button>
+                                                            <button onClick={() => { setActionUser(user); setActionType('set_role'); setActionValue('banned'); }} className="bg-red-950/30 text-red-500 border border-red-500/30 px-2 py-1 rounded text-xs hover:bg-red-900/50 transition flex items-center gap-1" title="禁用账号"><Ban size={12}/> 禁用</button>
+                                                            <button onClick={() => { setActionUser(user); setActionType('delete'); setActionValue("confirm"); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {/* 🔥 分页控件 (后端分页) */}
+                                <Pagination 
+                                    currentPage={usersPage} 
+                                    totalCount={usersTotal} 
+                                    pageSize={10} 
+                                    onPageChange={fetchUsers} 
+                                />
                             </div>
                             
                             {/* 用户操作弹窗 */}
@@ -483,9 +618,9 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                 >
                                                     <option value="user">User (普通用户)</option>
                                                     <option value="pro">Pro (会员)</option>
-                                                    <option value="sales">Sales (销售合伙人)</option> {/* ✅ 新增 */}
+                                                    <option value="sales">Sales (销售合伙人)</option> 
                                                     <option value="admin">Admin (管理员)</option>
-                                                    <option value="banned">🚫 Banned (封禁/禁用)</option> {/* ✅ 新增 */}
+                                                    <option value="banned">🚫 Banned (封禁/禁用)</option> 
                                                 </select>
                                                 <p className="text-[10px] text-slate-500 mt-2">
                                                     * 设为 <b>Banned</b> 后，该用户将无法登录 (邮箱即失效)。
@@ -504,59 +639,67 @@ const AdminDashboard = ({ token, onClose, username }) => {
                         </div>
                     )}
 
-                    {/* === Tab 3: 销售结算 === */}
-                    {!loading && !error && activeTab === 'sales' && isSuperAdmin && (
+                    {/* === Tab 3: 销售结算 (前端分页) === */}
+                    {!loading && !error && activeTab === 'sales' && isRoot && (
                         <div className="space-y-6 animate-fade-in-up">
-                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden">
-                                <table className="w-full text-left text-sm text-slate-400">
-                                    <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase">
-                                        <tr>
-                                            <th className="px-6 py-4">销售员</th>
-                                            <th className="px-6 py-4">联系方式</th>
-                                            <th className="px-6 py-4 text-right">推广单数</th>
-                                            <th className="px-6 py-4 text-right">总销售额</th>
-                                            <th className="px-6 py-4 text-right">历史已结</th>
-                                            <th className="px-6 py-4 text-right text-[#C8AA6E]">本期应付 (需结算)</th>
-                                            <th className="px-6 py-4 text-right">操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#C8AA6E]/5">
-                                        {salesPartners.map((p, idx) => (
-                                            <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors">
-                                                <td className="px-6 py-4 font-bold text-slate-200">
-                                                    {p.username}
-                                                    <div className="text-[10px] text-slate-500 font-normal">{p.game_name}</div>
-                                                </td>
-                                                <td className="px-6 py-4 font-mono text-xs">{p.contact}</td>
-                                                <td className="px-6 py-4 text-right font-mono">{p.order_count}</td>
-                                                <td className="px-6 py-4 text-right font-mono">¥{p.total_sales}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-slate-500">¥{p.paid_commission}</td>
-                                                <td className="px-6 py-4 text-right font-mono font-bold text-[#C8AA6E] text-lg">
-                                                    ¥{p.pending_commission}
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    {p.pending_commission > 0 ? (
-                                                        <button 
-                                                            onClick={() => handleSettle(p)}
-                                                            className="px-3 py-1.5 bg-[#C8AA6E] text-[#091428] rounded text-xs font-bold hover:bg-[#b09358] transition-all flex items-center gap-1 ml-auto shadow-lg shadow-amber-900/20"
-                                                        >
-                                                            <ArrowUpRight size={12}/> 结算打款
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-xs text-green-500 flex items-center justify-end gap-1">
-                                                            <CheckCircle2 size={12}/> 无需结算
-                                                        </span>
-                                                    )}
-                                                </td>
+                            <div className="bg-[#010A13]/40 border border-[#C8AA6E]/20 rounded-lg overflow-hidden h-[500px] flex flex-col">
+                                <div className="flex-1 overflow-auto custom-scrollbar">
+                                    <table className="w-full text-left text-sm text-slate-400 relative">
+                                        <thead className="bg-[#091428] text-xs font-bold text-slate-500 uppercase sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-6 py-4 bg-[#091428]">销售员</th>
+                                                <th className="px-6 py-4 bg-[#091428]">联系方式</th>
+                                                <th className="px-6 py-4 text-right bg-[#091428]">推广单数</th>
+                                                <th className="px-6 py-4 text-right bg-[#091428]">总销售额</th>
+                                                <th className="px-6 py-4 text-right bg-[#091428]">历史已结</th>
+                                                <th className="px-6 py-4 text-right bg-[#091428] text-[#C8AA6E]">本期应付 (需结算)</th>
+                                                <th className="px-6 py-4 text-right bg-[#091428]">操作</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-[#C8AA6E]/5">
+                                            {getPaginatedData(salesPartners, salesPage).map((p, idx) => (
+                                                <tr key={idx} className="hover:bg-[#C8AA6E]/5 transition-colors">
+                                                    <td className="px-6 py-4 font-bold text-slate-200">
+                                                        {p.username}
+                                                        <div className="text-[10px] text-slate-500 font-normal">{p.game_name}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4 font-mono text-xs">{p.contact}</td>
+                                                    <td className="px-6 py-4 text-right font-mono">{p.order_count}</td>
+                                                    <td className="px-6 py-4 text-right font-mono">¥{p.total_sales}</td>
+                                                    <td className="px-6 py-4 text-right font-mono text-slate-500">¥{p.paid_commission}</td>
+                                                    <td className="px-6 py-4 text-right font-mono font-bold text-[#C8AA6E] text-lg">
+                                                        ¥{p.pending_commission}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        {p.pending_commission > 0 ? (
+                                                            <button 
+                                                                onClick={() => handleSettle(p)}
+                                                                className="px-3 py-1.5 bg-[#C8AA6E] text-[#091428] rounded text-xs font-bold hover:bg-[#b09358] transition-all flex items-center gap-1 ml-auto shadow-lg shadow-amber-900/20"
+                                                            >
+                                                                <ArrowUpRight size={12}/> 结算打款
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-xs text-green-500 flex items-center justify-end gap-1">
+                                                                <CheckCircle2 size={12}/> 无需结算
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <Pagination 
+                                    currentPage={salesPage} 
+                                    totalCount={salesPartners.length} 
+                                    pageSize={10} 
+                                    onPageChange={setSalesPage} 
+                                />
                             </div>
                         </div>
                     )}
 
-                    {/* === Tab 4: 用户反馈 === */}
+                    {/* === Tab 4: 用户反馈 (前端分页) === */}
                     {!loading && !error && activeTab === 'feedbacks' && (
                         <div className="space-y-4 animate-fade-in-up">
                             {/* 工具栏 */}
@@ -579,18 +722,18 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                 </div>
                             </div>
 
-                            {/* 列表 */}
-                            <div className="grid gap-4">
+                            {/* 列表容器 */}
+                            <div className="flex flex-col gap-4">
                                 {feedbacks.length === 0 ? (
                                     <div className="text-center py-10 text-slate-500">
                                         <CheckCircle2 size={48} className="mx-auto mb-2 opacity-20"/>
                                         <p>暂无待处理反馈</p>
                                     </div>
                                 ) : (
-                                    feedbacks.map((item) => (
+                                    getPaginatedData(feedbacks, feedbackPage).map((item) => (
                                         <div key={item._id} className="bg-[#010A13]/60 border border-slate-800 rounded-lg p-4 hover:border-[#0AC8B9]/30 transition-all flex flex-col gap-3 group">
                                             
-                                            {/* 头部信息 */}
+                                            {/* 头部 */}
                                             <div className="flex justify-between items-start">
                                                 <div className="flex items-center gap-2">
                                                     <User size={14} className="text-[#0AC8B9]"/>
@@ -613,15 +756,12 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                             {item.match_context && Object.keys(item.match_context).length > 0 && (
                                                 <div className="mt-2 p-2 bg-black/30 rounded border border-white/5 text-[10px] text-slate-500 font-mono whitespace-pre-wrap break-all overflow-x-auto">
                                                     <span className="text-[#C8AA6E] font-bold block mb-1">Context Snapshot:</span>
-                                                    {/* 🔥 核心修改：null, 2 让 JSON 自动缩进换行，可读性极佳 */}
                                                     {JSON.stringify(item.match_context, null, 2)}
                                                 </div>
                                             )}
 
                                             {/* 操作栏 */}
                                             <div className="flex justify-end gap-2 pt-2 border-t border-white/5 mt-1">
-                                                
-                                                {/* 回复按钮 */}
                                                 <button 
                                                     onClick={() => setReplyTarget(item)}
                                                     className="px-3 py-1.5 bg-blue-600/10 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-600/20 flex items-center gap-1 transition"
@@ -629,21 +769,29 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                     <MessageSquare size={12}/> 私信回复
                                                 </button>
 
-                                                {/* 🔥 [修改] 按钮组：区分采纳与归档 */}
-                                                {item.status !== 'resolved' && (
+                                               {item.status !== 'resolved' && (
                                                     <>
-                                                        {/* 采纳并奖励 */}
+                                                        {/* 🔥 按钮 1: 奖励核心 */}
                                                         <button 
-                                                            onClick={() => handleResolveFeedback(item._id, true)}
+                                                            onClick={() => handleResolveFeedback(item._id, true, 'r1')}
                                                             className="px-3 py-1.5 bg-amber-600/10 text-amber-400 border border-amber-500/30 rounded text-xs hover:bg-amber-600/20 flex items-center gap-1 transition"
-                                                            title="采纳反馈，并自动奖励用户 1 次 【海克斯核心】充能"
+                                                            title="采纳并奖励 +1 核心模型次数"
                                                         >
-                                                            <Gift size={12}/> 采纳(+1核心)
+                                                            <Gift size={12}/> 核心(+1)
                                                         </button>
 
-                                                        {/* 仅归档 */}
+                                                        {/* 🔥 按钮 2: 奖励快速 */}
                                                         <button 
-                                                            onClick={() => handleResolveFeedback(item._id, false)}
+                                                            onClick={() => handleResolveFeedback(item._id, true, 'chat')}
+                                                            className="px-3 py-1.5 bg-cyan-600/10 text-cyan-400 border border-cyan-500/30 rounded text-xs hover:bg-cyan-600/20 flex items-center gap-1 transition"
+                                                            title="采纳并奖励 +1 快速模型上限"
+                                                        >
+                                                            <Zap size={12}/> 快速(+1)
+                                                        </button>
+
+                                                        {/* 🔥 按钮 3: 仅归档 */}
+                                                        <button 
+                                                            onClick={() => handleResolveFeedback(item._id, false, 'none')}
                                                             className="px-3 py-1.5 bg-slate-700/50 text-slate-400 border border-slate-600/50 rounded text-xs hover:bg-slate-700 flex items-center gap-1 transition"
                                                             title="忽略/仅归档，不发奖励"
                                                         >
@@ -656,6 +804,14 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                     ))
                                 )}
                             </div>
+                            
+                            {/* 分页 */}
+                            <Pagination 
+                                currentPage={feedbackPage} 
+                                totalCount={feedbacks.length} 
+                                pageSize={10} 
+                                onPageChange={setFeedbackPage} 
+                            />
                             
                             {/* 私信回复弹窗 */}
                             {replyTarget && (
@@ -692,12 +848,70 @@ const AdminDashboard = ({ token, onClose, username }) => {
                         </div>
                     )}
 
-                    {/* === 🔥 [新增] Tab 5: 系统配置 === */}
-                    {!loading && !error && activeTab === 'config' && isSuperAdmin && (
+                    {/* === Tab 6: 全员广播 (仅 Root) === */}
+                    {!loading && !error && activeTab === 'broadcast' && isRoot && (
+                        <div className="animate-fade-in-up max-w-2xl mx-auto mt-10">
+                            <div className="bg-[#010A13]/60 border border-red-500/30 rounded-xl p-8 shadow-2xl relative overflow-hidden">
+                                {/* 背景装饰 */}
+                                <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+                                    <Megaphone size={150} />
+                                </div>
+
+                                <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
+                                    <div className="p-3 bg-red-500/10 rounded-lg text-red-500 border border-red-500/20">
+                                        <Megaphone size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-[#F0E6D2]">全员系统广播</h3>
+                                        <p className="text-xs text-red-400 font-mono mt-1">
+                                            ⚠️ 警告：此消息将发送给服务器内所有注册用户
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-6 relative z-10">
+                                    <div>
+                                        <label className="text-xs text-slate-400 font-bold uppercase mb-2 block ml-1">
+                                            消息内容
+                                        </label>
+                                        <textarea 
+                                            className="w-full h-40 bg-[#091428] border border-slate-700 rounded-xl p-4 text-slate-200 focus:border-red-500 focus:ring-1 focus:ring-red-500/50 outline-none transition-all resize-none placeholder:text-slate-600 custom-scrollbar text-sm leading-relaxed"
+                                            placeholder="请输入要广播的公告内容..."
+                                            value={broadcastContent}
+                                            onChange={e => setBroadcastContent(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-2">
+                                        <div className="text-[10px] text-slate-500">
+                                            * 发送后所有用户将在私信列表中收到来自 Root 的系统消息
+                                        </div>
+                                        
+                                        <button 
+                                            onClick={handleBroadcast}
+                                            disabled={isBroadcasting || !broadcastContent.trim()}
+                                            className={`
+                                                px-8 py-3 bg-gradient-to-r from-red-600 to-red-800 text-white font-black uppercase tracking-wider rounded-lg shadow-lg hover:shadow-red-900/50 transition-all flex items-center gap-2 active:scale-95
+                                                ${(isBroadcasting || !broadcastContent.trim()) ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'}
+                                            `}
+                                        >
+                                            {isBroadcasting ? (
+                                                <> <RefreshCw size={16} className="animate-spin"/> 发送中... </>
+                                            ) : (
+                                                <> <Send size={16} /> 立即群发 </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* === Tab 5: 系统配置 (仅 Root 可见) === */}
+                    {!loading && !error && activeTab === 'config' && isRoot && (
                         <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto mt-8">
                             
                             <div className="bg-[#010A13]/60 border border-[#C8AA6E]/20 rounded-xl p-8 shadow-lg relative overflow-hidden">
-                                {/* 装饰背景 */}
                                 <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
                                     <Cloud size={200} />
                                 </div>
@@ -716,14 +930,13 @@ const AdminDashboard = ({ token, onClose, username }) => {
 
                                 <div className="space-y-8 relative z-10">
                                     
-                                    {/* 1. 下载链接配置模块 */}
+                                    {/* 下载配置 */}
                                     <div>
                                         <h4 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2 border-l-4 border-[#0AC8B9] pl-3">
-                                            <Cloud size={16} className="text-[#0AC8B9]"/> 客户端下载源 (123云盘/直链)
+                                            <Cloud size={16} className="text-[#0AC8B9]"/> 客户端下载源
                                         </h4>
                                         
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                            {/* URL 输入 */}
                                             <div className="md:col-span-2">
                                                 <label className="text-xs text-slate-500 font-bold uppercase mb-2 block flex items-center gap-1">
                                                     <Link size={12}/> 下载链接 (URL)
@@ -731,22 +944,20 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                                 <div className="relative group">
                                                     <input 
                                                         className="w-full bg-[#091428] border border-slate-700 rounded-lg py-3 px-4 text-slate-200 focus:border-[#C8AA6E] focus:ring-1 focus:ring-[#C8AA6E]/50 outline-none transition-all font-mono text-sm placeholder:text-slate-600"
-                                                        placeholder="https://www.123pan.com/s/..."
+                                                        placeholder="https://..."
                                                         value={downloadConfig.pan_url}
                                                         onChange={e => setDownloadConfig({...downloadConfig, pan_url: e.target.value})}
                                                     />
-                                                    <div className="absolute inset-0 border border-transparent group-hover:border-[#C8AA6E]/20 rounded-lg pointer-events-none transition-colors"></div>
                                                 </div>
                                             </div>
 
-                                            {/* 密码输入 */}
                                             <div>
                                                 <label className="text-xs text-slate-500 font-bold uppercase mb-2 block flex items-center gap-1">
-                                                    <Key size={12}/> 提取码 (Password)
+                                                    <Key size={12}/> 提取码
                                                 </label>
                                                 <input 
                                                     className="w-full bg-[#091428] border border-slate-700 rounded-lg py-3 px-4 text-slate-200 focus:border-[#C8AA6E] focus:ring-1 focus:ring-[#C8AA6E]/50 outline-none transition-all font-mono text-sm placeholder:text-slate-600"
-                                                    placeholder="留空则不显示"
+                                                    placeholder="可选"
                                                     value={downloadConfig.pan_pwd}
                                                     onChange={e => setDownloadConfig({...downloadConfig, pan_pwd: e.target.value})}
                                                 />
@@ -754,10 +965,8 @@ const AdminDashboard = ({ token, onClose, username }) => {
                                         </div>
                                     </div>
 
-                                    {/* 分割线 */}
                                     <div className="h-px bg-white/5 w-full"></div>
 
-                                    {/* 底部操作区 */}
                                     <div className="flex items-center justify-between pt-2">
                                         <div className="flex items-center gap-2 text-xs text-slate-500">
                                             <Activity size={14} className="text-[#0AC8B9]"/>
@@ -778,25 +987,6 @@ const AdminDashboard = ({ token, onClose, username }) => {
 
                                 </div>
                             </div>
-
-                            {/* 提示信息卡片 */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4 flex gap-3">
-                                    <div className="text-blue-400 mt-0.5"><Activity size={16}/></div>
-                                    <div className="text-xs text-slate-400 leading-relaxed">
-                                        <h4 className="text-blue-300 font-bold mb-1">即时生效机制</h4> 
-                                        无需重新打包前端或重启服务器。保存后，所有用户再次打开“下载弹窗”时，会自动获取最新的云盘链接。
-                                    </div>
-                                </div>
-                                <div className="bg-[#C8AA6E]/5 border border-[#C8AA6E]/20 rounded-lg p-4 flex gap-3">
-                                    <div className="text-[#C8AA6E] mt-0.5"><Link size={16}/></div>
-                                    <div className="text-xs text-slate-400 leading-relaxed">
-                                        <h4 className="text-[#C8AA6E] font-bold mb-1">链接填写规范</h4> 
-                                        建议优先使用 <strong>123云盘</strong> 或 <strong>蓝奏云</strong> 等不限速网盘。如果使用直链（如对象存储），请确保流量充足。
-                                    </div>
-                                </div>
-                            </div>
-
                         </div>
                     )}
 

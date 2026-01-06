@@ -26,9 +26,11 @@ const Header = ({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const isPro = accountInfo?.is_pro === true;
   const r1Remaining = accountInfo?.r1_remaining;
-
+  const chatLimit = accountInfo?.chat_hourly_limit || 10;
+  const chatUsed = accountInfo?.chat_used || 0;
+  const chatRemaining = Math.max(0, chatLimit - chatUsed);
   // 私信状态管理
-  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0);
   
   const prevUnreadRef = useRef(0);
@@ -157,7 +159,12 @@ const Header = ({
 
           {/* 身份状态 */}
           {!isPro && currentUser && (
-              <button onClick={() => setShowPricingModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-600/20 border border-amber-500/50 hover:border-amber-400 text-amber-400 text-xs font-bold rounded-lg transition-all group">
+              <button 
+                  onClick={() => setShowPricingModal(true)} 
+                  // 🔥 [新增] 极短版提示 (文案四)
+                  title="在绝活社区分享你的高质量理解，有机会获得会员时长。"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-600/20 border border-amber-500/50 hover:border-amber-400 text-amber-400 text-xs font-bold rounded-lg transition-all group"
+              >
                   <Diamond size={12} className="group-hover:animate-pulse" />
                   <span>升级 PRO</span>
               </button>
@@ -180,6 +187,15 @@ const Header = ({
               >
                   <Zap size={14} className={`transition-colors ${modelType === 'chat' ? 'fill-cyan-400 text-cyan-400' : ''}`} />
                   <span>快速</span>
+                  {currentUser && !isPro && (
+                      <span className={`ml-1 text-[9px] px-1.5 py-[1px] rounded-full font-mono border transition-all ${
+                          modelType === 'chat'
+                              ? 'bg-black/60 border-cyan-500/40 text-cyan-200'
+                              : 'bg-slate-800 border-slate-700 text-slate-500'
+                      }`}>
+                          {chatRemaining}
+                      </span>
+                  )}
                   {/* 激活光效 */}
                   {modelType === 'chat' && <div className="absolute inset-0 bg-cyan-400/5 pointer-events-none rounded-md"></div>}
               </button>

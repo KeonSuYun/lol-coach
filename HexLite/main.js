@@ -71,13 +71,24 @@ function startWebSocketServer() {
                 try {
                     const rawMsg = message.toString();
                     const parsed = JSON.parse(rawMsg);
+
+                    // 🔥 [新增] 调试日志：看看收到了什么指令
+                    if (parsed.type === 'SYNC_AI_RESULT') {
+                        console.log("📨 [Main] 收到前端发来的 AI 分析结果，准备转发...");
+                    }
+
                     if (parsed.type === 'REQUEST_SYNC') broadcast(rawMsg); 
                     else if (parsed.type === 'SYNC_AI_RESULT' && parsed.data) {
-                        if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send('sync-analysis', parsed.data);
-                    }
-                    else if (parsed.type === 'REQ_LCU_PROFILE') {
-                        const profileData = await getProfileData();
-                        if (profileData) ws.send(JSON.stringify({ type: 'LCU_PROFILE_UPDATE', data: profileData }));
+                        // 保存一份缓存（为了解决刚才说的初始化问题）
+                        lastAiResult = parsed.data; 
+                        
+                        // 转发给 Overlay
+                        if (overlayWindow && !overlayWindow.isDestroyed()) {
+                            console.log("🚀 [Main] 正在推送到 Overlay...");
+                            overlayWindow.webContents.send('sync-analysis', parsed.data);
+                        } else {
+                            console.log("⚠️ [Main] Overlay 窗口不存在或已销毁，无法推送");
+                        }
                     }
                 } catch (e) {}
             });

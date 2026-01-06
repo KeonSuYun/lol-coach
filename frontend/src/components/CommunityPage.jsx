@@ -124,7 +124,7 @@ export default function CommunityPage({
 
     const currentHeroInfo = championList.find(c => String(c.id) === String(currentHeroId)) || 
                             championList.find(c => c.key === currentHeroId) || 
-                            { name: "加载中...", image_url: null }; // 🟢 Fix: 默认为 null 而非 ""
+                            { name: "加载中...", image_url: null }; 
     
     const opponentHeroInfo = championList.find(c => c.id === opponentHeroId) || null;
 
@@ -198,10 +198,12 @@ export default function CommunityPage({
     };
 
     return (
-        <div className="min-h-screen font-sans text-slate-300 bg-[#010A13] selection:bg-[#C8AA6E]/30 pb-20">
+        // 🔥 [优化] 背景色调整为 Slate-900 (#0F172A)
+        <div className="min-h-screen font-sans text-slate-300 bg-[#0F172A] selection:bg-[#C8AA6E]/30 pb-20">
             {/* Background */}
             <div className="fixed inset-0 pointer-events-none z-0">
-                <div className="absolute top-0 left-0 w-full h-[600px] bg-gradient-to-b from-[#091428] via-[#010A13]/80 to-[#010A13]" />
+                {/* 🔥 [优化] 背景渐变调整，匹配新色调 */}
+                <div className="absolute top-0 left-0 w-full h-[600px] bg-gradient-to-b from-[#1e293b] via-[#0F172A]/80 to-[#0F172A]" />
                 {currentHeroInfo.key && (
                     <img 
                         src={`https://game.gtimg.cn/images/lol/act/img/skin/big${
@@ -215,7 +217,8 @@ export default function CommunityPage({
             </div>
 
             {/* Header */}
-            <header className="sticky top-0 z-40 bg-[#010A13]/80 backdrop-blur-md border-b border-[#C8AA6E]/10">
+            {/* 🔥 [优化] 导航栏背景色调整 */}
+            <header className="sticky top-0 z-40 bg-[#0F172A]/90 backdrop-blur-md border-b border-[#C8AA6E]/10">
                 <div className="max-w-[1800px] mx-auto px-6 h-16 flex items-center justify-between">
                     
                     {/* Left: Navigation & Hero Selector */}
@@ -228,7 +231,6 @@ export default function CommunityPage({
 
                         <div onClick={() => setIsSelectorOpen(true)} className="flex items-center gap-3 cursor-pointer group">
                             <div className="w-10 h-10 rounded-full border border-[#C8AA6E]/50 p-0.5 group-hover:border-[#0AC8B9] transition-colors relative overflow-hidden bg-black">
-                                {/* 🟢 Fix: 使用 || null 替代 || "" */}
                                 <img src={currentHeroInfo.image_url || null} className="w-full h-full rounded-full object-cover transform group-hover:scale-110 transition-transform" alt=""/>
                             </div>
                             <div>
@@ -350,7 +352,8 @@ export default function CommunityPage({
             </header>
 
             {/* Mobile Nav */}
-            <div className="md:hidden flex justify-between px-6 py-2 border-b border-white/5 bg-[#010A13]/95 backdrop-blur sticky top-16 z-30">
+            {/* 🔥 [优化] 移动端导航背景色调整 */}
+            <div className="md:hidden flex justify-between px-6 py-2 border-b border-white/5 bg-[#0F172A]/95 backdrop-blur sticky top-16 z-30">
                 {[
                     { id: 'wiki', label: '总览', icon: BookOpen },
                     { id: 'feed', label: '攻略', icon: Layers },
@@ -444,7 +447,8 @@ export default function CommunityPage({
                 onClose={() => setIsSelectorOpen(false)}
                 championList={championList} 
                 onSelect={(hero) => {
-                    setCurrentHeroId(hero.id); 
+                    // 🔥 [修复] 强制使用英文 ID (key)，防止数据断链
+                    setCurrentHeroId(hero.key); 
                     setIsSelectorOpen(false);
                     toast.success(`已切换至：${hero.name}`);
                 }}

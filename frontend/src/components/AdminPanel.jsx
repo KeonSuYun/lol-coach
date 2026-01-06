@@ -24,9 +24,17 @@ const AdminPanel = ({ onBack, token }) => {
         try {
             const res = await axios.get(`${API_BASE_URL}/admin/users`, {
                 headers: { Authorization: `Bearer ${token}` },
-                params: { search: searchTerm }
+                params: { search: searchTerm, limit: 50 } // 默认取50条
             });
-            setUsers(res.data);
+            
+            // 🔥 [修复] 兼容新旧 API 格式
+            if (res.data.items) {
+                setUsers(res.data.items);
+            } else if (Array.isArray(res.data)) {
+                setUsers(res.data);
+            } else {
+                setUsers([]);
+            }
         } catch (e) {
             toast.error("获取用户列表失败: " + (e.response?.data?.detail || e.message));
         } finally {

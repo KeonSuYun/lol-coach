@@ -57,6 +57,9 @@ export function useGameCore() {
 
     const [useThinkingModel, setUseThinkingModel] = useState(() => loadState('useThinkingModel', false));
     const [aiResults, setAiResults] = useState(() => loadState('aiResults', { bp: null, personal: null, team: null }));
+    const aiResultsRef = useRef(aiResults);
+    useEffect(() => { aiResultsRef.current = aiResults; }, [aiResults]);
+
     const [analyzingStatus, setAnalyzingStatus] = useState({});
     const abortControllersRef = useRef({ bp: null, personal: null, team: null });
     const isModeAnalyzing = (mode) => !!analyzingStatus[mode];
@@ -64,7 +67,6 @@ export function useGameCore() {
     const [analyzeType, setAnalyzeType] = useState(() => loadState('analyzeType', 'personal'));
     const [viewMode, setViewMode] = useState('detailed');
     const [activeTab, setActiveTab] = useState(0); 
-
     const analyzeTypeRef = useRef(analyzeType);
     useEffect(() => { analyzeTypeRef.current = analyzeType; }, [analyzeType]);
 
@@ -85,20 +87,146 @@ export function useGameCore() {
     const [rawLcuData, setRawLcuData] = useState(null);
 
     const wsRef = useRef(null);
-    
+    const isRemoteUpdate = useRef(false); // 🔥 防止循环广播标记
+
+    const broadcastState = (type, payload) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type, data: payload }));
+        }
+    };
+
+    // 1. 监听分路变化并广播
+    useEffect(() => {
+        if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
+        if (Object.keys(myLaneAssignments).some(k => myLaneAssignments[k])) {
+            broadcastState('SYNC_LANE_ASSIGNMENTS', { my: myLaneAssignments, enemy: enemyLaneAssignments });
+        }
+    }, [myLaneAssignments, enemyLaneAssignments]);
+
+    // 2. 监听阵容变化并广播
+    useEffect(() => {
+         if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
+         if (blueTeam.some(c => c) || redTeam.some(c => c)) {
+             broadcastState('SYNC_TEAM_DATA', { blueTeam, redTeam });
+         }
+    }, [blueTeam, redTeam]);
+
+    // 🔥 [核心修复] 辅助函数：标准化名称 (去空格/小写)
+    const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
+
+    // 🔥 [核心修复] 猜测分路逻辑 (复用于敌我双方)
+    const guessRoles = (team) => {
+        const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
+        const assignedIndices = new Set();
+        
+        const findHeroForRole = (roleId, tagFallbackFn) => {
+            // 1. 优先查数据库预设分路 (Role Mapping)
+            for (let i = 0; i < team.length; i++) {
+                const hero = team[i];
+                if (!hero || assignedIndices.has(i)) continue;
+                const cleanKey = normalizeKey(hero.key);
+                const cleanName = normalizeKey(hero.name);
+                const dbRoles = roleMapping[cleanKey] || roleMapping[cleanName];
+                if (dbRoles && dbRoles.includes(roleId)) { assignedIndices.add(i); return hero.name; }
+            }
+            // 2. 兜底查 Tags (Marksman, Mage, etc.)
+            for (let i = 0; i < team.length; i++) {
+                const hero = team[i];
+                if (!hero || assignedIndices.has(i)) continue;
+                if (tagFallbackFn && tagFallbackFn(hero)) { assignedIndices.add(i); return hero.name; }
+            }
+            return "";
+        };
+
+        roles["JUNGLE"] = findHeroForRole("JUNGLE", c => c.tags.includes("Jungle") || (c.tags.includes("Assassin") && !c.tags.includes("Mage")));
+        roles["SUPPORT"] = findHeroForRole("SUPPORT", c => c.tags.includes("Support") || c.tags.includes("Tank"));
+        roles["ADC"] = findHeroForRole("ADC", c => c.tags.includes("Marksman"));
+        roles["MID"] = findHeroForRole("MID", c => c.tags.includes("Mage") || c.tags.includes("Assassin"));
+        roles["TOP"] = findHeroForRole("TOP", c => c.tags.includes("Fighter") || c.tags.includes("Tank"));
+        
+        // 3. 填补剩余空位
+        Object.keys(roles).filter(r => !roles[r]).forEach(r => {
+            for (let i = 0; i < team.length; i++) {
+                if (team[i] && !assignedIndices.has(i)) {
+                    roles[r] = team[i].name; assignedIndices.add(i); break;
+                }
+            }
+        });
+        return roles;
+    };
+
+    // 🔥 [核心修复] 自动同步我方分路 (解决 MF 显示在 MID 的问题)
+    useEffect(() => {
+        // 只有当阵容非空时才执行
+        if (blueTeam.some(c => c !== null)) {
+            setMyLaneAssignments(prev => {
+                const next = { ...prev };
+                
+                // 策略 A: 优先使用 LCU 分配的位置 (myTeamRoles)
+                let usedLcuRoles = false;
+                const usedNames = new Set();
+
+                blueTeam.forEach((hero, idx) => {
+                    if (!hero) return;
+                    const assignedRole = myTeamRoles[idx]; // "TOP", "JUNGLE" ...
+                    
+                    if (assignedRole && ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].includes(assignedRole)) {
+                        next[assignedRole] = hero.name; // 强行校准：该位置就是这个英雄
+                        usedNames.add(hero.name);
+                        usedLcuRoles = true;
+                    }
+                });
+
+                // 策略 B: 如果 LCU 没给位置 (比如盲选)，则使用猜测算法
+                if (!usedLcuRoles) {
+                    const guesses = guessRoles(blueTeam);
+                    Object.keys(guesses).forEach(role => {
+                        if (guesses[role]) next[role] = guesses[role];
+                    });
+                } else {
+                    // 清理不在当前阵容里的旧数据
+                    const currentNames = blueTeam.map(c => c?.name).filter(Boolean);
+                    Object.keys(next).forEach(r => {
+                        if (next[r] && !currentNames.includes(next[r])) next[r] = "";
+                    });
+                }
+
+                // 只有数据真的变了才更新，避免死循环
+                if (JSON.stringify(prev) !== JSON.stringify(next)) {
+                    return next;
+                }
+                return prev;
+            });
+        }
+    }, [blueTeam, myTeamRoles, roleMapping]);
+
+    // 自动同步敌方分路 (保持不变)
+    useEffect(() => {
+        if (redTeam.some(c => c !== null)) {
+            const guesses = guessRoles(redTeam);
+            setEnemyLaneAssignments(prev => {
+                const next = { ...prev };
+                const currentEnemies = redTeam.map(c => c?.name).filter(Boolean);
+                Object.keys(guesses).forEach(role => {
+                    const currentAssignedName = prev[role];
+                    if (!currentAssignedName || !currentEnemies.includes(currentAssignedName)) {
+                        if (guesses[role]) next[role] = guesses[role];
+                    }
+                });
+                return next;
+            });
+        }
+    }, [redTeam, roleMapping]);
+
+    // WebSocket / IPC 逻辑保持不变，确保 isRemoteUpdate 正常工作
     useEffect(() => {
         if (window.require) return; 
-        
         let ws; let timer;
         const connect = () => {
             ws = new WebSocket(BRIDGE_WS_URL);
             wsRef.current = ws;
             ws.onopen = () => setLcuStatus("connected");
-            ws.onclose = () => {
-                setLcuStatus("disconnected");
-                setLcuRealRole("");
-                timer = setTimeout(connect, 3000);
-            };
+            ws.onclose = () => { setLcuStatus("disconnected"); setLcuRealRole(""); timer = setTimeout(connect, 3000); };
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
@@ -107,104 +235,43 @@ export function useGameCore() {
                         if(msg.data === 'connected') setLcuStatus("connected");
                         else if(msg.data === 'disconnected') { setLcuStatus("disconnected"); setLcuRealRole(""); }
                     }
-                    if (msg.type === 'ALERT') {
-                        toast(msg.data.content, { icon: '🚨', duration: 5000, style: { background: '#450a0a', color: '#fecaca' } });
-                    }
                     if (msg.type === 'LCU_PROFILE_UPDATE') {
-                        console.log("🌐 [WS] 收到个人档案:", msg.data);
                         setLcuProfile(msg.data);
-                        if (token) {
-                            axios.post(`${API_BASE_URL}/users/sync_profile`, msg.data, {
-                                headers: { Authorization: `Bearer ${token}` }
-                            }).catch(err => console.warn("Sync failed:", err));
-                        }
-                        toast.success("同步成功！");
+                        if (token) axios.post(`${API_BASE_URL}/users/sync_profile`, msg.data, { headers: { Authorization: `Bearer ${token}` } }).catch(e=>{});
+                    }
+                    // 同步处理
+                    if (msg.type === 'SYNC_LANE_ASSIGNMENTS') {
+                        isRemoteUpdate.current = true;
+                        if (JSON.stringify(myLaneAssignments) !== JSON.stringify(msg.data.my)) setMyLaneAssignments(msg.data.my);
+                        if (JSON.stringify(enemyLaneAssignments) !== JSON.stringify(msg.data.enemy)) setEnemyLaneAssignments(msg.data.enemy);
+                    }
+                    if (msg.type === 'SYNC_TEAM_DATA') {
+                         isRemoteUpdate.current = true;
+                         setBlueTeam(msg.data.blueTeam);
+                         setRedTeam(msg.data.redTeam);
+                    }
+                    if (msg.type === 'SYNC_AI_RESULT') {
+                        const { results, currentMode } = msg.data;
+                        if (results) setAiResults(results);
+                        if (currentMode) setAnalyzeType(currentMode);
                     }
                 } catch(e){}
             };
         };
         connect(); 
         return () => { if(ws) ws.close(); clearTimeout(timer); };
-    }, [token]);
-    useEffect(() => {
-        // 1. 检查是否为新用户状态 (列表已加载，但双方阵容全空)
-        const isBlueEmpty = blueTeam.every(c => c === null);
-        const isRedEmpty = redTeam.every(c => c === null);
-
-        if (championList.length > 0 && isBlueEmpty && isRedEmpty) {
-            console.log("🌟 [Init] 检测到初始状态，正在部署全明星阵容...");
-
-            // 2. 定义标准 ID (DDragon Key)
-            const demoBlueIds = ["Malphite", "LeeSin", "Ahri", "Jinx", "Thresh"];
-            const demoRedIds = ["Aatrox", "JarvanIV", "Syndra", "KaiSa", "Nautilus"];
-
-            // 3. 查找英雄对象辅助函数
-            const findHero = (id) => {
-                const hero = championList.find(c => 
-                    c.key === id || 
-                    c.id === id || 
-                    c.key.toLowerCase() === id.toLowerCase()
-                );
-                if (!hero) console.warn(`⚠️ 未找到演示英雄: ${id}`);
-                return hero || null;
-            };
-
-            // 4. 构建阵容数组
-            const newBlueTeam = demoBlueIds.map(id => findHero(id));
-            const newRedTeam = demoRedIds.map(id => findHero(id));
-
-            // 5. 写入阵容状态
-            setBlueTeam(newBlueTeam);
-            setRedTeam(newRedTeam);
-
-            // 6. 构建中文分路映射表 (确保前端 UI 显示正确)
-            if (newBlueTeam[0]) {
-                setMyLaneAssignments({
-                    "TOP": newBlueTeam[0]?.name,     // 石头人
-                    "JUNGLE": newBlueTeam[1]?.name,  // 盲僧
-                    "MID": newBlueTeam[2]?.name,     // 阿狸
-                    "ADC": newBlueTeam[3]?.name,     // 金克丝
-                    "SUPPORT": newBlueTeam[4]?.name  // 锤石
-                });
-            }
-
-            if (newRedTeam[0]) {
-                setEnemyLaneAssignments({
-                    "TOP": newRedTeam[0]?.name,      // 剑魔
-                    "JUNGLE": newRedTeam[1]?.name,   // 皇子
-                    "MID": newRedTeam[2]?.name,      // 辛德拉
-                    "ADC": newRedTeam[3]?.name,      // 卡莎
-                    "SUPPORT": newRedTeam[4]?.name   // 泰坦
-                });
-            }
-
-            // 7. 设置其他默认状态
-            const roles = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"];
-            setMyTeamRoles(roles);
-            
-            // 🔥🔥🔥 [修改点] 设置默认选中为盲僧 (Index 1)
-            setUserSlot(1);         // 👈 改为 1，即选中盲僧 (Array Index 1)
-            setMapSide("blue"); // 默认蓝色方
-        }
-    }, [championList]); // 仅当英雄列表加载完毕后触发
+    }, [token, myLaneAssignments, enemyLaneAssignments, blueTeam, redTeam]);
 
     useEffect(() => {
         if (window.require) {
             try {
                 const { ipcRenderer } = window.require('electron');
-                
-                ipcRenderer.invoke('get-shortcuts').then(savedConfig => {
-                    if (savedConfig) setCurrentShortcuts(savedConfig);
-                });
+                ipcRenderer.invoke('get-shortcuts').then(savedConfig => { if (savedConfig) setCurrentShortcuts(savedConfig); });
 
                 const handleElectronLcuUpdate = (event, data) => {
                     if (!data) return;
-                    if (data.mapSide && data.mapSide !== "unknown") {
-                        setMapSide(data.mapSide);
-                    }
-                    if (data.extraMechanics) {
-                        setExtraMechanics(data.extraMechanics);
-                    }
+                    if (data.mapSide && data.mapSide !== "unknown") setMapSide(data.mapSide);
+                    if (data.extraMechanics) setExtraMechanics(data.extraMechanics);
                     if (championList.length > 0) {
                         const adaptedSession = {
                             myTeam: (data.myTeam || []).map(p => ({
@@ -229,72 +296,40 @@ export function useGameCore() {
                 };
             
                 const handleLcuProfileUpdate = (event, profileData) => {
-                    console.log("👤 [IPC] 收到 LCU 个人档案:", profileData);
                     setLcuProfile(profileData);
-                    if (token) {
-                        axios.post(`${API_BASE_URL}/users/sync_profile`, profileData, {
-                            headers: { Authorization: `Bearer ${token}` }
-                        }).catch(err => console.warn("静默同步失败:", err));
-                    }
-                    toast.success("同步成功！");
+                    if (token) axios.post(`${API_BASE_URL}/users/sync_profile`, profileData, { headers: { Authorization: `Bearer ${token}` } }).catch(e=>{});
                 };
 
                 const handleRemoteSync = (event, remoteData) => {
                     if (remoteData && remoteData.results) {
                         setAiResults(remoteData.results);
-                        if (remoteData.currentMode) {
-                            setAnalyzeType(remoteData.currentMode);
-                        }
+                        if (remoteData.currentMode) setAnalyzeType(remoteData.currentMode);
+                    }
+                };
+
+                const handleBroadcastSync = (event, msg) => {
+                    if (msg.type === 'SYNC_LANE_ASSIGNMENTS') {
+                        isRemoteUpdate.current = true;
+                        setMyLaneAssignments(msg.data.my);
+                        setEnemyLaneAssignments(msg.data.enemy);
+                    }
+                    if (msg.type === 'SYNC_TEAM_DATA') {
+                        isRemoteUpdate.current = true;
+                        setBlueTeam(msg.data.blueTeam);
+                        setRedTeam(msg.data.redTeam);
                     }
                 };
 
                 const handleCommand = (event, command) => {
                     const MODES = ['bp', 'personal', 'team'];
-                    if (command === 'mode_prev') {
-                        const currentIndex = MODES.indexOf(analyzeTypeRef.current);
-                        const prevIndex = (currentIndex - 1 + MODES.length) % MODES.length;
-                        handleTabClick(MODES[prevIndex]);
-                    }
-                    if (command === 'mode_next') {
-                        const currentIndex = MODES.indexOf(analyzeTypeRef.current);
-                        const nextIndex = (currentIndex + 1) % MODES.length;
-                        handleTabClick(MODES[nextIndex]);
-                    }
-                    if (command === 'nav_next') {
-                        setActiveTab(prev => {
-                            if (prev >= 3) {
-                                toast("已是最后一页", { icon: '🛑', duration: 800, id: 'nav-limit' });
-                                return 3; 
-                            }
-                            return prev + 1; 
-                        }); 
-                    }
-                    if (command === 'nav_prev') {
-                        setActiveTab(prev => {
-                            if (prev <= 0) {
-                                toast("已是第一页", { icon: '🛑', duration: 800, id: 'nav-limit' });
-                                return 0; 
-                            }
-                            return prev - 1; 
-                        });
-                    }
-                    if (command === 'refresh') {
-                        handleAnalyze(analyzeTypeRef.current, true);
-                        toast("正在刷新...", { icon: '⏳', duration: 800, id: 'refresh-toast' });
-                    }
+                    if (command === 'mode_prev') handleTabClick(MODES[(MODES.indexOf(analyzeTypeRef.current) - 1 + MODES.length) % MODES.length]);
+                    if (command === 'mode_next') handleTabClick(MODES[(MODES.indexOf(analyzeTypeRef.current) + 1) % MODES.length]);
+                    if (command === 'refresh') { handleAnalyze(analyzeTypeRef.current, true); toast("正在刷新...", { icon: '⏳', duration: 800 }); }
                 };
 
-                const handleShortcutsUpdated = (event, newConfig) => {
-                    setCurrentShortcuts(newConfig);
-                };
-
-                const handleOpenSettings = () => {
-                    setShowSettingsModal(true);
-                };
-
-                const handleGamePhaseUpdate = (event, phase) => {
-                    setGamePhase(phase);
-                };
+                const handleShortcutsUpdated = (event, newConfig) => setCurrentShortcuts(newConfig);
+                const handleOpenSettings = () => setShowSettingsModal(true);
+                const handleGamePhaseUpdate = (event, phase) => setGamePhase(phase);
 
                 ipcRenderer.on('lcu-update', handleElectronLcuUpdate);
                 ipcRenderer.on('lcu-profile-update', handleLcuProfileUpdate);
@@ -303,6 +338,7 @@ export function useGameCore() {
                 ipcRenderer.on('shortcuts-updated', handleShortcutsUpdated);
                 ipcRenderer.on('open-settings', handleOpenSettings); 
                 ipcRenderer.on('game-phase', handleGamePhaseUpdate);
+                ipcRenderer.on('broadcast-sync', handleBroadcastSync);
 
                 ipcRenderer.send('fetch-lcu-data');
 
@@ -314,13 +350,13 @@ export function useGameCore() {
                     ipcRenderer.removeListener('shortcuts-updated', handleShortcutsUpdated);
                     ipcRenderer.removeListener('open-settings', handleOpenSettings); 
                     ipcRenderer.removeListener('game-phase', handleGamePhaseUpdate);
+                    ipcRenderer.removeListener('broadcast-sync', handleBroadcastSync);
                 };
-            } catch (e) {
-                console.error("Electron IPC init failed:", e);
-            }
+            } catch (e) { console.error("IPC Error", e); }
         }
     }, [championList, token]); 
 
+    // 辅助函数保持不变
     const handleSaveShortcuts = (newShortcuts) => {
         setCurrentShortcuts(newShortcuts);
         if (window.require) {
@@ -330,31 +366,20 @@ export function useGameCore() {
     };
     
     const handleSyncProfile = useCallback(() => {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('req-lcu-profile'); 
-        } 
-        else if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'REQ_LCU_PROFILE' }));
-        } 
+        if (window.require) window.require('electron').ipcRenderer.send('req-lcu-profile'); 
+        else if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'REQ_LCU_PROFILE' }));
     }, []); 
 
     const hasAutoSynced = useRef(false);
-
     useEffect(() => {
         if (lcuStatus === 'connected') {
             if (hasAutoSynced.current) return;
-            console.log("⚡ LCU 已连接，正在自动同步数据...");
-            const timer = setTimeout(() => {
-                handleSyncProfile();
-                hasAutoSynced.current = true;
-            }, 1000);
+            const timer = setTimeout(() => { handleSyncProfile(); hasAutoSynced.current = true; }, 1000);
             return () => clearTimeout(timer);
-        } else if (lcuStatus === 'disconnected') {
-            hasAutoSynced.current = false;
-        }
+        } else if (lcuStatus === 'disconnected') hasAutoSynced.current = false;
     }, [lcuStatus, handleSyncProfile]);
 
+    // LocalStorage Sync
     useEffect(() => { localStorage.setItem('blueTeam', JSON.stringify(blueTeam)); }, [blueTeam]);
     useEffect(() => { localStorage.setItem('redTeam', JSON.stringify(redTeam)); }, [redTeam]);
     useEffect(() => { localStorage.setItem('myTeamRoles', JSON.stringify(myTeamRoles)); }, [myTeamRoles]);
@@ -367,11 +392,9 @@ export function useGameCore() {
     useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
     useEffect(() => { localStorage.setItem('mapSide', mapSide); }, [mapSide]);
 
+    // Init & Auth
     useEffect(() => {
-        axios.get(`${API_BASE_URL}/champions/roles`)
-            .then(res => setRoleMapping(res.data))
-            .catch(e => console.error(e));
-            
+        axios.get(`${API_BASE_URL}/champions/roles`).then(res => setRoleMapping(res.data)).catch(e => console.error(e));
         const storedToken = localStorage.getItem("access_token");
         const storedUser = localStorage.getItem("username");
         if (storedToken && storedUser) { setToken(storedToken); setCurrentUser(storedUser); }
@@ -394,34 +417,15 @@ export function useGameCore() {
 
     const authAxios = useMemo(() => {
         const instance = axios.create({ baseURL: API_BASE_URL });
-        instance.interceptors.request.use(config => {
-            if (token) config.headers.Authorization = `Bearer ${token}`;
-            return config;
-        });
+        instance.interceptors.request.use(config => { if (token) config.headers.Authorization = `Bearer ${token}`; return config; });
         return instance;
     }, [token]);
 
     const fetchUserInfo = async () => {
         if (!token) return;
-        try {
-            const res = await authAxios.get('/users/me');
-            setAccountInfo(res.data);
-        } catch (e) {}
+        try { const res = await authAxios.get('/users/me'); setAccountInfo(res.data); } catch (e) {}
     };
     useEffect(() => { if (token) fetchUserInfo(); else setAccountInfo(null); }, [token]);
-
-    useEffect(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && aiResults) {
-            wsRef.current.send(JSON.stringify({ type: "SYNC_AI_RESULT", data: { results: aiResults, currentMode: analyzeType } }));
-        }
-        if (window.require && aiResults) {
-            try {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('analysis-result', { results: aiResults, currentMode: analyzeType });
-            } catch (e) {}
-        }
-    }, [aiResults, analyzeType]);
-
     useEffect(() => { if (rawLcuData && championList.length > 0) handleLcuUpdate(rawLcuData); }, [rawLcuData, championList]);
 
     const handleLcuUpdate = (session) => {
@@ -474,59 +478,7 @@ export function useGameCore() {
         }
     };
 
-    const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
-    const guessRoles = (team) => {
-        const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
-        const assignedIndices = new Set();
-        const findHeroForRole = (roleId, tagFallbackFn) => {
-            for (let i = 0; i < team.length; i++) {
-                const hero = team[i];
-                if (!hero || assignedIndices.has(i)) continue;
-                const cleanKey = normalizeKey(hero.key);
-                const cleanName = normalizeKey(hero.name);
-                const dbRoles = roleMapping[cleanKey] || roleMapping[cleanName];
-                if (dbRoles && dbRoles.includes(roleId)) { assignedIndices.add(i); return hero.name; }
-            }
-            for (let i = 0; i < team.length; i++) {
-                const hero = team[i];
-                if (!hero || assignedIndices.has(i)) continue;
-                if (tagFallbackFn && tagFallbackFn(hero)) { assignedIndices.add(i); return hero.name; }
-            }
-            return "";
-        };
-        roles["JUNGLE"] = findHeroForRole("JUNGLE", c => c.tags.includes("Jungle") || (c.tags.includes("Assassin") && !c.tags.includes("Mage")));
-        roles["SUPPORT"] = findHeroForRole("SUPPORT", c => c.tags.includes("Support") || c.tags.includes("Tank"));
-        roles["ADC"] = findHeroForRole("ADC", c => c.tags.includes("Marksman"));
-        roles["MID"] = findHeroForRole("MID", c => c.tags.includes("Mage") || c.tags.includes("Assassin"));
-        roles["TOP"] = findHeroForRole("TOP", c => c.tags.includes("Fighter") || c.tags.includes("Tank"));
-        
-        Object.keys(roles).filter(r => !roles[r]).forEach(r => {
-            for (let i = 0; i < team.length; i++) {
-                if (team[i] && !assignedIndices.has(i)) {
-                    roles[r] = team[i].name; assignedIndices.add(i); break;
-                }
-            }
-        });
-        return roles;
-    };
-
-    useEffect(() => {
-        if (redTeam.some(c => c !== null)) {
-            const guesses = guessRoles(redTeam);
-            setEnemyLaneAssignments(prev => {
-                const next = { ...prev };
-                const currentEnemies = redTeam.map(c => c?.name).filter(Boolean);
-                Object.keys(guesses).forEach(role => {
-                    const currentAssignedName = prev[role];
-                    if (!currentAssignedName || !currentEnemies.includes(currentAssignedName)) {
-                        if (guesses[role]) next[role] = guesses[role];
-                    }
-                });
-                return next;
-            });
-        }
-    }, [redTeam, roleMapping]);
-
+    // ... (handleLogin, handleRegister, logout, etc 保持不变)
     const handleLogin = async () => {
         try {
             const formData = new FormData(); formData.append("username", authForm.username); formData.append("password", authForm.password);
@@ -538,22 +490,12 @@ export function useGameCore() {
     };
     const handleRegister = async () => {
         try { 
-            const payload = {
-                ...authForm,
-                sales_ref: authForm.sales_ref || localStorage.getItem('sales_ref') || null
-            };
+            const payload = { ...authForm, sales_ref: authForm.sales_ref || localStorage.getItem('sales_ref') || null };
             await axios.post(`${API_BASE_URL}/register`, payload); 
-            alert("注册成功"); 
-            setAuthMode("login"); 
-            localStorage.removeItem('sales_ref');
-        } catch (e) { 
-            alert(e.response?.data?.detail || "注册失败"); 
-        }
+            alert("注册成功"); setAuthMode("login"); localStorage.removeItem('sales_ref');
+        } catch (e) { alert(e.response?.data?.detail || "注册失败"); }
     };
-    const logout = () => {
-        setToken(null); setCurrentUser(null); setAccountInfo(null);
-        localStorage.removeItem("access_token"); localStorage.removeItem("username");
-    };
+    const logout = () => { setToken(null); setCurrentUser(null); setAccountInfo(null); localStorage.removeItem("access_token"); localStorage.removeItem("username"); };
 
     const fetchTips = async (targetOverride = null) => {
         const myHeroName = blueTeam[userSlot]?.name;
@@ -562,98 +504,63 @@ export function useGameCore() {
         if (!target) {
             if (userRole && enemyLaneAssignments[userRole]) target = enemyLaneAssignments[userRole];
             else if (userRole === 'JUNGLE') {
-                const enemyJg = Object.values(enemyLaneAssignments).find(h => redTeam.find(c => c?.name === h)?.tags.includes("Jungle"))
-                                || redTeam.find(c => c?.tags.includes("Jungle"))?.name;
+                const enemyJg = Object.values(enemyLaneAssignments).find(h => redTeam.find(c => c?.name === h)?.tags.includes("Jungle")) || redTeam.find(c => c?.tags.includes("Jungle"))?.name;
                 target = enemyJg;
             }
             if (!target) target = redTeam.find(c => c)?.name;
         }
-        try {
-            const res = await axios.get(`${API_BASE_URL}/tips`, { params: { hero: myHeroName, enemy: target || "None" } });
-            setTips(res.data);
-        } catch (e) {}
+        try { const res = await axios.get(`${API_BASE_URL}/tips`, { params: { hero: myHeroName, enemy: target || "None" } }); setTips(res.data); } catch (e) {}
     };
-
     useEffect(() => { if (tipTarget) fetchTips(); }, [tipTarget]);
     useEffect(() => { setTipTarget(null); fetchTips(); }, [blueTeam[userSlot], enemyLaneAssignments, userRole, redTeam]);
 
     const handlePostTip = async (modalTarget, modalCategory) => {
         if (!currentUser) return setShowLoginModal(true);
         if (!inputContent.trim()) return;
-
         const myHeroName = blueTeam[userSlot]?.name;
-        const TAVERN_CATEGORIES = ["高光", "讨论", "求助", "吐槽"];
-        const isGeneralIntent = TAVERN_CATEGORIES.includes(modalCategory);
-
+        const isGeneralIntent = ["高光", "讨论", "求助", "吐槽"].includes(modalCategory);
         let finalEnemyParam = isGeneralIntent ? "general" : modalTarget;
-        
-        if (!isGeneralIntent && (!finalEnemyParam || finalEnemyParam === "上单对位")) {
-             finalEnemyParam = tipTarget || enemyLaneAssignments[userRole];
-        }
-
+        if (!isGeneralIntent && (!finalEnemyParam || finalEnemyParam === "上单对位")) finalEnemyParam = tipTarget || enemyLaneAssignments[userRole];
         try {
-            await authAxios.post(`/tips`, { 
-                hero: myHeroName, 
-                enemy: finalEnemyParam, 
-                content: inputContent, 
-                is_general: isGeneralIntent 
-            });
+            await authAxios.post(`/tips`, { hero: myHeroName, enemy: finalEnemyParam, content: inputContent, is_general: isGeneralIntent });
             setInputContent(""); setShowTipModal(false); 
             if (!isGeneralIntent && finalEnemyParam) setTipTarget(finalEnemyParam);
-            fetchTips(finalEnemyParam);
-            toast.success("发布成功！");
-        } catch(e) {
-            toast.error("发布失败，请重试");
-        }
+            fetchTips(finalEnemyParam); toast.success("发布成功！");
+        } catch(e) { toast.error("发布失败，请重试"); }
     };
-    const handleLike = async (tipId) => {
-        if (!currentUser) return setShowLoginModal(true);
-        try { await authAxios.post(`/like`, { tip_id: tipId }); fetchTips(); } catch(e){}
-    };
-    const handleDeleteTip = async (tipId) => {
-        if (!currentUser) return setShowLoginModal(true);
-        if(!confirm("确定删除？")) return;
-        try { await authAxios.delete(`/tips/${tipId}`); fetchTips(); } catch (e) {}
-    };
+    const handleLike = async (tipId) => { if (!currentUser) return setShowLoginModal(true); try { await authAxios.post(`/like`, { tip_id: tipId }); fetchTips(); } catch(e){} };
+    const handleDeleteTip = async (tipId) => { if (!currentUser) return setShowLoginModal(true); if(!confirm("确定删除？")) return; try { await authAxios.delete(`/tips/${tipId}`); fetchTips(); } catch (e) {} };
     const handleReportError = async () => {
         if (!currentUser) return setShowLoginModal(true);
-        
-        // 1. 构建详细的对局快照 (Snapshot)
-        const contextData = {
-            mode: analyzeType,
-            myHero: blueTeam[userSlot]?.name || "Unknown",
-            userRole: userRole,
-            mapSide: mapSide, // 🔵🔴 红蓝方信息
-            // 📝 双方阵容 (只存英雄名，减小体积)
-            myTeam: blueTeam.map(c => c?.name || "Empty"),
-            enemyTeam: redTeam.map(c => c?.name || "Empty"),
-            // 🛤️ 分路分配情况 (有助于判断 AI 是否认错了对位)
-            laneAssignments: {
-                my: myLaneAssignments,
-                enemy: enemyLaneAssignments
-            }
-        };
-
-        try { 
-            await authAxios.post(`/feedback`, { 
-                match_context: contextData, 
-                description: inputContent 
-            }); 
-            // 2. 提示用户已上传快照
-            toast.success("反馈已提交 (已自动附带当前阵容快照)", { icon: '📸' });
-            setShowFeedbackModal(false); 
-            setInputContent(""); 
-        } catch (e) {
-            toast.error("反馈提交失败，请重试");
-        }
+        const contextData = { mode: analyzeType, myHero: blueTeam[userSlot]?.name || "Unknown", userRole: userRole, mapSide: mapSide, myTeam: blueTeam.map(c => c?.name || "Empty"), enemyTeam: redTeam.map(c => c?.name || "Empty"), laneAssignments: { my: myLaneAssignments, enemy: enemyLaneAssignments } };
+        try { await authAxios.post(`/feedback`, { match_context: contextData, description: inputContent }); toast.success("反馈已提交", { icon: '📸' }); setShowFeedbackModal(false); setInputContent(""); } catch (e) { toast.error("反馈提交失败"); }
     };
 
     const handleTabClick = (mode) => { setAnalyzeType(mode); setActiveTab(0); };
     const handleCardClick = (idx, isEnemy) => { setSelectingSlot(idx); setSelectingIsEnemy(isEnemy); setShowChampSelector(true); };
     const handleSelectChampion = (hero) => {
-        const newTeam = selectingIsEnemy ? [...redTeam] : [...blueTeam];
-        newTeam[selectingSlot] = hero;
-        selectingIsEnemy ? setRedTeam(newTeam) : setBlueTeam(newTeam);
+        const isEnemy = selectingIsEnemy;
+        const currentTeam = isEnemy ? [...redTeam] : [...blueTeam];
+        const currentAssignments = isEnemy ? { ...enemyLaneAssignments } : { ...myLaneAssignments };
+        const setAssignments = isEnemy ? setEnemyLaneAssignments : setMyLaneAssignments;
+        const setTeam = isEnemy ? setRedTeam : setBlueTeam;
+
+        const oldHero = currentTeam[selectingSlot];
+        currentTeam[selectingSlot] = hero;
+        setTeam(currentTeam);
+        
+        const SLOT_TO_ROLE = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"];
+        let targetRole = null;
+        if (oldHero && oldHero.name) targetRole = Object.keys(currentAssignments).find(role => currentAssignments[role] === oldHero.name);
+        if (!targetRole) targetRole = SLOT_TO_ROLE[selectingSlot];
+
+        if (targetRole) {
+            const newName = hero ? hero.name : "";
+            if (currentAssignments[targetRole] !== newName) {
+                const newAssignments = { ...currentAssignments, [targetRole]: newName };
+                setAssignments(newAssignments);
+            }
+        }
         setShowChampSelector(false);
     };
 
@@ -675,27 +582,18 @@ export function useGameCore() {
         const newController = new AbortController(); abortControllersRef.current[mode] = newController;
 
         setAnalyzingStatus(prev => ({ ...prev, [mode]: true }));
-        setAiResults(prev => ({ ...prev, [mode]: null })); 
+        setAiResults(prev => { const next = { ...prev }; next[mode] = null; if (mode === 'personal') next['role_jungle_farming'] = null; else if (mode === 'role_jungle_farming') next['personal'] = null; return next; });
 
-        // 🔥 [修复] 智能英雄定位系统 (Auto Slot Detection)
-        // 核心逻辑：如果当前选中的位置(userSlot)没有英雄，
-        // 或者是手动测试模式(LCU未连接)，代码会自动扫描 blueTeam
-        // 找到第一个选了英雄的位置，并认为那就是玩家自己。
+        const baseResultsSnapshot = { ...aiResultsRef.current };
         let targetSlot = userSlot;
         let myHeroObj = blueTeam[userSlot];
 
         if (!myHeroObj) {
             const firstNonEmptyIndex = blueTeam.findIndex(h => h !== null);
             if (firstNonEmptyIndex !== -1) {
-                console.log(`⚠️ 自动修正玩家位置: Slot ${userSlot} -> Slot ${firstNonEmptyIndex} (${blueTeam[firstNonEmptyIndex].name})`);
-                targetSlot = firstNonEmptyIndex;
-                myHeroObj = blueTeam[firstNonEmptyIndex];
-                setUserSlot(firstNonEmptyIndex); 
-                
+                targetSlot = firstNonEmptyIndex; myHeroObj = blueTeam[firstNonEmptyIndex]; setUserSlot(firstNonEmptyIndex); 
                 const SLOT_TO_ROLE = { 0: "TOP", 1: "JUNGLE", 2: "MID", 3: "ADC", 4: "SUPPORT" };
-                if (!lcuRealRole) {
-                    setUserRole(SLOT_TO_ROLE[firstNonEmptyIndex]);
-                }
+                if (!lcuRealRole) setUserRole(SLOT_TO_ROLE[firstNonEmptyIndex]);
             }
         }
 
@@ -708,23 +606,13 @@ export function useGameCore() {
         });
         Object.keys(myLaneAssignments).forEach(role => {
             const heroName = myLaneAssignments[role];
-            if (heroName) {
-                const hero = blueTeam.find(h => h?.name === heroName);
-                if (hero) payloadAssignments[role] = hero.key;
-            }
+            if (heroName) { const hero = blueTeam.find(h => h?.name === heroName); if (hero) payloadAssignments[role] = hero.key; }
         });
 
         let finalUserRole = lcuRealRole || userRole;
-        if (!finalUserRole) {
-             const SLOT_TO_ROLE = { 0: "TOP", 1: "JUNGLE", 2: "MID", 3: "ADC", 4: "SUPPORT" };
-             finalUserRole = SLOT_TO_ROLE[targetSlot] || "MID";
-        }
-
+        if (!finalUserRole) { const SLOT_TO_ROLE = { 0: "TOP", 1: "JUNGLE", 2: "MID", 3: "ADC", 4: "SUPPORT" }; finalUserRole = SLOT_TO_ROLE[targetSlot] || "MID"; }
         const myHeroName = myHeroObj?.name;
-        if (myHeroName) {
-             const manualRole = Object.keys(myLaneAssignments).find(r => myLaneAssignments[r] === myHeroName);
-             if (manualRole) finalUserRole = manualRole;
-        }
+        if (myHeroName) { const manualRole = Object.keys(myLaneAssignments).find(r => myLaneAssignments[r] === myHeroName); if (manualRole) finalUserRole = manualRole; }
 
         if (!myHeroObj) {
             setAiResults(prev => ({ ...prev, [mode]: JSON.stringify({ concise: { title: "无法识别英雄", content: "请先在左侧点击圆圈选择您的英雄，或等待游戏内自动同步。" } })}));
@@ -734,43 +622,32 @@ export function useGameCore() {
 
         try {
             let enemySide = "unknown";
-            if (mapSide === "blue") enemySide = "red";
-            else if (mapSide === "red") enemySide = "blue";
+            if (mapSide === "blue") enemySide = "red"; else if (mapSide === "red") enemySide = "blue";
 
             const payload = {
-                mode,
-                myHero: myHeroObj.key, 
-                myTeam: blueTeam.map(c => c?.key || ""),
-                enemyTeam: redTeam.map(c => c?.key || ""),
-                userRole: finalUserRole,
-                mapSide: mapSide, 
-                enemySide: enemySide,
-                rank: userRank,
-                extraMechanics: extraMechanics,
+                mode, myHero: myHeroObj.key, 
+                myTeam: blueTeam.map(c => c?.key || ""), enemyTeam: redTeam.map(c => c?.key || ""),
+                userRole: finalUserRole, mapSide: mapSide, enemySide: enemySide, rank: userRank,
                 myLaneAssignments: Object.keys(payloadAssignments).length > 0 ? payloadAssignments : null,
                 enemyLaneAssignments: (() => {
                     const clean = {};
-                    Object.keys(enemyLaneAssignments).forEach(k => {
-                         const heroName = enemyLaneAssignments[k];
-                         const heroObj = redTeam.find(c => c?.name === heroName);
-                         if(heroObj) clean[k] = heroObj.key;
-                    });
+                    Object.keys(enemyLaneAssignments).forEach(k => { const heroName = enemyLaneAssignments[k]; const heroObj = redTeam.find(c => c?.name === heroName); if(heroObj) clean[k] = heroObj.key; });
                     return Object.keys(clean).length > 0 ? clean : null;
                 })(),
                 model_type: useThinkingModel ? "reasoner" : "chat"
             };
 
-            const response = await fetch(`${API_BASE_URL}/analyze`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify(payload),
-                signal: newController.signal
-            });
+            const response = await fetch(`${API_BASE_URL}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload), signal: newController.signal });
 
-            if (!response.ok) { if (response.status === 401) { setShowLoginModal(true); throw new Error("登录过期"); } throw new Error(`请求失败: ${response.status}`); }
+            if (!response.ok) { 
+                if (response.status === 401) { setShowLoginModal(true); throw new Error("登录过期"); } 
+                try { const errorText = await response.text(); const errorJson = JSON.parse(errorText); if (errorJson.concise) { setAiResults(prev => ({ ...prev, [mode]: JSON.stringify(errorJson) })); return; } if (errorJson.detail) throw new Error(errorJson.detail); } catch (parseErr) {}
+                throw new Error(`请求失败: ${response.status}`); 
+            }
+
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");
-            let done = false; let accumulatedText = "";
+            let done = false; let accumulatedText = ""; let lastStreamTime = 0;
 
             while (!done) {
                 const { value, done: doneReading } = await reader.read();
@@ -779,42 +656,37 @@ export function useGameCore() {
                     const chunk = decoder.decode(value, { stream: true });
                     accumulatedText += chunk;
                     setAiResults(prev => ({ ...prev, [mode]: accumulatedText })); 
+                    const now = Date.now();
+                    if (now - lastStreamTime > 100) {
+                        const streamData = { results: { ...baseResultsSnapshot, [mode]: accumulatedText }, currentMode: mode };
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "SYNC_AI_RESULT", data: streamData }));
+                        else if (window.require) { try { const { ipcRenderer } = window.require('electron'); ipcRenderer.send('analysis-result', streamData); } catch(e) {} }
+                        lastStreamTime = now;
+                    }
                 }
             }
+            const finalData = { results: { ...baseResultsSnapshot, [mode]: accumulatedText }, currentMode: mode };
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "SYNC_AI_RESULT", data: finalData }));
+            else if (window.require) { try { const { ipcRenderer } = window.require('electron'); ipcRenderer.send('analysis-result', finalData); } catch(e) {} }
+
         } catch (error) {
             if (error.name === 'AbortError') return;
-            setAiResults(prev => ({ ...prev, [mode]: JSON.stringify({ concise: { title: "错误", content: error.message || "网络异常" } })}));
+            const errorData = { concise: { title: "错误", content: error.message || "网络异常" } };
+            const errorString = JSON.stringify(errorData);
+            setAiResults(prev => ({ ...prev, [mode]: errorString }));
+            const errorPayload = { results: { ...baseResultsSnapshot, [mode]: errorString }, currentMode: mode };
+            if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "SYNC_AI_RESULT", data: errorPayload }));
         } finally {
             if (abortControllersRef.current[mode] === newController) { setAnalyzingStatus(prev => ({ ...prev, [mode]: false })); fetchUserInfo(); }
         }
     };
-
+    const handleClearAnalysis = (mode) => {
+        setAiResults(prev => ({ ...prev, [mode]: null }));
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) { const baseResultsSnapshot = { ...aiResultsRef.current, [mode]: null }; wsRef.current.send(JSON.stringify({ type: "SYNC_AI_RESULT", data: { results: baseResultsSnapshot, currentMode: mode } })); }
+    };
+    
     return {
-        state: {
-            version, championList, showAdminPanel, adminView,isOverlay, hasStarted, showCommunity, showProfile,
-            showSettingsModal, currentShortcuts, sendChatTrigger,
-            blueTeam, redTeam, myTeamRoles, userRole, lcuStatus, userRank,
-            enemyLaneAssignments, myLaneAssignments,
-            useThinkingModel, aiResults, analyzingStatus, isModeAnalyzing, analyzeType, viewMode, activeTab,
-            showChampSelector, selectingSlot, selectingIsEnemy, roleMapping,
-            currentUser, accountInfo, token, authMode, authForm, showLoginModal, showPricingModal,
-            tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot,
-            mapSide,showDownloadModal, showSalesDashboard,lcuProfile,
-            gamePhase 
-        },
-        actions: {
-            setHasStarted, setShowCommunity, setShowProfile,
-            setShowAdminPanel,setAdminView, setShowSettingsModal,
-            setBlueTeam, setRedTeam, setUserRole, setUserRank, setMyLaneAssignments, setEnemyLaneAssignments,
-            setUseThinkingModel, setAnalyzeType, setAiResults, setViewMode, setActiveTab,
-            setShowChampSelector, setSelectingSlot, setSelectingIsEnemy,
-            setAuthMode, setAuthForm, setShowLoginModal, setShowPricingModal,
-            setInputContent, setShowTipModal, setShowFeedbackModal, setTipTarget, setUserSlot,
-            
-            handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo,
-            handleCardClick, handleSelectChampion, handleSaveShortcuts,
-            handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide,
-            setShowDownloadModal, setShowSalesDashboard,handleSyncProfile 
-        }
+        state: { version, championList, showAdminPanel, adminView,isOverlay, hasStarted, showCommunity, showProfile, showSettingsModal, currentShortcuts, sendChatTrigger, blueTeam, redTeam, myTeamRoles, userRole, lcuStatus, userRank, enemyLaneAssignments, myLaneAssignments, useThinkingModel, aiResults, analyzingStatus, isModeAnalyzing, analyzeType, viewMode, activeTab, showChampSelector, selectingSlot, selectingIsEnemy, roleMapping, currentUser, accountInfo, token, authMode, authForm, showLoginModal, showPricingModal, tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot, mapSide,showDownloadModal, showSalesDashboard,lcuProfile, gamePhase },
+        actions: { setHasStarted, setShowCommunity, setShowProfile, setShowAdminPanel,setAdminView, setShowSettingsModal, setBlueTeam, setRedTeam, setUserRole, setUserRank, setMyLaneAssignments, setEnemyLaneAssignments, setUseThinkingModel, setAnalyzeType, setAiResults, setViewMode, setActiveTab, setShowChampSelector, setSelectingSlot, setSelectingIsEnemy, setAuthMode, setAuthForm, setShowLoginModal, setShowPricingModal, setInputContent, setShowTipModal, setShowFeedbackModal, setTipTarget, setUserSlot, handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo, handleCardClick, handleSelectChampion, handleSaveShortcuts, handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide, setShowDownloadModal, setShowSalesDashboard,handleSyncProfile,handleClearAnalysis }
     };
 }

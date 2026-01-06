@@ -6,11 +6,16 @@
    1. 全局基础样式 (网页版)
    ========================================= */
 body {
-  background-color: #010A13;
-  /* 虚空蓝背景纹理 */
+  /* 🚀 优化：基底色提亮，从 #010A13 改为 #0F172A (Slate-900)，更具现代感 */
+  background-color: #0F172A;
+  
+  /* 🚀 优化：背景光影微调，增加通透感和层次感 */
   background-image: 
-    radial-gradient(circle at 50% 0%, #1a2c4e 0%, transparent 60%),
-    radial-gradient(circle at 50% 100%, #091428 0%, transparent 60%);
+    /* 顶部光晕：稍微亮一点的蓝灰，模拟顶光，范围扩大到 80% */
+    radial-gradient(circle at 50% 0%, #1E293B 0%, transparent 80%),
+    /* 底部光晕：深邃的午夜蓝，增加底部色彩丰富度 */
+    radial-gradient(circle at 50% 100%, #172554 0%, transparent 60%);
+    
   background-attachment: fixed;
   color: #A09B8C;
   margin: 0;
@@ -39,10 +44,10 @@ select {
 /* B. 全局默认滚动条 (金色风格) */
 ::-webkit-scrollbar {
   width: 8px;
-  background: #010A13;
+  background: #0F172A; /* 同步新的背景色 */
 }
 ::-webkit-scrollbar-thumb {
-  background: #3C3C41;
+  background: #334155; /* 稍微提亮滚动条颜色，匹配 Slate 色系 */
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -96,12 +101,6 @@ body.transparent-mode #root {
     -webkit-app-region: no-drag;
     cursor: pointer;
 }
-/* 确保悬浮窗模式下背景透明 */
-body.transparent-mode {
-    background-color: transparent !important;
-    background-image: none !important;
-}
-/* src/index.css */
 
 /* 海克斯科技风格的网格背景 (替代失效的图片) */
 .bg-hex-pattern {
@@ -161,5 +160,4 @@ body.transparent-mode {
       background: rgba(200, 170, 110, 0.3);
       border-radius: 2px;
   }
-
 }
