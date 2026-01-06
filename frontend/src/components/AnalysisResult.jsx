@@ -564,7 +564,7 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                                 }`}
                             title="切换至：口令模式 (简明指令)"
                         >
-                            <Zap size={10} fill={viewMode === 'simple' ? "currentColor" : "none"}/> 口令
+                            <Zap size={10} fill={viewMode === 'simple' ? "currentColor" : "none"}/> 简略
                         </button>
                         <button 
                             onClick={() => setViewMode('detailed')}
