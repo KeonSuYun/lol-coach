@@ -6,7 +6,8 @@ import {
     MousePointer2, Clock, CheckCircle2, Globe,
     LayoutDashboard, Home, Shield, Swords, History,
     Hammer, PieChart, AlertCircle, Award, Microscope,
-    Users, MessageSquare, Layers, Lightbulb, Compass
+    Users, MessageSquare, Layers, Lightbulb, Compass,
+    Copy, ExternalLink
 } from 'lucide-react';
 
 import HexCoreIcon from './HexCoreIcon';
@@ -30,8 +31,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
   }, []);
 
   return (
-    // 🔥 [优化] 背景色调整为 Slate-900 风格
-    <div className="w-full min-h-screen bg-[#0F172A] text-slate-200 overflow-x-hidden selection:bg-[#C8AA6E]/30 font-sans">
+    <div className="w-full min-h-screen bg-[#0F172A] text-slate-200 overflow-x-hidden selection:bg-[#C8AA6E]/30 font-sans relative">
       <Toaster position="top-center" />
       
       <DownloadModal 
@@ -39,12 +39,22 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
           onClose={() => setShowDownloadModal(false)} 
       />
       
+      {/* === 🔥 [新增] 右下角悬浮内测群按钮 === */}
+      <a
+        href="https://qm.qq.com/q/k4JKUNUISI"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-8 right-8 z-50 flex items-center gap-2 px-5 py-3 bg-[#0AC8B9] hover:bg-[#08b2a5] text-[#091428] rounded-full shadow-[0_0_20px_rgba(10,200,185,0.3)] hover:shadow-[0_0_30px_rgba(10,200,185,0.5)] transition-all duration-300 hover:-translate-y-1 group font-bold border-2 border-[#091428]"
+      >
+        <MessageSquare size={20} className="group-hover:rotate-12 transition-transform fill-current"/>
+        <span className="hidden md:inline">加入内测</span>
+      </a>
+
       {/* === 1. 顶部导航栏 === */}
-      {/* 🔥 [优化] 导航栏背景色同步 */}
       <nav className="fixed top-0 left-0 w-full z-50 bg-[#0F172A]/90 backdrop-blur-md border-b border-white/5 transition-all duration-300 h-20">
         <div className="max-w-[1800px] mx-auto px-6 h-full flex items-center justify-between">
           
-          {/* A. 左侧 Logo 区 */}
+          {/* Logo 区 */}
           <div 
             className="flex items-center gap-4 cursor-pointer group select-none" 
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -69,13 +79,13 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
             </div>
           </div>
 
-          {/* B. 中间导航区 */}
+          {/* 中间导航区 */}
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden lg:flex items-center gap-8">
             <button 
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="flex items-center gap-2 text-[#C8AA6E] font-bold text-sm transition-colors relative"
             >
-              <Home size={16}/> 理念
+              <Home size={16}/> 首页
               <div className="absolute bottom-[-29px] left-0 w-full h-[2px] bg-[#C8AA6E] shadow-[0_0_10px_#C8AA6E]"></div>
             </button>
             
@@ -94,7 +104,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
             </button>
           </div>
 
-          {/* C. 右侧功能区 */}
+          {/* 右侧功能区 */}
           <div className="flex items-center gap-4">
             <button 
                 onClick={onEnter}
@@ -115,12 +125,11 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
 
       {/* === 2. Hero Section (主视觉) === */}
       <div className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-6 overflow-hidden">
-        {/* 🔥 [优化] 顶部光晕颜色微调 */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[800px] bg-gradient-to-b from-[#1e293b] via-[#0F172A] to-transparent rounded-full blur-[100px] -z-10 opacity-80"></div>
         
         <div className="max-w-[1200px] mx-auto text-center relative z-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase mb-6 animate-in fade-in slide-in-from-bottom-4">
-              <Compass size={12} /> Your Tactical Second Sight
+              <Compass size={12} /> S16 赛季 AI意识教练
             </div>
 
             <h1 className="text-4xl md:text-6xl font-black text-white tracking-tight leading-[1.2] mb-6 drop-shadow-2xl">
@@ -133,7 +142,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
               <br className="hidden md:block"/>
               我们将复杂的对线博弈与运营逻辑拆解清晰，
               <br className="hidden md:block"/>
-              陪你在高压之下，依然保持<span className="text-[#C8AA6E] font-bold">理解、判断与尊严</span>。
+              陪你在高压之下，依然保持<span className="text-[#C8AA6E] font-bold">理解、判断与热爱</span>。
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-16">
@@ -154,17 +163,16 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
       </div>
 
       {/* === 3. 核心价值 (2x2 Grid) === */}
-      {/* 🔥 [优化] 背景色调整为 Slate-950 (更深一点) */}
       <div id="core-features" className="w-full bg-[#020617] py-24 border-t border-white/5 relative">
         <div className="max-w-[1400px] mx-auto px-6">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-black text-white mb-4">不是代打，<span className="text-[#0AC8B9]">是赋能</span></h2>
-            <p className="text-slate-400">填补意识差距，让你像职业选手一样思考。</p>
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-4">少一点赌,多一点<span className="text-[#0AC8B9]">判断</span></h2>
+            <p className="text-slate-400">填补关键决策盲区，给你更清晰的对局思路，让你像职业选手一样思考。</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             
-            {/* 卡片 1: BP */}
+            {/* 卡片 1: BP (LIVE) */}
             <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-blue-500/30 transition-all hover:-translate-y-2 relative overflow-hidden">
                 <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400 mb-4 group-hover:bg-blue-500/20 transition-colors">
@@ -184,7 +192,7 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 <div className="h-1 w-8 bg-blue-500 rounded-full group-hover:w-full transition-all duration-500"></div>
             </div>
 
-            {/* 卡片 2: 对线 */}
+            {/* 卡片 2: 对线 (LIVE) */}
             <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-purple-500/30 transition-all hover:-translate-y-2 relative overflow-hidden">
                 <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-400 mb-4 group-hover:bg-purple-500/20 transition-colors">
@@ -205,12 +213,11 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 <div className="h-1 w-8 bg-purple-500 rounded-full group-hover:w-full transition-all duration-500"></div>
             </div>
 
-            {/* 卡片 3: 局内 (Decision) */}
+            {/* 卡片 3: 局内 (DEV) */}
             <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-all hover:-translate-y-2 relative overflow-hidden opacity-90 hover:opacity-100">
                 <div className="absolute top-4 right-[-35px] rotate-45 bg-slate-800 text-slate-400 text-[10px] font-bold px-10 py-1 shadow-lg border-y border-slate-700 z-10">
                     DEV
                 </div>
-                
                 <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 bg-orange-500/10 rounded-xl flex items-center justify-center text-orange-400 mb-4 group-hover:bg-orange-500/20 transition-colors">
                         <Compass size={24} />
@@ -223,11 +230,9 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         开发中
                     </span>
                 </div>
-                
                 <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <TrendingUp size={80} />
                 </div>
-                
                 <h3 className="text-xl font-bold text-slate-300 mb-2 group-hover:text-orange-400 transition-colors">局势概率推演</h3>
                 <p className="text-sm text-slate-500 leading-relaxed mb-4 group-hover:text-slate-400 transition-colors">
                     基于兵线与经济差，计算不同决策的期望值。
@@ -236,12 +241,11 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 <div className="h-1 w-8 bg-orange-500 rounded-full group-hover:w-full transition-all duration-500"></div>
             </div>
 
-            {/* 卡片 4: 复盘 */}
+            {/* 卡片 4: 复盘 (DEV) */}
             <div className="group bg-[#0F172A] p-6 rounded-2xl border border-white/5 hover:border-green-500/30 transition-all hover:-translate-y-2 relative overflow-hidden opacity-90 hover:opacity-100">
                 <div className="absolute top-4 right-[-35px] rotate-45 bg-slate-800 text-slate-400 text-[10px] font-bold px-10 py-1 shadow-lg border-y border-slate-700 z-10">
                     DEV
                 </div>
-
                 <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-400 mb-4 group-hover:bg-green-500/20 transition-colors">
                         <History size={24} />
@@ -254,11 +258,9 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         开发中
                     </span>
                 </div>
-
                 <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <BarChart3 size={80} />
                 </div>
-                
                 <h3 className="text-xl font-bold text-slate-300 mb-2 group-hover:text-green-400 transition-colors">AI 深度复盘</h3>
                 <p className="text-sm text-slate-500 leading-relaxed mb-4 group-hover:text-slate-400 transition-colors">
                     在失败中寻找价值。
@@ -271,15 +273,13 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
         </div>
       </div>
 
-      {/* === 4. 第一顺位：战术教练模块 (Coaching Module) === */}
-      {/* 🔥 [优化] 背景色调整 */}
+      {/* === 4. 第一顺位：战术教练模块 (已上线) === */}
       <div id="coaching-module" className="w-full bg-[#0F172A] py-32 border-t border-white/5 relative overflow-hidden">
         {/* 背景装饰 (深蓝系) */}
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-blue-900/10 rounded-full blur-[100px] -z-10"></div>
         
         <div className="max-w-[1400px] mx-auto px-6 flex flex-col lg:flex-row items-center gap-20">
-            
-            {/* 左侧：文案 (图右文左布局) */}
+            {/* 左侧：文案 */}
             <div className="flex-1 space-y-8">
                 <div>
                     <div className="flex flex-wrap gap-3 mb-4">
@@ -303,7 +303,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    {/* 模块 1：对线 */}
                     <div className="flex items-start gap-4">
                         <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-blue-400 shrink-0">
                             <Swords size={24}/>
@@ -313,8 +312,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                             <p className="text-xs text-slate-500">拆解英雄技能交互。教你何时换血是赚的，何时是在送机会，填补对线细节落差。</p>
                         </div>
                     </div>
-                    
-                    {/* 模块 2：打野 (新增/修改) */}
                     <div className="flex items-start gap-4">
                         <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
                             <Map size={24}/>
@@ -324,8 +321,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                             <p className="text-xs text-slate-500">告别盲目刷野。基于双方打野定位，规划<span className="text-slate-300">最优开野路线</span>，预测敌方位置并提示反蹲。</p>
                         </div>
                     </div>
-
-                    {/* 模块 3：团战 */}
                     <div className="flex items-start gap-4">
                         <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-red-400 shrink-0">
                             <Target size={24}/>
@@ -335,8 +330,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                             <p className="text-xs text-slate-500">明确你的首要目标：是该刺杀后排，还是保护己方C位？厘清混乱团战中的唯一任务。</p>
                         </div>
                     </div>
-
-                    {/* 模块 4：阵容 */}
                     <div className="flex items-start gap-4">
                         <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-emerald-400 shrink-0">
                             <Layers size={24}/>
@@ -349,11 +342,9 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                 </div>
             </div>
 
-            {/* 右侧：模拟演示界面 (内容更新为包含打野) */}
+            {/* 右侧：模拟演示界面 */}
             <div className="flex-1 relative w-full perspective-1000 group">
                 <div className="relative z-10 bg-[#0a0c10] rounded-xl border border-[#0AC8B9]/30 shadow-[0_0_80px_rgba(10,200,185,0.1)] overflow-hidden transform rotate-y-[-5deg] group-hover:rotate-0 transition-all duration-1000 ease-out flex flex-col h-[450px]">
-                    
-                    {/* 模拟 Header */}
                     <div className="h-10 border-b border-white/5 bg-[#0e1117] flex items-center px-4 gap-2">
                         <div className="flex gap-1.5">
                             <div className="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
@@ -362,21 +353,13 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                         </div>
                         <div className="ml-4 text-[10px] text-slate-500 font-mono bg-black/30 px-2 py-0.5 rounded">HexCoach Analysis Core</div>
                     </div>
-
-                    {/* 模拟 Tab (更新了 Tab 名称) */}
                     <div className="flex border-b border-white/5 bg-[#0e1117]">
                         <div className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-white transition-colors">⚔️ 线上私教</div>
                         <div className="px-4 py-2 text-xs font-bold text-[#0AC8B9] border-b-2 border-[#0AC8B9] bg-[#0AC8B9]/10">🌲 野区规划</div>
                         <div className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-white transition-colors">💥 团战思路</div>
                     </div>
-
-                    {/* 模拟内容区 (更新为打野相关内容) */}
                     <div className="flex-1 p-5 space-y-4 bg-[#0a0c10] relative overflow-hidden">
-                        
-                        {/* 装饰网格 */}
                         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none"></div>
-
-                        {/* 卡片 1：开野规划 */}
                         <div className="bg-[#13161c] border border-white/5 p-3 rounded relative z-10">
                             <div className="text-[10px] text-slate-500 mb-1 font-bold uppercase">Optimal Pathing</div>
                             <div className="flex justify-between items-center text-sm font-bold text-slate-200">
@@ -389,8 +372,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                                 <span className="text-slate-500 mt-1 block">逻辑：下路我方泰坦+莎弥拉，配合你（皇子）的EQ二连为必杀组合。放弃上路发育，主打下半区节奏。</span>
                             </div>
                         </div>
-
-                        {/* 卡片 2：敌方追踪 */}
                         <div className="bg-[#13161c] border border-white/5 p-3 rounded relative z-10">
                              <div className="text-[10px] text-slate-500 mb-1 font-bold uppercase">Jungle Tracking</div>
                              <div className="text-sm font-bold text-slate-200 mb-1">👁️ 敌方盲僧动向预测</div>
@@ -404,52 +385,247 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                                  盲僧前期强势，大概率二级入侵你的红区。建议让辅助做防守眼，并保留惩戒用于拼抢。
                              </p>
                         </div>
-                        
-                        {/* 悬浮气泡 */}
                         <div className="absolute top-1/2 right-4 bg-yellow-600/20 border border-yellow-500/50 p-2 rounded shadow-lg backdrop-blur animate-pulse z-20">
                             <div className="text-[10px] font-bold text-yellow-300">Tempo Check</div>
                             <div className="text-xs text-white">控河蟹 {'>'}  Gank</div>
                         </div>
-
                     </div>
                 </div>
-
-                {/* 装饰光效 */}
                 <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-[#0AC8B9] rounded-full blur-[100px] opacity-20"></div>
             </div>
 
         </div>
       </div>
 
-      {/* === 5. 第二顺位：赛后复盘模块 (Post-Match Module) === */}
-      {/* 🔥 [优化] 背景色调整 */}
+      {/* === 5. [提权] 技术与合规 (Tech Stack) === */}
+      {/* 🔥 [位置调整] 紧跟主功能 */}
+      <div className="w-full bg-gradient-to-b from-[#091428] to-[#050810] py-20 px-6 border-t border-white/5">
+        <div className="max-w-5xl mx-auto bg-[#020304] rounded-3xl border border-[#C8AA6E]/10 p-8 md:p-12 relative overflow-hidden">
+            
+            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-10">
+                <div className="flex-1 text-center md:text-left">
+                    <div className="inline-flex items-center gap-2 mb-4 text-[#0AC8B9] font-mono text-xs font-bold tracking-wider">
+                        <ShieldCheck size={14}/> SAFE & COMPLIANT
+                    </div>
+                    <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
+                        LCU 官方接口 + <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0AC8B9] to-blue-400">纯净数据流</span>
+                    </h2>
+                    <p className="text-slate-400 leading-relaxed mb-6">
+                        我们严格遵守游戏公平性原则。HexCoach 采用非入侵式技术架构：
+                        <br/>
+                        1. 通过官方 **LCU 接口** 获取基础对局信息。
+                        <br/>
+                        2. 基于 **实时数据** 进行深度战术推演。
+                        <br/>
+                        <span className="text-white font-bold">绝不读取内存，绝不注入代码。</span> 我们不修改游戏数据，只是帮你更好地处理已有的信息。
+                    </p>
+                    <div className="flex flex-wrap gap-3 justify-center md:justify-start">
+                        <span className="px-3 py-1 bg-white/5 rounded border border-white/10 text-xs text-slate-300 flex items-center gap-1"><ShieldCheck size={12}/> 0 封号风险</span>
+                        <span className="px-3 py-1 bg-white/5 rounded border border-white/10 text-xs text-slate-300 flex items-center gap-1"><Activity size={12}/> 无感运行 Overlay</span>
+                    </div>
+                </div>
+                
+                <div className="w-full md:w-1/3 flex justify-center">
+                    <div className="relative animate-pulse-slow">
+                        <HexCoreIcon className="w-32 h-32 text-[#0AC8B9] opacity-80" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Cpu size={40} className="text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+      </div>
+
+      {/* === 6. [提权] Community Section === */}
+      {/* 🔥 [位置调整] 移到了中间，删除了群号显示 */}
+      <div id="community-section" className="w-full bg-[#040508] py-20 border-t border-white/5 relative overflow-hidden">
+          <div className="max-w-4xl mx-auto px-6 text-center">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700 text-slate-400 text-xs font-bold uppercase mb-6">
+                  <MessageSquare size={12} /> Community Driven
+              </div>
+              
+              <h2 className="text-2xl md:text-4xl font-bold text-white mb-6">
+                  Hex Coach 不是一个 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200">“永远正确”</span> 的系统
+              </h2>
+              
+              <div className="text-slate-400 leading-relaxed text-sm md:text-base space-y-4 max-w-2xl mx-auto">
+                  <p>
+                      它在不断学习，也需要真实玩家的反馈。如果你发现 AI 的判断与实际对局存在明显偏差，
+                      或你能给出更好的对局理解，我们欢迎你把这些反馈在社区分享出来。
+                  </p>
+                  
+                  {/* QQ群加入入口 (简化版) */}
+                  <div className="flex flex-col items-center justify-center gap-4 py-8">
+                      <a 
+                          href="https://qm.qq.com/q/k4JKUNUISI" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="group relative inline-flex items-center gap-3 px-8 py-3 bg-[#0AC8B9]/10 border border-[#0AC8B9]/50 text-[#0AC8B9] font-bold rounded-xl transition-all hover:bg-[#0AC8B9] hover:text-[#091428] hover:shadow-[0_0_20px_rgba(10,200,185,0.4)]"
+                      >
+                          <MessageSquare size={20} className="group-hover:animate-bounce" />
+                          <span>加入内测交流群</span>
+                          <ExternalLink size={14} className="opacity-50" />
+                      </a>
+                  </div>
+
+                  <p className="text-slate-500 text-xs mt-4 pt-4 border-t border-white/5">
+                      * 经过管理员审核的有效反馈，会获得额外的 <span className="text-[#0AC8B9]">模型使用次数</span> 或 <span className="text-[#C8AA6E]">会员时长</span> 奖励。
+                  </p>
+              </div>
+          </div>
+      </div>
+
+      {/* === 7. [降级] 局内决策引擎 (DEV) === */}
+      {/* 🔥 [调整] 移到底部作为未来展望 */}
+      <div id="ingame-module" className="w-full bg-[#0F172A] py-32 border-t border-white/5 relative overflow-hidden">
+        {/* 背景装饰 */}
+        <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-[#C8AA6E]/5 rounded-full blur-[120px] -z-10 opacity-50"></div>
+        <div className="absolute inset-0 bg-[url('https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/magic-pattern-sprite.png')] opacity-[0.02] -z-10"></div>
+
+        <div className="max-w-[1400px] mx-auto px-6 flex flex-col lg:flex-row items-center gap-20">
+            {/* 左侧：文案与功能点 */}
+            <div className="flex-1 space-y-8">
+                <div>
+                    <div className="flex flex-wrap gap-3 mb-4">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C8AA6E]/10 border border-[#C8AA6E]/20 text-[#C8AA6E] text-xs font-bold uppercase">
+                            <Clock size={12} /> 间歇期规划
+                        </div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-xs font-bold uppercase">
+                            <Hammer size={12} /> 开发中
+                        </div>
+                    </div>
+
+                    <h2 className="text-4xl md:text-6xl font-black text-white mb-6 leading-tight">
+                        拒绝泉水发呆 <br/>
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200">下一波战术规划</span>
+                    </h2>
+                    <p className="text-lg text-slate-400 leading-relaxed">
+                        死亡或回城不是“垃圾时间”，而是思考的黄金窗口。
+                        <br/>
+                        当你打开商店或等待复活时，HexCoach 基于 LCU 数据快速分析当前局势，
+                        <br/>
+                        为你生成<span className="text-[#C8AA6E] font-bold">出门后的行动指南</span>。
+                    </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-green-400 shrink-0">
+                            <Compass size={24}/>
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-white mb-1">出门去哪儿 (Next Move)</h4>
+                            <p className="text-xs text-slate-500">“小龙还有50秒刷新，去中路推线占视野。” AI 帮你明确出门后的第一优先级。</p>
+                        </div>
+                    </div>
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
+                            <Activity size={24}/>
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-white mb-1">关键装备博弈</h4>
+                            <p className="text-xs text-slate-500">检测到敌方剑魔做出了“渴血”。AI 提示你：当前重伤装备优先级提升，切勿裸大件。</p>
+                        </div>
+                    </div>
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-red-400 shrink-0">
+                            <Target size={24}/>
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-white mb-1">敌方技能计时</h4>
+                            <p className="text-xs text-slate-500">趁着灰屏，确认敌方关键R技能和双招CD。这波团能不能接？数据说了算。</p>
+                        </div>
+                    </div>
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-blue-400 shrink-0">
+                            <Brain size={24}/>
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-white mb-1">翻盘点识别</h4>
+                            <p className="text-xs text-slate-500">劣势局不盲目打团。AI 分析双方经济差，建议“避战发育”还是“抓单找机会”。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 右侧：模拟演示图 */}
+            <div className="flex-1 relative w-full perspective-1000">
+                <div className="relative z-10 bg-[#0f172a] rounded-xl border border-[#C8AA6E]/30 shadow-[0_0_80px_rgba(200,170,110,0.15)] overflow-hidden transform rotate-y-[-5deg] hover:rotate-0 transition-all duration-1000 ease-out p-1">
+                    <div className="w-full h-[400px] bg-[#0b0f19] relative overflow-hidden flex flex-col">
+                        <div className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-[#050505]/50">
+                            <div className="text-[#C8AA6E] text-xs font-bold flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-[#C8AA6E] animate-pulse"></div>
+                                RECALLING...
+                            </div>
+                            <div className="text-slate-500 text-xs font-mono">GAME TIME 18:42</div>
+                        </div>
+                        <div className="flex-1 p-6 flex flex-col gap-4 relative">
+                            <div className="bg-[#1e293b]/80 border-l-4 border-[#C8AA6E] p-4 rounded-r-lg backdrop-blur-md animate-in slide-in-from-left duration-700">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Map size={16} className="text-[#C8AA6E]"/>
+                                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Next Objective</span>
+                                </div>
+                                <h3 className="text-xl font-black text-white mb-1">前往小龙坑 (Dragon Pit)</h3>
+                                <p className="text-xs text-slate-400">
+                                    听牌龙还有 <span className="text-[#C8AA6E] font-bold">45s</span> 刷新。敌方打野无闪现。
+                                    <br/>建议：先做河道视野，逼迫对方接团。
+                                </p>
+                            </div>
+                            <div className="flex gap-4">
+                                <div className="flex-1 bg-[#1e293b]/80 border-t-2 border-red-500 p-3 rounded-b-lg backdrop-blur-md animate-in slide-in-from-bottom duration-700 delay-200">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Swords size={14} className="text-red-400"/>
+                                        <span className="text-[10px] font-bold text-slate-300 uppercase">Threat Check</span>
+                                    </div>
+                                    <div className="text-xs text-slate-400">
+                                        敌方<span className="text-white font-bold">阿卡丽</span>发育超前
+                                        <br/>建议补充：<span className="text-green-400 underline decoration-dotted">饮魔刀 / 秒表</span>
+                                    </div>
+                                </div>
+                                <div className="flex-1 bg-[#1e293b]/80 border-t-2 border-blue-500 p-3 rounded-b-lg backdrop-blur-md animate-in slide-in-from-bottom duration-700 delay-300">
+                                     <div className="flex items-center gap-2 mb-2">
+                                        <GitBranch size={14} className="text-blue-400"/>
+                                        <span className="text-[10px] font-bold text-slate-300 uppercase">Macro</span>
+                                     </div>
+                                    <div className="text-xs text-slate-400">
+                                        我方上路兵线优势
+                                        <br/>决策：<span className="text-white font-bold">正面拉扯，等待分推</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="h-1 w-full bg-slate-800 absolute bottom-0">
+                            <div className="h-full bg-[#C8AA6E] w-[85%] animate-pulse"></div>
+                        </div>
+                    </div>
+                </div>
+                <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#C8AA6E] rounded-full blur-[100px] opacity-10"></div>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-[#C8AA6E]/5 rounded-xl -z-10 scale-105"></div>
+            </div>
+        </div>
+      </div>
+
+      {/* === 8. [降级] 赛后复盘模块 (DEV) === */}
+      {/* 🔥 [调整] 移到底部作为未来展望 */}
       <div id="postmatch-module" className="w-full bg-[#020617] py-32 border-t border-white/5 relative overflow-hidden">
         {/* 背景装饰 (紫色系) */}
         <div className="absolute top-1/2 left-0 -translate-y-1/2 w-[800px] h-[800px] bg-purple-900/10 rounded-full blur-[120px] -z-10"></div>
         
         <div className="max-w-[1400px] mx-auto px-6 flex flex-col-reverse lg:flex-row items-center gap-20">
-            
-            {/* 左侧：视觉演示 (反转布局，图在左) */}
+            {/* 左侧：视觉演示 */}
             <div className="flex-1 relative w-full perspective-1000 group">
                  <div className="relative z-10 bg-[#0e0e14] rounded-xl border border-purple-500/30 shadow-[0_0_80px_rgba(168,85,247,0.1)] overflow-hidden transform rotate-y-[5deg] group-hover:rotate-0 transition-all duration-1000 ease-out p-1">
-                    
-                    {/* 模拟分析界面 */}
                     <div className="w-full h-[400px] bg-[#131b2e] relative overflow-hidden flex items-center justify-center">
                          <div className="absolute inset-0 bg-[linear-gradient(rgba(168,85,247,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(168,85,247,0.05)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
-                         
-                         {/* 核心评分卡 */}
                          <div className="relative z-20 flex flex-col items-center gap-4 animate-in fade-in zoom-in duration-700">
                              <div className="w-40 h-40 rounded-full border-4 border-purple-500/30 flex items-center justify-center relative shadow-[0_0_50px_rgba(168,85,247,0.4)] bg-[#0f0f16]/80 backdrop-blur">
                                  <div className="text-center">
                                      <div className="text-5xl font-black text-white italic">A+</div>
                                      <div className="text-[10px] text-purple-400 font-bold tracking-widest mt-1">SOLID</div>
                                  </div>
-                                 {/* 装饰环 */}
                                  <div className="absolute inset-0 border-t-4 border-purple-500 rounded-full animate-spin-slow"></div>
                              </div>
                          </div>
-
-                         {/* 悬浮卡 1：决策分析 */}
                          <div className="absolute top-12 left-8 z-30 animate-in slide-in-from-left duration-1000 delay-200">
                              <div className="bg-[#0f0f16]/90 border-l-4 border-yellow-500 p-3 rounded-r-lg shadow-xl backdrop-blur w-64">
                                  <div className="flex items-center gap-2 mb-1">
@@ -459,8 +635,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                                  <p className="text-[10px] text-slate-400">此处大龙团站位稍显激进。如果保持在己方辅助身后，有更大机会在泰坦先手后存活并反打。</p>
                              </div>
                          </div>
-
-                         {/* 悬浮卡 2：职业对比 */}
                          <div className="absolute bottom-12 right-8 z-30 animate-in slide-in-from-right duration-1000 delay-500">
                              <div className="bg-[#0f0f16]/90 border-l-4 border-[#0AC8B9] p-3 rounded-r-lg shadow-xl backdrop-blur w-56">
                                  <div className="flex items-center gap-2 mb-1">
@@ -479,11 +653,8 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
                                  </div>
                              </div>
                          </div>
-
                     </div>
                  </div>
-                 
-                 {/* 装饰光效 */}
                  <div className="absolute -top-10 -left-10 w-40 h-40 bg-purple-600 rounded-full blur-[100px] opacity-20"></div>
             </div>
 
@@ -551,214 +722,6 @@ const LandingPage = ({ onEnter, onOpenCommunity }) => {
             </div>
 
         </div>
-      </div>
-
-      {/* === 6. 第三顺位：局内决策引擎 (In-Game Module) === */}
-      {/* 🔥 [优化] 背景色调整 */}
-      <div id="ingame-module" className="w-full bg-[#0F172A] py-32 border-t border-white/5 relative overflow-hidden">
-        {/* 背景装饰 */}
-        <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-[#C8AA6E]/5 rounded-full blur-[120px] -z-10 opacity-50"></div>
-        <div className="absolute inset-0 bg-[url('https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/magic-pattern-sprite.png')] opacity-[0.02] -z-10"></div>
-
-        <div className="max-w-[1400px] mx-auto px-6 flex flex-col lg:flex-row items-center gap-20">
-            
-            {/* 左侧：文案与功能点 */}
-            <div className="flex-1 space-y-8">
-                <div>
-                    <div className="flex flex-wrap gap-3 mb-4">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C8AA6E]/10 border border-[#C8AA6E]/20 text-[#C8AA6E] text-xs font-bold uppercase">
-                            <Clock size={12} /> 间歇期规划
-                        </div>
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-xs font-bold uppercase">
-                            <Hammer size={12} /> 开发中
-                        </div>
-                    </div>
-
-                    <h2 className="text-4xl md:text-6xl font-black text-white mb-6 leading-tight">
-                        拒绝泉水发呆 <br/>
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200">下一波战术规划</span>
-                    </h2>
-                    <p className="text-lg text-slate-400 leading-relaxed">
-                        死亡或回城不是“垃圾时间”，而是思考的黄金窗口。
-                        <br/>
-                        当你打开商店或等待复活时，HexCoach 基于 LCU 数据快速分析当前局势，
-                        <br/>
-                        为你生成<span className="text-[#C8AA6E] font-bold">出门后的行动指南</span>。
-                    </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-green-400 shrink-0">
-                            <Compass size={24}/>
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-white mb-1">出门去哪儿 (Next Move)</h4>
-                            <p className="text-xs text-slate-500">“小龙还有50秒刷新，去中路推线占视野。” AI 帮你明确出门后的第一优先级。</p>
-                        </div>
-                    </div>
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-[#C8AA6E] shrink-0">
-                            <Activity size={24}/>
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-white mb-1">关键装备博弈</h4>
-                            <p className="text-xs text-slate-500">检测到敌方剑魔做出了“渴血”。AI 提示你：当前重伤装备优先级提升，切勿裸大件。</p>
-                        </div>
-                    </div>
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-red-400 shrink-0">
-                            <Target size={24}/>
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-white mb-1">敌方技能计时</h4>
-                            <p className="text-xs text-slate-500">趁着灰屏，确认敌方关键R技能和双招CD。这波团能不能接？数据说了算。</p>
-                        </div>
-                    </div>
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 bg-[#0F172A] rounded-lg border border-white/10 text-blue-400 shrink-0">
-                            <Brain size={24}/>
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-white mb-1">翻盘点识别</h4>
-                            <p className="text-xs text-slate-500">劣势局不盲目打团。AI 分析双方经济差，建议“避战发育”还是“抓单找机会”。</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 右侧：模拟演示图 (Recall/Shop Interface) */}
-            <div className="flex-1 relative w-full perspective-1000">
-                <div className="relative z-10 bg-[#0f172a] rounded-xl border border-[#C8AA6E]/30 shadow-[0_0_80px_rgba(200,170,110,0.15)] overflow-hidden transform rotate-y-[-5deg] hover:rotate-0 transition-all duration-1000 ease-out p-1">
-                    
-                    {/* 模拟游戏背景（模糊的泉水/商店图） */}
-                    <div className="w-full h-[400px] bg-[#0b0f19] relative overflow-hidden flex flex-col">
-                        
-                        {/* 顶部状态栏模拟 */}
-                        <div className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-[#050505]/50">
-                            <div className="text-[#C8AA6E] text-xs font-bold flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-[#C8AA6E] animate-pulse"></div>
-                                RECALLING...
-                            </div>
-                            <div className="text-slate-500 text-xs font-mono">GAME TIME 18:42</div>
-                        </div>
-
-                        {/* 中间内容：战术板 */}
-                        <div className="flex-1 p-6 flex flex-col gap-4 relative">
-                            {/* 核心建议卡 */}
-                            <div className="bg-[#1e293b]/80 border-l-4 border-[#C8AA6E] p-4 rounded-r-lg backdrop-blur-md animate-in slide-in-from-left duration-700">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Map size={16} className="text-[#C8AA6E]"/>
-                                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Next Objective</span>
-                                </div>
-                                <h3 className="text-xl font-black text-white mb-1">前往小龙坑 (Dragon Pit)</h3>
-                                <p className="text-xs text-slate-400">
-                                    听牌龙还有 <span className="text-[#C8AA6E] font-bold">45s</span> 刷新。敌方打野无闪现。
-                                    <br/>建议：先做河道视野，逼迫对方接团。
-                                </p>
-                            </div>
-
-                            {/* 装备建议卡 */}
-                            <div className="flex gap-4">
-                                <div className="flex-1 bg-[#1e293b]/80 border-t-2 border-red-500 p-3 rounded-b-lg backdrop-blur-md animate-in slide-in-from-bottom duration-700 delay-200">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <Swords size={14} className="text-red-400"/>
-                                        <span className="text-[10px] font-bold text-slate-300 uppercase">Threat Check</span>
-                                    </div>
-                                    <div className="text-xs text-slate-400">
-                                        敌方<span className="text-white font-bold">阿卡丽</span>发育超前
-                                        <br/>建议补充：<span className="text-green-400 underline decoration-dotted">饮魔刀 / 秒表</span>
-                                    </div>
-                                </div>
-                                <div className="flex-1 bg-[#1e293b]/80 border-t-2 border-blue-500 p-3 rounded-b-lg backdrop-blur-md animate-in slide-in-from-bottom duration-700 delay-300">
-                                     <div className="flex items-center gap-2 mb-2">
-                                        <GitBranch size={14} className="text-blue-400"/>
-                                        <span className="text-[10px] font-bold text-slate-300 uppercase">Macro</span>
-                                    </div>
-                                    <div className="text-xs text-slate-400">
-                                        我方上路兵线优势
-                                        <br/>决策：<span className="text-white font-bold">正面拉扯，等待分推</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 底部进度条 */}
-                        <div className="h-1 w-full bg-slate-800 absolute bottom-0">
-                            <div className="h-full bg-[#C8AA6E] w-[85%] animate-pulse"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                {/* 装饰元素 */}
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#C8AA6E] rounded-full blur-[100px] opacity-10"></div>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-[#C8AA6E]/5 rounded-xl -z-10 scale-105"></div>
-            </div>
-        </div>
-      </div>
-
-      {/* === 7. 技术与合规 (Tech Stack) - 删除了 CV 文案 === */}
-      <div className="w-full bg-gradient-to-b from-[#091428] to-[#050810] py-20 px-6 border-t border-white/5">
-        <div className="max-w-5xl mx-auto bg-[#020304] rounded-3xl border border-[#C8AA6E]/10 p-8 md:p-12 relative overflow-hidden">
-            
-            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-10">
-                <div className="flex-1 text-center md:text-left">
-                    <div className="inline-flex items-center gap-2 mb-4 text-[#0AC8B9] font-mono text-xs font-bold tracking-wider">
-                        <ShieldCheck size={14}/> SAFE & COMPLIANT
-                    </div>
-                    {/* 🔥 [优化] 文案修改：强调纯净数据流 */}
-                    <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
-                        LCU 官方接口 + <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0AC8B9] to-blue-400">纯净数据流</span>
-                    </h2>
-                    <p className="text-slate-400 leading-relaxed mb-6">
-                        我们严格遵守游戏公平性原则。HexCoach 采用非入侵式技术架构：
-                        <br/>
-                        1. 通过官方 **LCU 接口** 获取基础对局信息。
-                        <br/>
-                        2. 基于 **实时数据** 进行深度战术推演。
-                        <br/>
-                        <span className="text-white font-bold">绝不读取内存，绝不注入代码。</span> 我们不修改游戏数据，只是帮你更好地处理已有的信息。
-                    </p>
-                    <div className="flex flex-wrap gap-3 justify-center md:justify-start">
-                        <span className="px-3 py-1 bg-white/5 rounded border border-white/10 text-xs text-slate-300 flex items-center gap-1"><ShieldCheck size={12}/> 0 封号风险</span>
-                        <span className="px-3 py-1 bg-white/5 rounded border border-white/10 text-xs text-slate-300 flex items-center gap-1"><Activity size={12}/> 无感运行 Overlay</span>
-                    </div>
-                </div>
-                
-                {/* 示意图 */}
-                <div className="w-full md:w-1/3 flex justify-center">
-                    <div className="relative animate-pulse-slow">
-                        <HexCoreIcon className="w-32 h-32 text-[#0AC8B9] opacity-80" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <Cpu size={40} className="text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]" />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-      </div>
-
-      {/* 🔥 [位置调整] 共建理念板块移动到这里 */}
-      <div className="w-full bg-[#040508] py-20 border-t border-white/5 relative overflow-hidden">
-          <div className="max-w-4xl mx-auto px-6 text-center">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700 text-slate-400 text-xs font-bold uppercase mb-6">
-                  <MessageSquare size={12} /> Community Driven
-              </div>
-              
-              <h2 className="text-2xl md:text-4xl font-bold text-white mb-6">
-                  Hex Coach 不是一个 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C8AA6E] to-yellow-200">“永远正确”</span> 的系统
-              </h2>
-              
-              <div className="text-slate-400 leading-relaxed text-sm md:text-base space-y-4 max-w-2xl mx-auto">
-                  <p>
-                      它在不断学习，也需要真实玩家的反馈。如果你发现 AI 的判断与实际对局存在明显偏差，
-                      或你能给出更好的对局理解，我们欢迎你把这些反馈在社区分享出来。
-                  </p>
-                  <p className="text-slate-500 text-xs mt-4 pt-4 border-t border-white/5">
-                      * 经过管理员审核的有效反馈，会获得额外的 <span className="text-[#0AC8B9]">模型使用次数</span> 或 <span className="text-[#C8AA6E]">会员时长</span> 奖励。
-                  </p>
-              </div>
-          </div>
       </div>
 
       {/* Footer */}

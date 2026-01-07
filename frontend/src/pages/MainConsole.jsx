@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Shield, Users, Zap, Brain, Crosshair, RefreshCcw, ShieldAlert, RotateCcw, Trash2, GripHorizontal, Settings, HelpCircle, RefreshCw, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Shield, Users, Zap, Brain, Crosshair, RefreshCcw, ShieldAlert, RotateCcw, Trash2, GripHorizontal, Settings, HelpCircle, RefreshCw, AlertCircle, CheckCircle2, XCircle,Compass, Sparkles, Swords } from 'lucide-react';
 import { Toaster, toast } from 'react-hot-toast';
 
 // 组件引入
@@ -40,41 +40,93 @@ const GUIDE_STEPS = [
 
 // 🔥🔥🔥 [核心配置] 英雄适用性数据库 V4.0 🔥🔥🔥
 const HERO_FARMING_CONFIG = {
-    // ⭐⭐⭐⭐⭐ 完美适配
-    "Lillia":   { tier: 5, stars: 5, reason: "刷得快 / 吃等级 / 后期无敌" },
-    "Karthus":  { tier: 5, stars: 5, reason: "刷得快 / 吃等级 / 后期无敌" },
-    "Taliyah":  { tier: 5, stars: 5, reason: "刷得快 / 吃等级 / 后期无敌" },
-    "Brand":    { tier: 5, stars: 5, reason: "刷得快 / 吃等级 / 后期无敌" },
-    
-    // ⭐⭐⭐⭐ 推荐
-    "Graves":   { tier: 4, stars: 4, reason: "适合入侵环节，反野打崩对面" },
-    "Kindred":  { tier: 4, stars: 4, reason: "适合入侵环节，反野打崩对面" },
-    "Nidalee":  { tier: 4, stars: 4, reason: "适合入侵环节，反野打崩对面" },
-    "Aatrox":   { tier: 4, stars: 4, reason: "野区单挑强 / 适合入侵滚雪球" },
-    "Jayce":    { tier: 4, stars: 4, reason: "双形态刷野快 / 爆发高 / 需发育" },
-    "Diana":    { tier: 4, stars: 4, reason: "刷野快 / 6级爆发高 / 速6" },
-    "Hecarim":  { tier: 4, stars: 4, reason: "刷野快 / 6级爆发高 / 速6" },
-    "Ekko":     { tier: 4, stars: 4, reason: "刷野快 / 6级爆发高 / 速6" },
-    
-    // ⭐⭐⭐ 可用
-    "Viego":    { tier: 3, stars: 3, reason: "可用，但也可选择灵活抓人" },
-    "Kayn":     { tier: 3, stars: 3, reason: "可用，但也可选择灵活抓人" },
-    "Amumu":    { tier: 3, stars: 3, reason: "利用AOE速刷上6找节奏" },
-    "Shyvana":  { tier: 3, stars: 3, reason: "需速6控龙，偏刷" },
-    "Udyr":     { tier: 3, stars: 3, reason: "刷野快，觉醒R推线强" },
-    "MasterYi": { tier: 3, stars: 3, reason: "吃装备等级，偏刷" },
-    "Belveth":  { tier: 3, stars: 3, reason: "需发育叠层数" },
+    // ==========================================
+    // === Type 1: 节奏/GANK型 (Rhythm/Combat) ===
+    // 特征：Tier 0 (默认标准模式)，标准模式分高，野核模式分低
+    // ==========================================
 
-    // ❌ 不推荐 / 禁止
-    "LeeSin":   { tier: 0, stars: 0, reason: "浪费前期单挑/Gank能力" },
-    "XinZhao":  { tier: 0, stars: 0, reason: "浪费前期单挑/Gank能力" },
-    "JarvanIV": { tier: 0, stars: 0, reason: "浪费前期单挑/Gank能力" },
-    "Elise":    { tier: 0, stars: 0, reason: "禁止：刷得慢/后期弱/必须搞事" },
-    "RekSai":   { tier: 0, stars: 0, reason: "禁止：刷得慢/后期弱/必须搞事" },
-    "Sejuani":  { tier: 0, stars: 0, reason: "应该保爹打，而非闷头刷" },
-    "Rammus":   { tier: 0, stars: 0, reason: "应该保爹打，而非闷头刷" },
-    "Nunu":     { tier: 0, stars: 0, reason: "工具人，需频繁做事" },
-    "Shaco":    { tier: 0, stars: 0, reason: "绝食流代表，禁止刷野" }
+    // --- 1.1 战士/对抗 (Fighter/Combat) ---
+    "LeeSin":   { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：效率低，浪费前期强势期", reason_standard: "标准模式：T0级前期节奏，野区单挑与Gank极强" },
+    "XinZhao":  { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：缺乏AOE速刷手段，拖后期乏力", reason_standard: "标准模式：捅脸单挑强，适合主动入侵找节奏" },
+    "Viego":    { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：虽有收割能力，但纯刷容易丢失节奏", reason_standard: "标准模式：捡魂收割机制，团战上限极高" },
+    "Vi":       { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：有W刷野尚可，但核心是锁头抓人", reason_standard: "标准模式：Q闪开团，大招必中，专治花里胡哨" },
+    "Wukong":   { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：除了神分那一波，刷野并不快", reason_standard: "标准模式：隐身切入，大招两段击飞，最强团控战士" },
+    "Olaf":     { tier: 0, farming_stars: 4, standard_stars: 5, reason_farming: "野核模式：虽然丢斧子刷得快，但更适合砍人", reason_standard: "标准模式：诸神黄昏免控，疯狗一样冲脸C位" },
+    "Warwick":  { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：没有提亚马特之前刷野很慢", reason_standard: "标准模式：鲜血追猎，全图加速，低分段战神" },
+    "Briar":    { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：虽然有回复，但失控机制容易送", reason_standard: "标准模式：全图大招支援，疯狗吸血，残局战神" },
+    "Pantheon": { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：刷野极慢，后期乏力", reason_standard: "标准模式：W稳定点控，大招半图支援跳后排" },
+
+    // --- 1.2 绝食/GANK (Heavy Ganker) ---
+    "JarvanIV": { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：刷野伤且慢，无法发挥EQ二连优势", reason_standard: "标准模式：绝食流代表，二级抓下/三级越塔" },
+    "Nunu":     { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：吃野怪快但CARRY能力差", reason_standard: "标准模式：推球跑图，控龙与抓人效率极高" },
+    "Twitch":   { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：身板脆刷野慢，不抓人就废了", reason_standard: "标准模式：隐身一级抓人，通过恶心线上滚雪球" },
+    "Sylas":    { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：前期刷野像坐牢，必须去线上'借'钱", reason_standard: "标准模式：偷取关键大招（如石头人/阿木木）逆天改命" },
+    "Poppy":    { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：Q有百分比但手短，更需要跑图", reason_standard: "标准模式：W防突进神技，E壁咚，R锤飞关键前排" },
+
+    // --- 1.3 刺客/爆发 (Assassin) ---
+    "Evelynn":  { tier: 0, farming_stars: 4, standard_stars: 5, reason_farming: "野核模式：6级前需速刷，但核心是杀人叠层数", reason_standard: "标准模式：隐身抓人，高爆发秒C位" },
+    "Talon":    { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：翻墙是为了跑图杀人，不是为了刷F6", reason_standard: "标准模式：全图游走，利用高机动性抓崩三路" },
+    "Shaco":    { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：纯刷是最差的玩法，必须搞事", reason_standard: "标准模式：绝食骚扰，通过折磨对手心态获胜" },
+    "KhaZix":   { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：孤立无援适合野区单挑，但需要人头", reason_standard: "标准模式：进化技能，蜻蜓点水，收割残局" },
+    "Rengar":   { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：草丛跳跃刷野快，但大招是核心", reason_standard: "标准模式：落地秒杀，寻找脆皮提款" },
+    "Qiyana":   { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：刷野伤，极其依赖装备优势", reason_standard: "标准模式：水元素禁锢，大招推墙奇迹团" },
+    "Nocturne": { tier: 0, farming_stars: 4, standard_stars: 5, reason_farming: "野核模式：速6虽然重要，但本质是关灯抓单", reason_standard: "标准模式：关灯让对面丧失视野，定点秒杀C位" },
+
+    // --- 1.4 双修/前期 (Hybrid/Early) ---
+    "Elise":    { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：刷野最慢梯队，后期超级兵", reason_standard: "标准模式：越塔女皇，必须在20分钟前结束比赛" },
+    "RekSai":   { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：虽然有AOE，但机制决定必须进攻", reason_standard: "标准模式：隧道挖掘，听声辨位，前期压制力强" },
+    "Gragas":   { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：AP流可刷，但肉装流必须做事", reason_standard: "标准模式：E闪开团，几何桶分割战场" },
+
+    // ==========================================
+    // === Type 2: 野核/发育型 (Wild Core) ===
+    // 特征：Tier 4/5 (默认野核模式)，野核模式分高，标准模式分低
+    // ==========================================
+
+    // --- 2.1 AP野核 (AP Carry) ---
+    "Lillia":       { tier: 5, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：移速拉扯，多刷一组野就多一分胜算", reason_standard: "标准模式：缺乏硬控，Gank依赖E技能命中" },
+    "Karthus":      { tier: 5, farming_stars: 5, standard_stars: 2, reason_farming: "野核模式：全图支援，利用刷野拉开等级差", reason_standard: "标准模式：Gank能力极弱，只能反蹲或捡漏" },
+    "Taliyah":      { tier: 5, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：AOE足，刷野快，后期控场法师", reason_standard: "标准模式：虽有大招支援，但发育优先" },
+    "Brand":        { tier: 5, farming_stars: 5, standard_stars: 2, reason_farming: "野核模式：被动百分比伤害，刷野速度极快", reason_standard: "标准模式：腿短无位移，容易被抓" },
+    "Zyra":         { tier: 5, farming_stars: 5, standard_stars: 2, reason_farming: "野核模式：植物抗怪无伤刷野，经济转化率高", reason_standard: "标准模式：控制不稳定，身板脆" },
+    "Fiddlesticks": { tier: 5, farming_stars: 5, standard_stars: 4, reason_farming: "野核模式：多野怪同时拉刷，速6是唯一真理", reason_standard: "标准模式：视野排空后的跳大是恐怖游戏" },
+    "Morgana":      { tier: 5, farming_stars: 5, standard_stars: 2, reason_farming: "野核模式：W刷野不仅快还能吸血，无伤打野", reason_standard: "标准模式：只能摸奖Q，容易被反烂" },
+    "Ekko":         { tier: 4, farming_stars: 4, standard_stars: 4, reason_farming: "野核模式：三环刷野快，大招容错，吃装备", reason_standard: "标准模式：W立场预判，越塔强杀" },
+    "Diana":        { tier: 4, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：被动攻速，速6质变，纳什之牙", reason_standard: "标准模式：依赖Q技能突进，6级前较弱" },
+    "Nidalee":      { tier: 4, farming_stars: 5, standard_stars: 4, reason_farming: "野核模式：刷野天花板，等级压制是核心", reason_standard: "标准模式：标枪摸奖，人形态加血，操作难度高" },
+
+    // --- 2.2 AD野核 (AD Carry) ---
+    "Graves":       { tier: 4, farming_stars: 5, standard_stars: 4, reason_farming: "野核模式：纯爷们反野，把对面野区当自己家", reason_standard: "标准模式：烟雾弹Gank，配合线上推塔" },
+    "Kindred":      { tier: 4, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：印记成长需求，必须入侵吞噬野怪", reason_standard: "标准模式：依赖队友保护，印记刷新看运气" },
+    "MasterYi":     { tier: 4, farming_stars: 5, standard_stars: 2, reason_farming: "野核模式：吞噬野区，后期砍瓜切菜", reason_standard: "标准模式：前期无控，只能收割残局" },
+    "Belveth":      { tier: 4, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：无限攻速成长，必须拿虚空鱼", reason_standard: "标准模式：Q技能多段位移，E技能减伤" },
+    "Hecarim":      { tier: 4, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：Q技能AOE，贪婪刷野叠装备", reason_standard: "标准模式：疾跑一开，谁也不爱，主要靠冲阵" },
+    "Jax":          { tier: 4, farming_stars: 4, standard_stars: 3, reason_farming: "野核模式：刷野速度中等但成长性极高", reason_standard: "标准模式：反击风暴晕人，后期单带无解" },
+    "Kayn":         { tier: 3, farming_stars: 4, standard_stars: 4, reason_farming: "野核模式：蓝凯秒人，红凯回血，都需要装备", reason_standard: "标准模式：穿墙游走，蹭能量变身" },
+    "Jayce":        { tier: 4, farming_stars: 4, standard_stars: 3, reason_farming: "野核模式：锤形态AOE刷野，需要大量经济支撑Poke", reason_standard: "标准模式：加强炮消耗，如无经济压制则作用有限" },
+    "Teemo":        { tier: 4, farming_stars: 4, standard_stars: 2, reason_farming: "野核模式：6级后蘑菇阵控图，恶心对面野区", reason_standard: "标准模式：正面团战弱，容易被针对" },
+
+    // --- 2.3 坦克/特殊野核 (Tank/Special) ---
+    "Shyvana":      { tier: 4, farming_stars: 5, standard_stars: 2, reason_farming: "野核模式：速6变龙，控龙属性加成", reason_standard: "标准模式：没大招超级兵，只能反蹲" },
+    "DrMundo":      { tier: 4, farming_stars: 5, standard_stars: 3, reason_farming: "野核模式：E技能拍死野怪，经济转化为坦度", reason_standard: "标准模式：去哪全凭心情，吸收成吨伤害" },
+    "Udyr":         { tier: 3, farming_stars: 4, standard_stars: 4, reason_farming: "野核模式：觉醒R刷野极快，跑图流", reason_standard: "标准模式：E技能加速晕人，形态切换灵活" },
+
+    // ==========================================
+    // === Type 3: 工具人/功能型 (Utility/Tank) ===
+    // 特征：Tier 0 (默认标准模式)，标准模式分高，不吃资源
+    // ==========================================
+
+    "Sejuani":  { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：肉装为主，刷野慢，CARRY难", reason_standard: "标准模式：被动抗性，大招开团，配合近战队友" },
+    "Rammus":   { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：被法师折磨，刷野效率低", reason_standard: "标准模式：物理克星，Q加速抓人，嘲讽必杀" },
+    "Amumu":    { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：虽然E技能刷野快，但容易被反", reason_standard: "标准模式：QW粘人，R大团控，也是个好工具人" },
+    "Zac":      { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：捡碎片回血，但单挑能力弱", reason_standard: "标准模式：超远E开团，分割战场，多重控制" },
+    "Maokai":   { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：树苗探视野，自身伤害不足", reason_standard: "标准模式：W稳定点控，R大范围封路" },
+    "Ivern":    { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：我是辅助，为什么要让我C？", reason_standard: "标准模式：种草护盾，召唤小菊，纯辅助玩法" },
+    "Skarner":  { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：重做后偏肉坦控制", reason_standard: "标准模式：E技能穿墙，R压制拉人" },
+    "Volibear": { tier: 0, farming_stars: 3, standard_stars: 5, reason_farming: "野核模式：被动闪电链刷野不错，但手短", reason_standard: "标准模式：大招屏蔽防御塔，越塔神技" },
+    "Malphite": { tier: 0, farming_stars: 2, standard_stars: 5, reason_farming: "野核模式：前期缺蓝刷得慢，除了大招没别的", reason_standard: "标准模式：只要大招撞得好，0-5也能赢团战" },
+    "Shen":     { tier: 0, farming_stars: 1, standard_stars: 5, reason_farming: "野核模式：清野巨慢，甚至需要提亚马特", reason_standard: "标准模式：大招全图保人，E闪嘲讽开团" },
+    "Gwen":     { tier: 3, farming_stars: 4, standard_stars: 3, reason_farming: "野核模式：真实伤害，W规避技能，后期大核", reason_standard: "标准模式：留人能力差，依赖疾跑" },
+    "Aatrox":   { tier: 3, farming_stars: 3, standard_stars: 4, reason_farming: "野核模式：吸血续航，野区单挑强", reason_standard: "标准模式：多段击飞，团战天神下凡" }
 };
 
 export default function MainConsole({ state, actions }) {
@@ -104,26 +156,55 @@ export default function MainConsole({ state, actions }) {
 
     const [showGuide, setShowGuide] = useState(false);
     const [isFarmingMode, setIsFarmingMode] = useState(false);
+    const effectiveMode = useMemo(() => {
+        if (analyzeType === 'personal' && userRole === 'JUNGLE' && isFarmingMode) {
+            return 'role_jungle_farming';
+        }
+        return analyzeType;
+    }, [analyzeType, userRole, isFarmingMode]);
+    
+    useEffect(() => {
+        const currentHero = blueTeam[userSlot];
+        
+        // 1. 如果当前格子有英雄
+        if (currentHero && currentHero.name) {
+            // 反查分路表：找找看 myLaneAssignments 里，哪个位置填的是这个英雄的名字
+            // 例如：myLaneAssignments['JUNGLE'] === '法外狂徒'
+            const assignedRole = Object.keys(myLaneAssignments).find(
+                role => myLaneAssignments[role] === currentHero.name
+            );
 
-        // 🔥 [核心修复 1] 计算“实际生效模式” (Effective Mode)
-        // 如果你在“王者私教”页面 + 是“打野” + 开了“野核开关”，那么实际模式就是 jungle_farming
-      const effectiveMode = useMemo(() => {
-            if (analyzeType === 'personal' && userRole === 'JUNGLE' && isFarmingMode) {
-                return 'role_jungle_farming';
+            // 如果在分路表里找到了位置，强制同步 userRole
+            if (assignedRole) {
+                if (userRole !== assignedRole) {
+                    // console.log(`🔄 强同步：从分路表检测到 ${currentHero.name} 是 ${assignedRole}`);
+                    setUserRole(assignedRole);
+                }
+                return; // 找到了就结束，以此为准
             }
-            return analyzeType;
-        }, [analyzeType, userRole, isFarmingMode]);
+        }
+
+        // 2. 兜底逻辑：如果没有英雄，或者分路表里没找到，再回退到按 Slot 位置判断
+        if (myTeamRoles && myTeamRoles[userSlot]) {
+            const slotRole = myTeamRoles[userSlot];
+            if (slotRole && slotRole !== userRole) {
+                setUserRole(slotRole);
+            }
+        }
+    }, [userSlot, blueTeam, myLaneAssignments, myTeamRoles, userRole]);
     // 🔥 [优化] 智能自动开关逻辑
     useEffect(() => {
         const hero = blueTeam[userSlot];
         if (hero && userRole === 'JUNGLE') {
             const config = HERO_FARMING_CONFIG[hero.key];
+            // 如果是 T3 以上的野核英雄
             if (config && config.tier >= 3) {
+                // 自动开启，但不弹窗
                 if (!isFarmingMode) {
                     setIsFarmingMode(true);
-                    toast(`检测到野核英雄：已开启【V4.0 发育模型】`, { icon: '💰', id: 'auto-farm-on' });
                 }
             } else {
+                // 否则自动关闭
                 if (isFarmingMode) {
                     setIsFarmingMode(false);
                 }
@@ -137,8 +218,20 @@ export default function MainConsole({ state, actions }) {
     const currentHeroConfig = useMemo(() => {
         const hero = blueTeam[userSlot];
         if (!hero) return null;
-        return HERO_FARMING_CONFIG[hero.key] || { tier: 0, stars: 0, reason: "非野核英雄，建议使用标准模式" };
-    }, [blueTeam, userSlot]);
+        
+        const config = HERO_FARMING_CONFIG[hero.key];
+        
+        // 兜底逻辑：如果数据库没这个英雄
+        if (!config) return { tier: 0, stars: 3, reason: "暂无特定数据，建议按需选择" };
+
+        return {
+            ...config,
+            // 🌟 核心：根据开关状态，动态切换展示的星级
+            stars: isFarmingMode ? config.farming_stars : config.standard_stars,
+            // 🌟 核心：根据开关状态，动态切换展示的理由
+            reason: isFarmingMode ? config.reason_farming : config.reason_standard
+        };
+    }, [blueTeam, userSlot, isFarmingMode]);
 
     useEffect(() => {
         if (hasStarted) {
@@ -155,7 +248,7 @@ export default function MainConsole({ state, actions }) {
         localStorage.setItem('has_seen_guide_v2', 'true');
         toast.success("新手引导已完成！祝你排位连胜！", { icon: '🏆' });
     };
-
+    
     const getEnemySideLabel = () => {
         if (mapSide === 'blue') return '(红色方)';
         if (mapSide === 'red') return '(蓝色方)';
@@ -366,77 +459,133 @@ export default function MainConsole({ state, actions }) {
                             </div>
 
                             {/* 🔥 野核模式开关区域 (优化后样式) */}
+                            {/* 🔥 战术风格选择器 (方案一：分段控制 + 方案二：智能推荐) */}
                             {userRole === 'JUNGLE' && analyzeType === 'personal' && (
                                 <div className="mt-0 pt-3 pb-3 px-4 border-t border-white/5 animate-in fade-in slide-in-from-top-1 bg-[#091428]">
                                     <div className="flex items-center justify-between">
                                         
-                                        {/* 左侧：标签与图标 */}
-                                        <div className="flex items-center gap-2.5 select-none">
-                                            <div className={`p-1.5 rounded-md transition-all duration-300 ${isFarmingMode ? 'bg-gradient-to-br from-amber-500/30 to-orange-600/10 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.2)]' : 'bg-slate-800/50 text-slate-500'}`}>
-                                                <RefreshCw size={15} className={`transition-transform duration-700 ${isFarmingMode ? "animate-spin-slow" : ""}`} />
-                                            </div>
-                                            <div className="flex flex-col">
-                                                <span className={`text-sm font-bold transition-colors tracking-wider flex items-center gap-1.5 ${isFarmingMode ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-orange-100 drop-shadow-[0_0_2px_rgba(251,191,36,0.3)]' : 'text-slate-400'}`}>
-                                                    野核发育模式 V4.0
-                                                    {isFarmingMode && <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                                        {/* 左侧：标题与智能推荐标签 */}
+                                        <div className="flex flex-col gap-1">
+                                            <div className="flex items-center gap-2 select-none">
+                                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                    <Compass size={14} className={isFarmingMode ? "text-amber-500" : "text-[#0AC8B9]"} />
+                                                    战术风格偏好
                                                 </span>
-                                                <span className="text-[10px] text-slate-500/80 font-medium">
-                                                    {isFarmingMode ? "策略: 极致刷野 · 控虫 · 反野" : "当前: 标准节奏 · 自动分析情况"}
-                                                </span>
+
+                                                {/* 🤖 智能评级标签 (AI Rating) + 悬浮显示适配分析 */}
+                                                {currentHeroConfig && (
+                                                    <div className="relative group/badge cursor-help">
+                                                        {/* 1. 标签本体: 始终显示，根据星级变色 */}
+                                                        <span className={`text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 border transition-all ${
+                                                            currentHeroConfig.stars >= 5 
+                                                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse' 
+                                                                : currentHeroConfig.stars >= 3
+                                                                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                                                    : 'bg-red-500/10 text-red-400 border-red-500/20'
+                                                        }`}>
+                                                            {currentHeroConfig.stars >= 5 ? <Sparkles size={8} /> : (currentHeroConfig.stars <= 2 ? <AlertCircle size={8}/> : <CheckCircle2 size={8}/>)}
+                                                            AI 评级: {currentHeroConfig.stars}星
+                                                        </span>
+
+                                                        {/* 2. 悬浮窗: 英雄适配度分析 */}
+                                                        <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#091428]/95 border border-white/10 p-3 rounded-xl shadow-2xl opacity-0 group-hover/badge:opacity-100 transition-all duration-200 pointer-events-none z-50 backdrop-blur-md translate-y-2 group-hover/badge:translate-y-0">
+                                                            <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-white/5">
+                                                                <Zap size={12} className="text-amber-500"/> 
+                                                                <span className="text-slate-200 text-xs font-bold">英雄适配度分析</span>
+                                                            </div>
+                                                            <div className={`p-2 rounded border text-xs font-bold flex items-center gap-2 mb-2 ${
+                                                                currentHeroConfig.stars >= 4 ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' :
+                                                                currentHeroConfig.stars === 3 ? 'bg-blue-500/10 border-blue-500/30 text-blue-200' :
+                                                                'bg-red-500/10 border-red-500/30 text-red-300'
+                                                            }`}>
+                                                                {currentHeroConfig.stars >= 4 ? <CheckCircle2 size={14}/> : <Swords size={14}/>}
+                                                                <span>{blueTeam[userSlot]?.name || "当前英雄"}：{currentHeroConfig.stars}星适配</span>
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400 leading-relaxed pl-1">
+                                                                {currentHeroConfig.reason}
+                                                            </div>
+                                                            {/* 小三角 */}
+                                                            <div className="absolute bottom-[-6px] left-4 w-3 h-3 bg-[#091428]/95 border-r border-b border-white/10 transform rotate-45"></div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* ❓ 问号图标 + 悬浮显示模块功能介绍 */}
+                                                <div className="group/help relative cursor-help ml-1">
+                                                    <HelpCircle size={12} className="text-slate-600 hover:text-slate-300 transition-colors" />
+                                                    
+                                                    {/* 悬浮窗 2：模块功能介绍 */}
+                                                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#091428]/95 border border-white/10 p-3 rounded-xl shadow-2xl opacity-0 group-hover/help:opacity-100 transition-all duration-200 pointer-events-none z-50 backdrop-blur-md translate-y-2 group-hover/help:translate-y-0">
+                                                         <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-white/5">
+                                                            <Compass size={12} className="text-[#0AC8B9]"/> 
+                                                            <span className="text-slate-200 text-xs font-bold">战术风格说明</span>
+                                                         </div>
+                                                         <div className="space-y-2">
+                                                            <div>
+                                                                <div className="text-[10px] text-[#0AC8B9] font-bold mb-0.5">⚔️ 标准节奏 (Standard)</div>
+                                                                <div className="text-[10px] text-slate-400 leading-relaxed">
+                                                                    适用于盲僧、皇子等节奏型英雄。AI 将侧重分析 Gank 路线、反蹲时机与线上施压。
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-[10px] text-amber-500 font-bold mb-0.5">💰 野核发育 (Farm)</div>
+                                                                <div className="text-[10px] text-slate-400 leading-relaxed">
+                                                                    适用于男枪、死歌等发育型英雄。AI 将侧重规划刷野循环、入侵反野与控龙置换。
+                                                                </div>
+                                                            </div>
+                                                         </div>
+                                                         {/* 小三角 */}
+                                                         <div className="absolute bottom-[-6px] left-1 w-3 h-3 bg-[#091428]/95 border-r border-b border-white/10 transform rotate-45"></div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        {/* 右侧：开关与提示 */}
-                                        <div className="flex items-center gap-4">
-                                            {/* 科技感开关 */}
-                                            <button 
-                                                onClick={() => setIsFarmingMode(!isFarmingMode)}
-                                                className={`group relative w-12 h-6 rounded-full transition-all duration-500 ease-out focus:outline-none overflow-hidden ${isFarmingMode ? 'bg-gradient-to-r from-amber-600/80 to-[#C8AA6E] shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)]' : 'bg-slate-800/80 shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]'}`}
+                                        {/* 右侧：分段控制器 */}
+                                        <div className="flex bg-slate-800/50 p-1 rounded-lg border border-white/5 relative">
+                                            {/* 选项 A: 节奏 (Gank) */}
+                                            <button
+                                                onClick={() => setIsFarmingMode(false)}
+                                                className={`group/btn relative px-3 py-1.5 rounded-md text-[10px] md:text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                                    !isFarmingMode 
+                                                    ? 'bg-[#0AC8B9] text-[#091428] shadow-lg shadow-[#0AC8B9]/20' 
+                                                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                                }`}
                                             >
-                                                <div className={`absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 ${isFarmingMode ? 'translate-x-full opacity-100' : '-translate-x-full opacity-0'}`} style={{ transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }}></div>
-                                                <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-gradient-to-b from-white to-slate-200 shadow-md transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) flex items-center justify-center ${isFarmingMode ? 'translate-x-6' : 'translate-x-0'}`}>
-                                                    {isFarmingMode && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div>}
+                                                <Swords size={12} /> 标准节奏
+                                                
+                                                {/* 悬浮提示框 */}
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 p-2 bg-[#091428] border border-[#0AC8B9]/30 rounded-lg shadow-xl opacity-0 group-hover/btn:opacity-100 transition-all duration-200 pointer-events-none z-50">
+                                                    <div className="text-[10px] text-[#0AC8B9] text-center leading-relaxed">
+                                                        <span className="font-bold block mb-1">侧重 Gank 与反蹲</span>
+                                                        <span className="text-slate-400">牺牲刷野换取线上优势<br/>(如: 盲僧/皇子/蜘蛛)</span>
+                                                    </div>
+                                                    {/* 小三角 */}
+                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#0AC8B9]/30"></div>
                                                 </div>
                                             </button>
 
-                                            {/* 悬浮提示 (动态展示当前英雄评级) */}
-                                            <div className="group/tooltip relative cursor-help p-1 -m-1">
-                                                <HelpCircle size={16} className="text-slate-600 hover:text-amber-400 transition-colors duration-300"/>
-                                                
-                                                <div className="absolute bottom-full right-[-5px] mb-3 w-72 bg-[#091428]/95 border border-amber-500/20 p-3.5 rounded-xl shadow-[0_8px_16px_-4px_rgba(0,0,0,0.5)] opacity-0 group-hover/tooltip:opacity-100 transition-all duration-200 pointer-events-none z-50 translate-y-2 group-hover/tooltip:translate-y-0 backdrop-blur-md">
-                                                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-                                                        <h4 className="text-amber-400 text-xs font-extrabold tracking-wide flex items-center gap-1.5"><Zap size={12} className="text-amber-500" /> 当前适配分析</h4>
-                                                        <span className="text-[9px] font-bold bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded-sm border border-amber-500/20">S15</span>
-                                                    </div>
-                                                    
-                                                    {currentHeroConfig ? (
-                                                        <div className="space-y-2">
-                                                            {/* 显示当前英雄的专属评价 */}
-                                                            <div className={`p-2 rounded border text-xs font-bold ${
-                                                                currentHeroConfig.tier >= 4 ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' :
-                                                                currentHeroConfig.tier === 3 ? 'bg-blue-500/10 border-blue-500/30 text-blue-200' :
-                                                                'bg-red-500/10 border-red-500/30 text-red-300'
-                                                            }`}>
-                                                                <div className="flex items-center gap-2 mb-1">
-                                                                    {currentHeroConfig.tier >= 4 ? <CheckCircle2 size={14}/> : currentHeroConfig.tier === 3 ? <RefreshCw size={14}/> : <XCircle size={14}/>}
-                                                                    <span>{blueTeam[userSlot]?.name || "当前英雄"}: {currentHeroConfig.stars}星</span>
-                                                                </div>
-                                                                <div className="text-[10px] opacity-80 font-normal pl-5">
-                                                                    {currentHeroConfig.reason}
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="text-[9px] text-slate-500 pt-2 text-center">
-                                                                {currentHeroConfig.tier >= 3 ? "✅ 已自动为您开启野核模式" : "🚫 已自动切换回标准节奏模式"}
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-[10px] text-slate-500 text-center py-2">请先选择英雄以查看分析</div>
-                                                    )}
+                                            {/* 选项 B: 野核 (Farm) */}
+                                            <button
+                                                onClick={() => setIsFarmingMode(true)}
+                                                className={`group/btn relative px-3 py-1.5 rounded-md text-[10px] md:text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                                    isFarmingMode 
+                                                    ? 'bg-amber-500 text-[#091428] shadow-lg shadow-amber-500/20' 
+                                                    : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'
+                                                }`}
+                                            >
+                                                <RefreshCw size={12} className={isFarmingMode ? "animate-spin-slow" : ""} /> 野核发育
 
-                                                    <div className="absolute bottom-[-6px] right-4 w-3 h-3 bg-[#091428]/95 border-r border-b border-amber-500/20 transform rotate-45 backdrop-blur-md z-[-1]"></div>
+                                                {/* 悬浮提示框 */}
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 p-2 bg-[#091428] border border-amber-500/30 rounded-lg shadow-xl opacity-0 group-hover/btn:opacity-100 transition-all duration-200 pointer-events-none z-50">
+                                                    <div className="text-[10px] text-amber-400 text-center leading-relaxed">
+                                                        <span className="font-bold block mb-1">侧重 极致刷野与反野</span>
+                                                        <span className="text-slate-400">用经济差接管比赛<br/>(如: 男枪/死歌/莉莉娅)</span>
+                                                    </div>
+                                                    {/* 小三角 */}
+                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-amber-500/30"></div>
                                                 </div>
-                                            </div>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
