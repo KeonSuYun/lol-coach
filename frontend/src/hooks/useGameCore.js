@@ -147,80 +147,206 @@ export function useGameCore() {
 
     const normalizeKey = (key) => key ? key.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
 
-    // Tags 安全检查
-    const guessRoles = (team) => {
+    // 🔥🔥🔥 [核心修改] 增强版分路猜测算法 🔥🔥🔥
+const guessRoles = (team) => {
         const roles = { "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" };
+        // 记录已被分配位置的英雄索引，防止一人分饰两角
         const assignedIndices = new Set();
         
-        const findHeroForRole = (roleId, tagFallbackFn) => {
-            for (let i = 0; i < team.length; i++) {
-                const hero = team[i];
-                if (!hero || assignedIndices.has(i)) continue;
-                const cleanKey = normalizeKey(hero.key);
-                const cleanName = normalizeKey(hero.name);
-                const dbRoles = roleMapping[cleanKey] || roleMapping[cleanName];
-                if (dbRoles && dbRoles.includes(roleId)) { assignedIndices.add(i); return hero.name; }
-            }
-            for (let i = 0; i < team.length; i++) {
-                const hero = team[i];
-                if (!hero || assignedIndices.has(i)) continue;
-                if (tagFallbackFn && tagFallbackFn(hero)) { assignedIndices.add(i); return hero.name; }
-            }
-            return "";
+        const norm = (str) => str ? str.replace(/[\s\.\'\-]+/g, "").toLowerCase() : "";
+
+        // === 1. 定义独占白名单 (严格互斥) ===
+        const FORCE_JUNGLE = [
+            "LeeSin", "RekSai", "Sylas", "BelVeth", "Nidalee", "Aatrox", "Jayce", "Shaco", "XinZhao", "Warwick", "Zaahen",
+            "Karthus", "Ivern", "Ekko", "Zac", "Nunu", "Wukong", "KhaZix", "Lillia", "Kindred", "Evelynn", "Viego", "Rammus", 
+            "JarvanIV", "Briar", "MasterYi", "Graves", "DrMundo", "Hecarim", "Nocturne", "Vi", "Trundle", "Kayn", "Sejuani", 
+            "Udyr", "Skarner", "Fiddlesticks", "Amumu", "Maokai", "Volibear", "Diana", "Taliyah", "Zyra", "Brand", "Morgana"
+        ];
+
+        const FORCE_ADC = [
+            "MissFortune", "Ashe", "Lucian", "Jhin", "Kaisa", "Jinx", "Swain", "Aphelios", "Sivir", "Tristana", "Ezreal", 
+            "Smolder", "Yunara", "Vayne", "Draven", "Xayah", "Samira", "Caitlyn", "Ziggs", "KogMaw", "Zeri", "Twitch", 
+            "Varus", "Nilah", "Corki", "Kalista"
+        ];
+
+        const FORCE_SUP = [
+            "Leona", "Braum", "Poppy", "Karma", "Bard", "Thresh", "Pyke", "Nautilus", "Blitzcrank", "Lulu", "Zilean", 
+            "Nami", "Seraphine", "Neeko", "Rell", "VelKoz", "Rakan", "Alistar", "Milio", "Taric", "Soraka", "Senna", 
+            "Xerath", "Yuumi", "Lux", "Janna", "TahmKench", "Sona", "Renata", "Pantheon"
+        ];
+
+        // 加里奥、兰博 必须在这里
+        const FORCE_MID = [
+            "Zoe", "Ahri", "Viktor", "Orianna", "Katarina", "TwistedFate", "Qiyana", "LeBlanc", "Akali", "Vex", "Syndra", 
+            "Zed", "Anivia", "Talon", "Naafiri", "Fizz", "Veigar", "Akshan", "Galio", "Hwei", "Malzahar", "Ryze", "Lissandra", 
+            "AurelionSol", "Yone", "Kassadin", "Annie", "Aurora", "Mel", "Azir", "Yasuo", "Cassiopeia", "Vladimir", "Irelia"
+        ];
+
+        // 兰博 也可以在这里 (但为了防止他去中，MID名单里可以去掉他，或者这里优先级放低)
+        const FORCE_TOP = [
+            "Malphite", "Ambessa", "Singed", "Kennen", "Olaf", "Jax", "Gangplank", "Sion", "Rumble", "Fiora", "Renekton", 
+            "Riven", "Sett", "Darius", "Heimerdinger", "Quinn", "Shen", "Kled", "Garen", "Camille", "Gnar", "Urgot", "Gragas", 
+            "Mordekaiser", "Teemo", "KSante", "Gwen", "Kayle", "Ornn", "Yorick", "Nasus", "Illaoi", "Rengar", "ChoGath", 
+            "Tryndamere"
+        ];
+
+        // 辅助检测函数
+        const checkWhitelist = (hero, list) => {
+            if (!hero) return false;
+            return list.some(n => norm(n) === norm(hero.key) || norm(n) === norm(hero.id));
         };
 
-        const hasTag = (hero, tag) => hero.tags && Array.isArray(hero.tags) && hero.tags.includes(tag);
+        const checkDB = (hero, roleId) => {
+            if (!hero) return false;
+            const cleanKey = norm(hero.key);
+            const cleanName = norm(hero.name);
+            const dbRoles = roleMapping[cleanKey] || roleMapping[cleanName];
+            return dbRoles && dbRoles.includes(roleId);
+        };
 
-        roles["JUNGLE"] = findHeroForRole("JUNGLE", c => hasTag(c, "Jungle") || (hasTag(c, "Assassin") && !hasTag(c, "Mage")));
-        roles["SUPPORT"] = findHeroForRole("SUPPORT", c => hasTag(c, "Support") || hasTag(c, "Tank"));
-        roles["ADC"] = findHeroForRole("ADC", c => hasTag(c, "Marksman"));
-        roles["MID"] = findHeroForRole("MID", c => hasTag(c, "Mage") || hasTag(c, "Assassin"));
-        roles["TOP"] = findHeroForRole("TOP", c => hasTag(c, "Fighter") || hasTag(c, "Tank"));
-        
-        Object.keys(roles).filter(r => !roles[r]).forEach(r => {
-            for (let i = 0; i < team.length; i++) {
-                if (team[i] && !assignedIndices.has(i)) {
-                    roles[r] = team[i].name; assignedIndices.add(i); break;
-                }
+        const checkTags = (hero, tag) => {
+            return hero?.tags?.some(t => t.toLowerCase() === tag.toLowerCase());
+        };
+
+        // === 🚀 阶段一：白名单绝对锁定 (Phase 1: Whitelist) ===
+        // 这一步完全忽略 API 数据，只看我们定义的“独占名单”。
+        // 顺序很重要：先定死专职英雄。
+        const PHASE_1_ORDER = ["JUNGLE", "ADC", "SUPPORT", "MID", "TOP"];
+        const LIST_MAP = { "JUNGLE": FORCE_JUNGLE, "ADC": FORCE_ADC, "SUPPORT": FORCE_SUP, "MID": FORCE_MID, "TOP": FORCE_TOP };
+
+        PHASE_1_ORDER.forEach(roleId => {
+            // 在队伍里找一个【在白名单里】且【还没分配】的英雄
+            const idx = team.findIndex((h, i) => !assignedIndices.has(i) && checkWhitelist(h, LIST_MAP[roleId]));
+            if (idx !== -1) {
+                roles[roleId] = team[idx].name;
+                assignedIndices.add(idx);
             }
         });
+
+        // === 🚀 阶段二：数据库/API 补位 (Phase 2: DB/API) ===
+        // 只给还没填满的坑找人
+        PHASE_1_ORDER.forEach(roleId => {
+            if (roles[roleId]) return; // 这个坑已经填了，跳过
+            
+            const idx = team.findIndex((h, i) => !assignedIndices.has(i) && checkDB(h, roleId));
+            if (idx !== -1) {
+                roles[roleId] = team[idx].name;
+                assignedIndices.add(idx);
+            }
+        });
+
+        // === 🚀 阶段三：Tag 补位 (Phase 3: Tags) ===
+        const TAG_MAP = { "JUNGLE": "Jungle", "ADC": "Marksman", "SUPPORT": "Support", "MID": "Mage", "TOP": "Fighter" };
+        PHASE_1_ORDER.forEach(roleId => {
+            if (roles[roleId]) return;
+            const idx = team.findIndex((h, i) => !assignedIndices.has(i) && checkTags(h, TAG_MAP[roleId]));
+            if (idx !== -1) {
+                roles[roleId] = team[idx].name;
+                assignedIndices.add(idx);
+            }
+        });
+
+        // === 🚀 阶段四：暴力填空 (Phase 4: Fill Remaining) ===
+        // 剩下的萝卜填剩下的坑
+        const remainingHeroes = team.filter((_, i) => !assignedIndices.has(i));
+        PHASE_1_ORDER.forEach(roleId => {
+            if (!roles[roleId] && remainingHeroes.length > 0) {
+                roles[roleId] = remainingHeroes.shift().name;
+            }
+        });
+
         return roles;
     };
-
+    const autoAssignLanes = (isEnemy) => {
+        const team = isEnemy ? redTeam : blueTeam;
+        const setter = isEnemy ? setEnemyLaneAssignments : setMyLaneAssignments;
+        
+        const newRoles = guessRoles(team);
+        setter(newRoles);
+        
+        // 触发广播同步
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ 
+                type: 'SYNC_LANE_ASSIGNMENTS', 
+                data: { 
+                    my: isEnemy ? myLaneAssignments : newRoles, 
+                    enemy: isEnemy ? newRoles : enemyLaneAssignments 
+                } 
+            }));
+        }
+        
+        toast.success("分路已重新校准", { icon: '🔄' });
+    };
     // 自动同步我方分路
     useEffect(() => {
         if (blueTeam.some(c => c !== null)) {
             setMyLaneAssignments(prev => {
                 const next = { ...prev };
-                let usedLcuRoles = false;
-                const usedNames = new Set();
+                const currentNames = blueTeam.map(c => c?.name).filter(Boolean);
+                const usedNames = new Set(); // 记录已“名花有主”的英雄
 
-                blueTeam.forEach((hero, idx) => {
-                    if (!hero) return;
-                    const assignedRole = myTeamRoles[idx];
-                    if (assignedRole && ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].includes(assignedRole)) {
-                        next[assignedRole] = hero.name;
-                        usedNames.add(hero.name);
-                        usedLcuRoles = true;
+                // 1. 【第一优先级：用户手动】(User Selection)
+                // 只要英雄还在队里，就绝对保留您上次的设置，不覆盖
+                Object.keys(next).forEach(role => {
+                    const assignedName = next[role];
+                    if (assignedName) {
+                        if (currentNames.includes(assignedName)) {
+                            usedNames.add(assignedName); // 标记：这个英雄已经有位置了
+                        } else {
+                            next[role] = ""; // 英雄已离队（换人了），位置腾空
+                        }
                     }
                 });
 
-                if (!usedLcuRoles) {
-                    const guesses = guessRoles(blueTeam);
-                    Object.keys(guesses).forEach(role => {
-                        if (guesses[role]) next[role] = guesses[role];
+                // 2. 【第二优先级：LCU 客户端分路】(Game Client)
+                // 遍历队伍，如果英雄还没位置，看看游戏客户端给他分了什么位置
+                blueTeam.forEach((hero, idx) => {
+                    // 只处理还没被用户锁定的英雄
+                    if (hero && !usedNames.has(hero.name)) {
+                        // 获取该位置 LCU 传来的角色 (如 "JUNGLE")
+                        const lcuRole = myTeamRoles[idx];
+                        
+                        // 校验：1. LCU给了有效位置 2. 这个位置目前是空的
+                        if (lcuRole && ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].includes(lcuRole) && !next[lcuRole]) {
+                            next[lcuRole] = hero.name;
+                            usedNames.add(hero.name); // 标记：听游戏系统的，入座
+                        }
+                    }
+                });
+
+                // 3. 【第三优先级：AI 智能识别】(Auto Guess)
+                // 如果还有英雄没位置（比如LCU没数据，或者是匹配模式），才让 AI 介入
+                const hasUnassignedHeroes = blueTeam.some(c => c && !usedNames.has(c.name));
+                
+                if (hasUnassignedHeroes) {
+                    const aiSuggestions = guessRoles(blueTeam);
+                    
+                    Object.keys(next).forEach(role => {
+                        // 只填补依然空着的位置
+                        if (!next[role]) {
+                            const suggested = aiSuggestions[role];
+                            // 且建议的英雄没被占用
+                            if (suggested && !usedNames.has(suggested)) {
+                                next[role] = suggested;
+                                usedNames.add(suggested);
+                            }
+                        }
                     });
-                } else {
-                    const currentNames = blueTeam.map(c => c?.name).filter(Boolean);
-                    Object.keys(next).forEach(r => {
-                        if (next[r] && !currentNames.includes(next[r])) next[r] = "";
-                    });
+                    
+                    // 4. 【兜底：填空】
+                    // 实在分不出来的（比如5个打野英雄），按顺序填入剩下的空位
+                    const remaining = blueTeam.filter(c => c && !usedNames.has(c.name));
+                    if (remaining.length > 0) {
+                        Object.keys(next).forEach(role => {
+                            if (!next[role] && remaining.length > 0) {
+                                next[role] = remaining.shift().name;
+                            }
+                        });
+                    }
                 }
 
-                if (JSON.stringify(prev) !== JSON.stringify(next)) {
-                    return next;
-                }
-                return prev;
+                if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+                return next;
             });
         }
     }, [blueTeam, myTeamRoles, roleMapping]);
@@ -228,21 +354,55 @@ export function useGameCore() {
     // 自动同步敌方分路
     useEffect(() => {
         if (redTeam.some(c => c !== null)) {
-            const guesses = guessRoles(redTeam);
             setEnemyLaneAssignments(prev => {
                 const next = { ...prev };
-                const currentEnemies = redTeam.map(c => c?.name).filter(Boolean);
-                Object.keys(guesses).forEach(role => {
-                    const currentAssignedName = prev[role];
-                    if (!currentAssignedName || !currentEnemies.includes(currentAssignedName)) {
-                        if (guesses[role]) next[role] = guesses[role];
+                const currentNames = redTeam.map(c => c?.name).filter(Boolean);
+                const usedNames = new Set();
+
+                // 1. 保留有效的手动设置
+                Object.keys(next).forEach(role => {
+                    const assignedName = next[role];
+                    if (assignedName) {
+                        if (currentNames.includes(assignedName)) {
+                            usedNames.add(assignedName);
+                        } else {
+                            next[role] = "";
+                        }
                     }
                 });
+
+                // 2. 填补空缺
+                const hasUnassignedHeroes = redTeam.some(c => c && !usedNames.has(c.name));
+                
+                if (hasUnassignedHeroes) {
+                    const aiSuggestions = guessRoles(redTeam);
+                    
+                    Object.keys(next).forEach(role => {
+                        if (!next[role]) {
+                            const suggested = aiSuggestions[role];
+                            if (suggested && !usedNames.has(suggested)) {
+                                next[role] = suggested;
+                                usedNames.add(suggested);
+                            }
+                        }
+                    });
+                    
+                    // 3. 兜底
+                    const remaining = redTeam.filter(c => c && !usedNames.has(c.name));
+                    if (remaining.length > 0) {
+                        Object.keys(next).forEach(role => {
+                            if (!next[role] && remaining.length > 0) {
+                                next[role] = remaining.shift().name;
+                            }
+                        });
+                    }
+                }
+
+                if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
                 return next;
             });
         }
     }, [redTeam, roleMapping]);
-
     // IPC & WebSocket
     useEffect(() => {
         if (window.require) return; 
@@ -719,6 +879,6 @@ export function useGameCore() {
     
     return {
         state: { version, championList, showAdminPanel, adminView,isOverlay, hasStarted, showCommunity, showProfile, showSettingsModal, currentShortcuts, sendChatTrigger, blueTeam, redTeam, myTeamRoles, userRole, lcuStatus, userRank, enemyLaneAssignments, myLaneAssignments, useThinkingModel, aiResults, analyzingStatus, isModeAnalyzing, analyzeType, viewMode, activeTab, showChampSelector, selectingSlot, selectingIsEnemy, roleMapping, currentUser, accountInfo, token, authMode, authForm, showLoginModal, showPricingModal, tips, tipTarget, inputContent, tipTargetEnemy, showTipModal, showFeedbackModal, userSlot, mapSide,showDownloadModal, showSalesDashboard,lcuProfile, gamePhase },
-        actions: { setHasStarted, setShowCommunity, setShowProfile, setShowAdminPanel,setAdminView, setShowSettingsModal, setBlueTeam, setRedTeam, setUserRole, setUserRank, setMyLaneAssignments, setEnemyLaneAssignments, setUseThinkingModel, setAnalyzeType, setAiResults, setViewMode, setActiveTab, setShowChampSelector, setSelectingSlot, setSelectingIsEnemy, setAuthMode, setAuthForm, setShowLoginModal, setShowPricingModal, setInputContent, setShowTipModal, setShowFeedbackModal, setTipTarget, setUserSlot, handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo, handleCardClick, handleSelectChampion, handleSaveShortcuts, handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide, setShowDownloadModal, setShowSalesDashboard,handleSyncProfile,handleClearAnalysis }
+        actions: { autoAssignLanes,setHasStarted, setShowCommunity, setShowProfile, setShowAdminPanel,setAdminView, setShowSettingsModal, setBlueTeam, setRedTeam, setUserRole, setUserRank, setMyLaneAssignments, setEnemyLaneAssignments, setUseThinkingModel, setAnalyzeType, setAiResults, setViewMode, setActiveTab, setShowChampSelector, setSelectingSlot, setSelectingIsEnemy, setAuthMode, setAuthForm, setShowLoginModal, setShowPricingModal, setInputContent, setShowTipModal, setShowFeedbackModal, setTipTarget, setUserSlot, handleLogin, handleRegister, logout, handleClearSession, handleAnalyze, fetchUserInfo, handleCardClick, handleSelectChampion, handleSaveShortcuts, handlePostTip, handleLike, handleDeleteTip, handleReportError, handleTabClick,setMapSide, setShowDownloadModal, setShowSalesDashboard,handleSyncProfile,handleClearAnalysis }
     };
 }

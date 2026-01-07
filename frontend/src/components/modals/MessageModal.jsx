@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 // 🔥 1. 引入 Ban (禁止) 图标
-import { MessageSquare, X, Send, Plus, Loader2, User, Trash2, Ban } from 'lucide-react';
+import { MessageSquare, X, Send, Plus, Loader2, User, Trash2, Ban, ExternalLink } from 'lucide-react';
 import { API_BASE_URL } from '../../config/constants';
 import { toast } from 'react-hot-toast';
 
@@ -421,6 +421,7 @@ export default function MessageModal({ isOpen, onClose, onMarkAllRead, currentUs
             </div>
 
             {/* === 右侧主聊天区 === */}
+            {/* === 右侧主聊天区 === */}
             <div className="flex-1 flex flex-col bg-[#091428] relative min-w-0">
               
               <div className="h-14 border-b border-[#1e2328] flex items-center justify-between px-6 bg-[#0c1626]/50">
@@ -447,16 +448,29 @@ export default function MessageModal({ isOpen, onClose, onMarkAllRead, currentUs
                   )}
                 </div>
                 
-                {/* 🔥 右上角按钮组：拉黑 + 关闭 */}
+                {/* 🔥 右上角按钮组 */}
                 <div className="flex items-center gap-1">
                     {activeChatId && (
-                        <button 
-                            onClick={handleBlockUser}
-                            className="text-slate-500 hover:text-red-500 transition-colors p-2 hover:bg-red-500/10 rounded-full group relative"
-                            title="拉黑/解除拉黑"
-                        >
-                            <Ban size={18} />
-                        </button>
+                        <>
+                            {/* 🔥 新增：查看主页按钮 */}
+                            <button 
+                                onClick={() => {
+                                    if (onViewProfile) onViewProfile(activeChatId);
+                                }}
+                                className="text-slate-500 hover:text-[#C8AA6E] transition-colors p-2 hover:bg-[#C8AA6E]/10 rounded-full group relative"
+                                title="查看对方主页"
+                            >
+                                <User size={18} />
+                            </button>
+
+                            <button 
+                                onClick={handleBlockUser}
+                                className="text-slate-500 hover:text-red-500 transition-colors p-2 hover:bg-red-500/10 rounded-full group relative"
+                                title="拉黑/解除拉黑"
+                            >
+                                <Ban size={18} />
+                            </button>
+                        </>
                     )}
                     
                     <button 

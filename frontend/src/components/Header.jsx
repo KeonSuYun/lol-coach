@@ -16,7 +16,7 @@ import { toast } from 'react-hot-toast';
 const Header = ({ 
     version = "15.24.1", lcuStatus, userRole, setUserRole, currentUser, logout, setShowLoginModal,
     useThinkingModel, setUseThinkingModel,
-    setShowPricingModal, accountInfo,
+    setShowPricingModal, accountInfo,onViewProfile,
     userRank, setUserRank, modelType, setModelType,
     onGoHome, onShowCommunity, onShowDownload, onShowProfile,
     onShowSettings, onShowAdmin, onShowGuide,
@@ -296,7 +296,16 @@ const Header = ({
           )}
       </div>
 
-      <MessageModal isOpen={showMessageModal} onClose={() => setShowMessageModal(false)} onMarkAllRead={handleMarkAllRead} currentUser={userData} />
+      <MessageModal 
+      isOpen={showMessageModal} 
+      onClose={() => setShowMessageModal(false)} 
+      onMarkAllRead={handleMarkAllRead} 
+      currentUser={userData} 
+      onViewProfile={(id) => {
+          setShowMessageModal(false); // 关闭私信窗
+          if (onViewProfile) onViewProfile(id); // 打开主页
+      }}
+  />
     </div>
   );
 };

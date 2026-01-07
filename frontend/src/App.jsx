@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ShieldAlert } from 'lucide-react'; 
 import MainConsole from './pages/MainConsole';
 import OverlayConsole from './pages/OverlayConsole';
@@ -19,6 +19,9 @@ function App() {
   const { showAdminPanel, adminView, token, currentUser, isOverlay, roleMapping } = state;
   const { setShowAdminPanel, setAdminView } = actions;
 
+  // 🔥 新增：查看他人主页的状态
+  const [viewingProfileId, setViewingProfileId] = useState(null);
+
   // 🔥 监听 URL 中的销售邀请码 (?ref=xxx)
   React.useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -36,11 +39,15 @@ function App() {
       return <OverlayConsole state={state} actions={actions} />;
     }
 
-    // 2. 个人主页
-    if (state.showProfile) {
+    // 2. 个人主页 (支持查看他人)
+    // 🔥 如果 viewingProfileId 存在，或者 showProfile 为 true
+    if (state.showProfile || viewingProfileId) {
         return (
             <UserProfile 
-                onBack={() => actions.setShowProfile(false)}
+                onBack={() => {
+                    actions.setShowProfile(false);
+                    setViewingProfileId(null); // 清除查看目标
+                }}
                 accountInfo={state.accountInfo}
                 token={state.token}
                 championList={state.championList}
@@ -51,6 +58,11 @@ function App() {
                     actions.setAdminView('dashboard'); 
                     actions.setShowAdminPanel(true); 
                 }}
+                // 🔥 传入目标ID (如果是查看自己，viewingProfileId 为 null，UserProfile 内部会处理)
+                viewingTarget={viewingProfileId || state.currentUser} 
+                
+                // 🔥🔥🔥 关键修复：传入数据刷新回调，解决“出去就没了”的问题 🔥🔥🔥
+                onUpdateProfile={() => actions.fetchUserInfo()}
             />
         )
     }
@@ -78,7 +90,14 @@ function App() {
     }
 
     // 4. 主控台 (默认视图)
-    return <MainConsole state={state} actions={actions} />;
+    // 🔥 注入 onViewProfile 回调，以便 Header -> MessageModal 调用
+    return <MainConsole 
+        state={state} 
+        actions={{
+            ...actions, 
+            onViewProfile: (targetId) => setViewingProfileId(targetId) 
+        }} 
+    />;
   };
 
   return (
@@ -104,7 +123,7 @@ function App() {
           ) : (
               <AdminDashboard 
                   token={token} 
-                  username={currentUser} // 🔥 [核心修改] 传入当前用户名
+                  username={currentUser} 
                   onClose={() => setShowAdminPanel(false)} 
               />
           )

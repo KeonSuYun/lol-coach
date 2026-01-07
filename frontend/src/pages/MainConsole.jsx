@@ -346,6 +346,7 @@ export default function MainConsole({ state, actions }) {
                         onShowProfile={() => actions.setShowProfile(true)}
                         onShowGuide={() => setShowGuide(true)} 
                         onShowSales={() => actions.setShowSalesDashboard(true)}
+                        onViewProfile={actions.onViewProfile}
                     />
                 </div>
 
@@ -391,7 +392,13 @@ export default function MainConsole({ state, actions }) {
                                     <div className="w-1 h-3 bg-[#0AC8B9] rounded-full"></div>
                                     <span className="text-[10px] font-bold text-[#F0E6D2] tracking-widest uppercase">本局分路</span>
                                 </div>
-                                <button onClick={() => setMyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-600 hover:text-[#C8AA6E] transition-colors"><RefreshCcw size={10} /></button>
+                                <button 
+                                    onClick={() => actions.autoAssignLanes(false)} // false 代表我方
+                                    className="text-slate-600 hover:text-[#0AC8B9] transition-colors" 
+                                    title="重新智能分析分路"
+                                >
+                                    <RefreshCcw size={10} />
+                                </button>
                             </div>
                             <div className="flex flex-col gap-2">
                                 {["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].map(role => {
@@ -641,8 +648,13 @@ export default function MainConsole({ state, actions }) {
                                         <div className="w-1 h-3 bg-red-600 rounded-full"></div>
                                         <span className="text-[10px] font-bold text-red-200 tracking-widest uppercase">敌方分路</span>
                                     </div>
-                                    <button onClick={() => setEnemyLaneAssignments({ "TOP": "", "JUNGLE": "", "MID": "", "ADC": "", "SUPPORT": "" })} className="text-slate-600 hover:text-red-400 transition-colors"><RefreshCcw size={10} /></button>
-                                </div>
+                                    <button 
+                                        onClick={() => actions.autoAssignLanes(true)} // true 代表敌方
+                                        className="text-slate-600 hover:text-red-400 transition-colors"
+                                        title="重新智能分析分路"
+                                    >
+                                        <RefreshCcw size={10} />
+                                    </button></div>
                                 <div className="flex flex-col gap-2">
                                     {["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"].map(role => (
                                         <div key={role} className="flex items-center justify-between gap-2 group">

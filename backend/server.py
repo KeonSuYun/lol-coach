@@ -1195,52 +1195,74 @@ def get_conversations(current_user: dict = Depends(get_current_user)):
 def get_user_public_profile(target_input: str, current_user: dict = Depends(get_current_user)):
     """
     智能搜索用户：支持 登录账号、游戏昵称、昵称#Tag
+    返回：用于渲染 UserProfile 的完整公开数据
     """
     target = target_input.strip()
     if not target:
         raise HTTPException(status_code=400, detail="请输入用户名")
 
-    # 1. 第一优先级：精确匹配登录账号 (username)
+    # 1. 查找逻辑 (保留原有的三级查找)
     user = db.users_col.find_one({"username": target})
     
-    # 2. 第二优先级：匹配 游戏昵称#Tag (例如: Uzi#RNG)
     if not user and "#" in target:
         try:
             parts = target.split("#")
             gn_query = parts[0].strip()
             tl_query = parts[1].strip()
-            # 使用正则忽略大小写
             user = db.users_col.find_one({
                 "game_name": {"$regex": f"^{re.escape(gn_query)}$", "$options": "i"},
                 "tag_line": {"$regex": f"^{re.escape(tl_query)}$", "$options": "i"}
             })
-        except:
-            pass
+        except: pass
 
-    # 3. 第三优先级：仅匹配 游戏昵称 (模糊匹配，取第一个)
     if not user:
         user = db.users_col.find_one({
             "game_name": {"$regex": f"^{re.escape(target)}$", "$options": "i"}
         })
 
-    # 4. 兜底逻辑：如果是管理员账号但未注册 (通常不会发生，但为了前端不报错)
+    # 兜底：管理员虚拟账号
     if not user:
         if target.lower() in ['admin', 'root']:
             return {
                 "username": target,
-                "nickname": "管理员",
-                "avatar": "https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/588.png"
+                "game_profile": {"gameName": "管理员", "tagLine": "HEX", "rank": "Challenger", "level": 999},
+                "avatar_url": "https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/588.png",
+                "active_title": "官方/传说\u200C", # 带标记
+                "bio": "系统管理员",
+                "is_pro": True
             }
-        raise HTTPException(status_code=404, detail="未找到该用户，请检查登录名或游戏ID")
+        raise HTTPException(status_code=404, detail="未找到该用户")
     
-    # 🔥 [关键] 获取真实的登录 username，确保私信发给正确的人
+    # 🔥 构造返回数据 (与 UserProfile 所需格式对齐)
     real_username = user['username']
     icon_id, nickname = parse_user_info(user, real_username)
     
+    # 构造游戏档案
+    game_profile = user.get("game_profile", {})
+    if isinstance(game_profile, str):
+        try: game_profile = json.loads(game_profile)
+        except: game_profile = {}
+        
     return {
-        "username": real_username, # 返回真实ID，前端用这个发消息
-        "nickname": nickname,      # 返回显示名称 (游戏ID)
-        "avatar": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png"
+        "username": real_username,
+        "role": user.get("role", "user"),
+        "is_pro": user.get("role") in ["pro", "vip", "admin", "root"],
+        "active_title": user.get("active_title", "社区成员"),
+        "bio": user.get("bio", "这个人很懒，什么都没写。"),
+        "avatar_url": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png",
+        
+        # 游戏数据
+        "game_profile": {
+            "gameName": game_profile.get("gameName") or game_profile.get("game_name"),
+            "tagLine": game_profile.get("tagLine") or game_profile.get("tag_line"),
+            "rank": game_profile.get("rank", "Unranked"),
+            "lp": game_profile.get("lp", 0),
+            "winRate": game_profile.get("winRate") or game_profile.get("win_rate", 0),
+            "kda": game_profile.get("kda", "0.0"),
+            "level": game_profile.get("level", 1),
+            "mastery": game_profile.get("mastery", []),
+            "matches": game_profile.get("matches", [])
+        }
     }
 
 @app.get("/messages/{contact}")
@@ -1733,19 +1755,6 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 4. 数据准备 (修复版：正确读取 JSON 结构)
     game_constants = await run_in_threadpool(db.get_game_constants)
     
-    # 提取核心机制数据 (防止 None)
-    modules = game_constants.get('data_modules', {})
-    mechanics_list = []
-    
-    # 遍历所有模块提取规则 (game_flow, items, user_feedback 等)
-    for cat_key, cat_val in modules.items():
-        if isinstance(cat_val, dict) and 'items' in cat_val:
-            for item in cat_val['items']:
-                mechanics_list.append(f"{item.get('name')}: {item.get('rule')} ({item.get('note')})")
-    
-    s15_details = "; ".join(mechanics_list)
-    s15_context = f"【S15/峡谷常识库】: {s15_details if s15_details else '暂无特殊机制数据'}"
-    
     # =========================================================
     # 🛠️ 【关键位置调整】辅助函数定义提前到这里！ (解决 NameError)
     # =========================================================
@@ -1819,7 +1828,32 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             # 如果我是单人路，且队友里没人是主玩打野的，那大概率系统判错了，我才是打野
             if user_role_key in ["TOP", "MID"] and 'jungle' not in teammate_roles:
                 user_role_key = "JUNGLE"
+    # =========================================================
+    # 🔥 [新增/搬运] 机制库动态过滤 (必须放在 user_role_key 确定之后)
+    # =========================================================
+    modules = game_constants.get('data_modules', {})
+    mechanics_list = []
 
+    for cat_key, cat_val in modules.items():
+        if isinstance(cat_val, dict) and 'items' in cat_val:
+            
+            # 🛑 核心鉴权过滤 🛑
+            
+            # 1. 屏蔽打野专属数据 (如果是线上玩家)
+            if cat_key == 'jungle_data' and user_role_key != 'JUNGLE':
+                continue
+
+            # 2. 屏蔽打野高阶博弈 (如果是线上玩家)
+            if cat_key == 'jungle_pro_logic' and user_role_key != 'JUNGLE':
+                continue
+
+            # 3. 全局地图规则 (global_map_rules) 默认全员放行
+
+            for item in cat_val['items']:
+                mechanics_list.append(f"{item.get('name')}: {item.get('rule')} ({item.get('note')})")
+
+    s16_details = "; ".join(mechanics_list)
+    s16_context = f"【S16/峡谷常识库】: {s16_details if s16_details else '暂无特殊机制数据'}"
     # ---------------------------------------------------------
     # ⚡ 核心逻辑：智能生态构建 (Smart Context Logic)
     # ---------------------------------------------------------
@@ -2024,7 +2058,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # =========================================================================
     
     # 1. 准备基础 Context 变量
-    full_s15_context = f"{s15_context}"
+    full_s16_context = f"{s16_context}"
 
     # 🔥 [Global Prefix] 全局元规则 (所有模式共享，确保 100% 缓存命中头部)
     META_SYSTEM_PROMPT = """
@@ -2064,13 +2098,13 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     tips_in_system = "{tips_text}" in sys_tpl_body
 
     # 4. 智能组装 System Content
-    # 结构：[Global Meta] + [DB Template (含 S15/Tips/Corrections)] + [Recap]
+    # 结构：[Global Meta] + [DB Template (含 S16/Tips/Corrections)] + [Recap]
     try:
         # A. 格式化数据库模板部分
         # 检查模板是否包含占位符，如果有则填充
-        if "{s15_context}" in sys_tpl_body:
+        if "{s16_context}" in sys_tpl_body:
             formatted_body = sys_tpl_body.format(
-                s15_context=full_s15_context, 
+                s16_context=full_s16_context, 
                 tips_text=tips_text if tips_in_system else "", 
                 correction_prompt=correction_prompt
             )
@@ -2078,7 +2112,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             # 兜底：如果模板里没写占位符，手动拼接
             formatted_body = (
                 f"{sys_tpl_body}\n\n"
-                f"=== 🌍 S15 Context ===\n{full_s15_context}\n\n"
+                f"=== 🌍 S16 Context ===\n{full_s16_context}\n\n"
                 f"=== 📚 Community Tips ===\n{tips_text}\n\n"
                 f"{correction_prompt}"
             )
@@ -2090,7 +2124,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     except Exception as e:
         print(f"⚠️ Prompt Formatting Warning: {e}")
         # 降级方案
-        system_content = f"{META_SYSTEM_PROMPT}\n\n{sys_tpl_body}\n\nContext: {full_s15_context}\n\n{recap_section}"
+        system_content = f"{META_SYSTEM_PROMPT}\n\n{sys_tpl_body}\n\nContext: {full_s16_context}\n\n{recap_section}"
 
     # 5. JSON 强制约束兜底
     if "Output JSON only" not in system_content:
@@ -2153,7 +2187,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         enemySide=enemy_side_desc,
 
         # 👇 关键优化：不再重复传输大段文本
-        s15_context="(机制库已加载至 System Context)", 
+        s16_context="(机制库已加载至 System Context)", 
         
         compInfo=lane_matchup_context,
         tips_text=user_tips_content, # 🔥 智能填充
@@ -2341,7 +2375,7 @@ async def hot_update_config(
     # 2. 映射文件名
     filename_map = {
         "prompts": "prompts.json",
-        "mechanics": "s15_mechanics.json",
+        "mechanics": "s16_mechanics.json",
         "corrections": "corrections.json",
         "champions": "champions.json"
     }

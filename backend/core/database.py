@@ -945,7 +945,7 @@ class KnowledgeBase:
             return False
         
     def get_prompt_template(self, mode): return self.prompt_templates_col.find_one({"mode": mode})
-    def get_game_constants(self): return self.config_col.find_one({"_id": "s15_rules"}) or {}
+    def get_game_constants(self): return self.config_col.find_one({"_id": "s16_rules"}) or {}
     def delete_tip(self, tip_id): return self.tips_col.delete_one({"_id": ObjectId(tip_id)}).deleted_count > 0 if self._to_oid(tip_id) else False
     def get_tip_by_id(self, tip_id): return self.tips_col.find_one({"_id": ObjectId(tip_id)}) if self._to_oid(tip_id) else None
     def submit_feedback(self, data): self.feedback_col.insert_one({**data, 'created_at': datetime.datetime.now(datetime.timezone.utc)})
