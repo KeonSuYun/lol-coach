@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, RotateCcw, Keyboard, Command, Sparkles, MousePointer2 } from 'lucide-react';
+import { X, Save, RotateCcw, Keyboard, Command, Sparkles, MousePointer2, Volume2 } from 'lucide-react';
 import ShortcutRecorder from '../ShortcutRecorder'; 
 
 // 🔥 默认配置同步为 Ctrl+ 系列
@@ -12,7 +12,10 @@ const DEFAULT_SHORTCUTS = {
     prevPage: 'Ctrl+A',
     nextPage: 'Ctrl+D',
     scrollUp: 'Ctrl+S',
-    scrollDown: 'Ctrl+X'
+    scrollDown: 'Ctrl+X',
+    
+    // 🔥 [新增] 语音播报默认快捷键：Ctrl + 空格
+    playAudio: 'Ctrl+Space' 
 };
 
 const SettingsModal = ({ isOpen, onClose }) => {
@@ -24,7 +27,14 @@ const SettingsModal = ({ isOpen, onClose }) => {
             const { ipcRenderer } = window.require('electron');
             ipcRenderer.invoke('get-shortcuts')
                 .then(savedConfig => {
-                    if (savedConfig) setConfig(savedConfig);
+                    if (savedConfig) {
+                         // 🔥 核心修复：合并默认值！
+                        // 防止旧配置文件里没有 playAudio 字段，导致被覆盖成空
+                        setConfig(prev => ({
+                            ...prev,       // 1. 先用默认值垫底
+                            ...savedConfig // 2. 再用保存的覆盖
+                        }));
+                    }
                 })
                 .catch(err => console.error("无法加载快捷键配置:", err));
         }
@@ -75,6 +85,15 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             <ShortcutItem label="显示 / 隐藏窗口" desc="一键隐身，不遮挡游戏视线" value={config.toggle} onChange={(val) => handleUpdate('toggle', val)} />
                             <ShortcutItem label="呼出鼠标 / 调整大小" desc="解锁鼠标穿透，允许点击按钮" value={config.mouseMode} icon={<MousePointer2 size={12} className="text-amber-500"/>} onChange={(val) => handleUpdate('mouseMode', val)} />
                             <ShortcutItem label="强制刷新分析 (Refresh)" desc="局势变化时，强制 AI 重新思考" value={config.refresh} onChange={(val) => handleUpdate('refresh', val)} />
+                            
+                            {/* 🔥 [新增] 语音播报快捷键 */}
+                            <ShortcutItem 
+                                label="播放 / 停止语音 (TTS)" 
+                                desc="一键让 AI 朗读当前战术分析" 
+                                value={config.playAudio} 
+                                icon={<Volume2 size={12} className="text-pink-400"/>}
+                                onChange={(val) => handleUpdate('playAudio', val)} 
+                            />
                         </div>
                     </div>
                     <div className="space-y-4">

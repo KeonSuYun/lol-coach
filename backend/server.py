@@ -11,6 +11,8 @@ import requests
 import hashlib
 import sys
 import asyncio
+import edge_tts
+import ssl
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -18,7 +20,7 @@ from dotenv import load_dotenv
 from typing import List, Optional, Dict, Any
 from fastapi.staticfiles import StaticFiles
 # 🟢 [修改] 引入 RedirectResponse 用于重定向下载
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
 from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
@@ -1288,6 +1290,57 @@ def get_chat(contact: str, before: str = None, current_user: dict = Depends(get_
         "messages": messages,
         "contactInfo": contact_info
     }
+
+class TTSRequest(BaseModel):
+    text: str
+    voice_id: str = "guide"  # 默认为"guide"(领航员)
+
+# 2. 定义音色映射配置 (方便后续调整)
+VOICE_CONFIG = {
+    "guide": "zh-CN-XiaoxiaoNeural",      # 晓晓 (小美/默认)
+    "commander": "zh-CN-YunjianNeural",   # 云健 (大帅/指挥)
+    "partner": "zh-CN-YunxiNeural"        # 云希 (小帅/搭档)
+}
+
+@app.post("/api/tts")
+async def tts_proxy(req: TTSRequest):
+    if not req.text:
+        raise HTTPException(status_code=400, detail="文本不能为空")
+
+    # 根据前端传来的 voice_id 选择音色，默认用 guide
+    target_voice = VOICE_CONFIG.get(req.voice_id, VOICE_CONFIG["guide"])
+
+    # 简单清洗文本
+    clean_text = re.sub(r'\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】', '', req.text)
+    
+    # 2. 替换冒号为句号 (增加停顿)
+    clean_text = clean_text.replace(':', '。').replace('：', '。')
+    
+    # 3. 清理剩余的非法字符，保留中英文、数字和基本标点
+    #    增加对书名号《》的支持，防止报错
+    clean_text = re.sub(r'[^\w\u4e00-\u9fa5,.!?，。：！？“”‘’《》\s-]', '', clean_text)
+    # 3. 最后清理非法字符 (Emoji、特殊符号等)，保留中英文、数字和基本标点
+    clean_text = re.sub(r'[^\w\u4e00-\u9fa5,.!?，。！？\s-]', '', clean_text)
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="无可读文本")
+
+    try:
+        # 使用 Edge-TTS 生成音频流
+        communicate = edge_tts.Communicate(clean_text, target_voice)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        
+        if not audio_data:
+             raise HTTPException(status_code=500, detail="语音生成为空")
+
+        # 返回音频流
+        return Response(content=audio_data, media_type="audio/mp3")
+
+    except Exception as e:
+        print(f"❌ [TTS] Error: {e}")
+        raise HTTPException(status_code=500, detail="语音服务生成失败")
 
 # ==========================
 # ⚡ 爱发电 Webhook 接口

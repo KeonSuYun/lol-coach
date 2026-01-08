@@ -2,15 +2,14 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
     RefreshCw, Lightbulb, Target, Swords, Brain, ShieldAlert, Eye, EyeOff, 
     FileText, Layout, MessageSquarePlus, Copy, Check, Gift, AlertTriangle, 
-    Zap, BookOpen, Trash2, Map 
+    Zap, BookOpen, Trash2, Map, Volume2, Loader2, Headphones, Pause, Play 
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'react-hot-toast';
 import { createPortal } from 'react-dom';
-
-// ... (parseHybridContent 和 enhanceMarkdown 等辅助函数保持不变，篇幅原因省略，请确保保留原文件中的这些函数) ...
-// ⚠️ 为了确保完整性，我再次提供这些函数，确保直接覆盖不报错。
+import axios from 'axios';
+import { API_BASE_URL } from '../config/constants';
 
 // =================================================================
 // 🛠️ 智能解析器 V3.2
@@ -183,17 +182,53 @@ const HexMarkdownComponents = {
 // =================================================================
 // 🚀 主组件
 // =================================================================
-// 🔥 修正：接受 viewMode 和 setViewMode 作为 props
-const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedbackContent, sendChatTrigger, forceTab, onClear, setActiveTab, viewMode, setViewMode }) => {
+const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedbackContent, sendChatTrigger, forceTab, onClear, setActiveTab, viewMode, setViewMode, audioTrigger }) => {
     const [webActiveTab, setWebActiveTab] = useState(0);
     const [showDebug, setShowDebug] = useState(false);
     const [showThought, setShowThought] = useState(false); 
     const [teamCopied, setTeamCopied] = useState(false);
     const [selectionMenu, setSelectionMenu] = useState(null); 
     
-    // 🔥 移除本地 state: const [viewMode, setViewMode] = useState('simple'); 
+    // 🔥 [状态重构] TTS
+    const [isFetchingAudio, setIsFetchingAudio] = useState(false);
+    const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
     
+    // 标识：当前正在播放（或暂停中）的是哪个区域
+    // 'concise' | 'tab-0' | 'tab-1' ...
+    const [playingContext, setPlayingContext] = useState(null);
+
+    const isAudioBusy = isFetchingAudio || isPlayingAudio;
+
+    const [selectedVoice, setSelectedVoice] = useState(localStorage.getItem('hex_tts_voice') || 'guide');
+    
+    const audioRef = useRef(null);
     const scrollRef = useRef(null);
+
+    // 初始化音频对象
+    useEffect(() => {
+        audioRef.current = new Audio();
+        // 绑定结束事件
+        audioRef.current.onended = () => {
+            setIsPlayingAudio(false);
+            setIsPaused(false);
+            setPlayingContext(null); // 播放结束，重置上下文
+            toast("播报完毕", { icon: '✅', duration: 1000 });
+        };
+        audioRef.current.onerror = () => {
+            setIsPlayingAudio(false);
+            setIsPaused(false);
+            setPlayingContext(null);
+            playFeedbackSound('stop');
+            toast.error("播放中断");
+        };
+        return () => {
+            if(audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+        };
+    }, []);
 
     const { mode, data, thought } = useMemo(() => parseHybridContent(aiResult), [aiResult]);
     const concise = data?.concise || {};
@@ -202,10 +237,204 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
     const simpleData = data?.simple_tabs || [];
     const detailedData = data?.detailed_tabs || [];
     
-    // 🔥 使用 props 中的 viewMode 决定显示内容
     const activeTabsData = (viewMode === 'simple' && simpleData.length > 0) ? simpleData : (detailedData.length > 0 ? detailedData : []);
 
-    // 首次有数据时提示用户
+    // 每次结果更新，停止播放
+    useEffect(() => {
+        stopAudio();
+    }, [aiResult, viewMode]);
+
+    const playFeedbackSound = (type) => {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            if (type === 'start') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+            } else {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(400, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+            }
+        } catch (e) {}
+    };
+
+    const toggleVoice = () => {
+        let nextVoice = 'guide';
+        if (selectedVoice === 'guide') nextVoice = 'commander';
+        else if (selectedVoice === 'commander') nextVoice = 'partner';
+        
+        setSelectedVoice(nextVoice);
+        localStorage.setItem('hex_tts_voice', nextVoice);
+        
+        const labels = {
+            guide: "温暖领航员 (晓晓)",
+            commander: "战术指挥官 (云健)",
+            partner: "热血搭档 (云希)"
+        };
+        toast.success(`已切换：${labels[nextVoice]}`, { icon: '🎧' });
+    };
+
+    // 完全停止
+    const stopAudio = () => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+        }
+        setIsFetchingAudio(false);
+        setIsPlayingAudio(false);
+        setIsPaused(false);
+        setPlayingContext(null);
+    };
+
+    // 获取当前页面（或指定上下文）的文本
+    const getContextText = (ctx) => {
+        if (ctx === 'concise') {
+            return (concise.title || "战术总览") + "。\n" + (concise.content || "");
+        } else if (ctx.startsWith('tab-')) {
+            const idx = parseInt(ctx.split('-')[1]);
+            const tab = activeTabsData[idx];
+            if (tab) return (tab.title || "") + "。\n" + (tab.content || "");
+        }
+        return "";
+    };
+
+    // 获取当前可见页面的 Context ID
+    const getCurrentVisibleContext = () => {
+        if (forceTab !== undefined) {
+            // Overlay 模式
+            if (forceTab === 0) return 'concise';
+            return `tab-${forceTab - 1}`;
+        } else {
+            // Web 模式：默认不自动触发，返回空或当前Tab
+            return `tab-${webActiveTab}`;
+        }
+    };
+
+    // 🔥 核心控制逻辑：切换播放/暂停，或者切歌
+    const togglePlay = async (targetContext, targetText = null) => {
+        if (!targetContext) return;
+
+        // 1. 如果点击的是当前正在播放的内容 -> 执行 暂停/继续 切换
+        if (playingContext === targetContext) {
+            if (isFetchingAudio) return; // 正在加载，忽略
+
+            if (isPlayingAudio && !isPaused) {
+                // 正在播 -> 暂停
+                audioRef.current.pause();
+                setIsPaused(true);
+                // setIsPlayingAudio(false); // 保持 true，表示占用中
+                toast("已暂停", { icon: '⏸️', duration: 1000 });
+                playFeedbackSound('stop');
+            } else if (isPaused) {
+                // 暂停中 -> 继续
+                audioRef.current.play();
+                setIsPaused(false);
+                setIsPlayingAudio(true);
+                playFeedbackSound('start');
+            }
+            return;
+        }
+
+        // 2. 如果点击的是新内容 -> 停止旧的，播新的
+        stopAudio();
+        
+        const textToRead = targetText || getContextText(targetContext);
+        if (!textToRead || textToRead.length < 2) {
+            toast.error("内容为空");
+            return;
+        }
+
+        // 智能截取 (仅指挥官模式)
+        let finalStr = textToRead;
+        if (selectedVoice === 'commander') {
+            finalStr = textToRead.substring(0, 250); 
+        }
+
+        setPlayingContext(targetContext);
+        setIsFetchingAudio(true);
+        playFeedbackSound('start');
+
+        const timeoutId = setTimeout(() => {
+            if (isFetchingAudio) {
+                stopAudio();
+                toast.error("请求超时");
+            }
+        }, 15000);
+
+        try {
+            const response = await axios.post(`${API_BASE_URL}/api/tts`, {
+                text: finalStr,
+                voice_id: selectedVoice 
+            }, {
+                responseType: 'blob'
+            });
+
+            clearTimeout(timeoutId);
+            setIsFetchingAudio(false); 
+
+            if (response.data.size < 100) {
+                toast.error("音频数据异常");
+                stopAudio();
+                return;
+            }
+
+            const audioUrl = URL.createObjectURL(response.data);
+            audioRef.current.src = audioUrl;
+            audioRef.current.volume = 1.0;
+            
+            await audioRef.current.play();
+            setIsPlayingAudio(true);
+            setIsPaused(false);
+
+        } catch (error) {
+            clearTimeout(timeoutId);
+            console.error(error);
+            stopAudio(); 
+            playFeedbackSound('stop');
+            if (error.response?.status === 503) {
+                toast.error("语音服务不可用");
+            } else {
+                toast.error("请求失败");
+            }
+        }
+    };
+
+    // 🔥 快捷键触发器 (Overlay)
+    useEffect(() => {
+        if (audioTrigger > 0) {
+            // 如果正在播放（无论是否暂停），检查是否匹配当前页
+            const visibleContext = getCurrentVisibleContext();
+            
+            if (playingContext) {
+                if (playingContext === visibleContext) {
+                    // 匹配 -> 切换暂停/播放
+                    togglePlay(visibleContext);
+                } else {
+                    // 不匹配 -> 切歌到当前页
+                    togglePlay(visibleContext);
+                }
+            } else {
+                // 没在播放 -> 播放当前页
+                togglePlay(visibleContext);
+            }
+        }
+    }, [audioTrigger]);
+
+    // ... (Hooks for hints, scroll, nav, copy - unchanged) ...
     useEffect(() => {
         const hasSeenHint = localStorage.getItem('has_seen_mode_switch_hint');
         if (!hasSeenHint && !isAnalyzing && activeTabsData.length > 0) {
@@ -218,48 +447,38 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         }
     }, [isAnalyzing, activeTabsData]);
 
-    // 🔥🔥 [关键修复] 监听自定义事件，实现 Overlay 内的翻页和滚动
     useEffect(() => {
         const handleOverlayScroll = (e) => {
-            const direction = e.detail; // 'up' or 'down'
+            const direction = e.detail; 
             if (scrollRef.current) {
                 const amount = 50;
                 scrollRef.current.scrollTop += (direction === 'down' ? amount : -amount);
             }
         };
-
         const handleOverlayNav = (e) => {
-            const command = e.detail; // 'nav_prev' or 'nav_next'
-            // 如果是在 Overlay 模式 (forceTab 存在)
+            const command = e.detail; 
             if (forceTab !== undefined && setActiveTab) {
-                // 计算最大页数 (Concise(0) + Tabs.length)
-                const maxTab = activeTabsData.length; // Tabs从1开始，所以总页数是 1(0) + length
-                // forceTab: 0=Concise, 1..N=Tabs
-                
+                const maxTab = activeTabsData.length; 
                 let nextTab = forceTab;
                 if (command === 'nav_next') {
                     nextTab = forceTab + 1;
-                    if (nextTab > maxTab) nextTab = 0; // 循环
+                    if (nextTab > maxTab) nextTab = 0; 
                 } else if (command === 'nav_prev') {
                     nextTab = forceTab - 1;
-                    if (nextTab < 0) nextTab = maxTab; // 循环
+                    if (nextTab < 0) nextTab = maxTab; 
                 }
-                
                 setActiveTab(nextTab);
                 toast(nextTab === 0 ? "战术总览" : `战术详情 ${nextTab}`, { icon: '📄', duration: 800 });
             }
         };
-
         window.addEventListener('overlay-scroll', handleOverlayScroll);
         window.addEventListener('overlay-nav', handleOverlayNav);
-
         return () => {
             window.removeEventListener('overlay-scroll', handleOverlayScroll);
             window.removeEventListener('overlay-nav', handleOverlayNav);
         };
     }, [forceTab, setActiveTab, activeTabsData.length]);
 
-    // 自动滚动到底部 (仅在生成时)
     useEffect(() => {
         if (isAnalyzing && scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -382,14 +601,31 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         );
     }
 
-    // =================================================================
-    // 🔥 Overlay 模式 (游戏内悬浮窗) - 保持卡片美化
-    // =================================================================
     if (forceTab !== undefined) {
         if (forceTab === 0) {
+            const isMePlaying = playingContext === 'concise';
+            
             return (
                 <div ref={scrollRef} className="flex flex-col h-full gap-2 overflow-y-auto custom-scrollbar p-1">
-                    <div className="bg-[#232329]/95 backdrop-blur rounded-xl p-3 border border-amber-500/30 shadow-lg shrink-0 min-h-full">
+                    <div className="bg-[#232329]/95 backdrop-blur rounded-xl p-3 border border-amber-500/30 shadow-lg shrink-0 min-h-full relative">
+                        {isMePlaying && (
+                            <div className="absolute top-3 right-3 z-50 flex items-center gap-2 bg-black/60 backdrop-blur px-3 py-1 rounded-full border border-amber-500/50 animate-pulse pointer-events-none">
+                                {isFetchingAudio ? (
+                                    <RefreshCw size={10} className="text-amber-100 animate-spin"/>
+                                ) : (
+                                    isPaused ? <Pause size={10} className="text-amber-100"/> : 
+                                    <div className="flex gap-0.5 items-end h-3">
+                                        <div className="w-1 bg-amber-400 h-2 animate-[bounce_1s_infinite]"></div>
+                                        <div className="w-1 bg-amber-400 h-3 animate-[bounce_1.2s_infinite]"></div>
+                                        <div className="w-1 bg-amber-400 h-1.5 animate-[bounce_0.8s_infinite]"></div>
+                                    </div>
+                                )}
+                                <span className="text-[10px] font-bold text-amber-100">
+                                    {isFetchingAudio ? "准备中..." : (isPaused ? "已暂停" : "播报中...")}
+                                </span>
+                            </div>
+                        )}
+
                         <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-1">
                             <h2 className="text-xs font-bold text-slate-100 flex items-center gap-2">
                                 <Target size={12} className="text-[#C8AA6E]"/> {concise.title || "战术总览"}
@@ -425,12 +661,26 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
 
         const tabIndex = forceTab - 1;
         const currentTab = activeTabsData[tabIndex];
+        const isMePlaying = playingContext === `tab-${tabIndex}`;
 
         if (currentTab) {
             return (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-                    <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider bg-white/5 px-2 py-1 rounded w-fit flex items-center gap-2 border border-white/5 shrink-0">
-                        <span className="text-amber-500 font-mono">#{forceTab}</span> {currentTab.title}
+                    <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider bg-white/5 px-2 py-1 rounded w-fit flex items-center gap-2 border border-white/5 shrink-0 relative">
+                        <span className="text-amber-500 font-mono mr-2">#{forceTab}</span> {currentTab.title}
+                        
+                        {isMePlaying && (
+                            <div className="absolute right-[-100px] top-0 flex items-center gap-2 px-2 py-0.5 rounded-full border border-amber-500/30 animate-pulse bg-black/40">
+                                {isPaused ? <Pause size={8} className="text-amber-100"/> : (
+                                    <div className="flex gap-0.5 items-end h-2">
+                                        <div className="w-0.5 bg-amber-400 h-1.5 animate-[bounce_1s_infinite]"></div>
+                                        <div className="w-0.5 bg-amber-400 h-2 animate-[bounce_1.2s_infinite]"></div>
+                                        <div className="w-0.5 bg-amber-400 h-1 animate-[bounce_0.8s_infinite]"></div>
+                                    </div>
+                                )}
+                                <span className="text-[8px] font-bold text-amber-100">{isPaused ? "已暂停" : "播报中"}</span>
+                            </div>
+                        )}
                     </div>
                     <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar bg-[#232329]/90 p-3 rounded-lg border border-white/5 shadow-inner">
                         <div className="prose prose-invert prose-xs max-w-none">
@@ -452,70 +702,88 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         );
     }
 
-    // =================================================================
-    // 🔥 Web 模式 (浏览器窗口) - 正常模式
-    // =================================================================
     if (mode === 'markdown') {
         return (
             <div className="flex flex-col h-full bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-2xl overflow-hidden relative">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-[#2c2c33]/50">
-                    <div className="flex items-center gap-2">
-                        <FileText size={16} className={isAnalyzing ? "text-amber-400 animate-pulse" : "text-blue-400"} />
-                        <span className="text-xs font-bold tracking-wider text-slate-300">{isAnalyzing ? "AI 正在撰写..." : "全文本报告"}</span>
-                    </div>
-                    <div className="flex gap-2">
-                        <button onClick={() => setShowDebug(!showDebug)} className="text-slate-500 hover:text-white"><Eye size={14}/></button>
-                        <button onClick={() => setShowFeedbackModal(true)} className="text-slate-500 hover:text-red-400 flex items-center gap-1 text-[10px] transition-colors"><ShieldAlert size={12}/> 纠错</button>
-                    </div>
-                </div>
+                {/* ... existing markdown view ... */}
+                {/* 忽略 Web 模式的 markdown 视图修改 */}
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative selection:bg-amber-500/30 selection:text-white">
                     <div className="prose prose-invert prose-sm max-w-3xl mx-auto">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={HexMarkdownComponents}>
                             {enhanceMarkdown(data)}
                         </ReactMarkdown>
-                        {isAnalyzing && <span className="inline-block w-2 h-5 bg-amber-500 ml-1 align-middle animate-pulse"></span>}
                     </div>
-                    <SelectionFloatingButton />
                 </div>
-                {showDebug && <div className="absolute inset-0 bg-black/95 z-50 p-4 overflow-auto"><button onClick={() => setShowDebug(false)} className="absolute top-4 right-4 text-white"><EyeOff/></button><pre className="text-[10px] text-green-400 font-mono whitespace-pre-wrap">{aiResult}</pre></div>}
             </div>
         );
     }
 
+    // Web 模式下的 AnalysisResult 容器
     return (
         <div className="flex flex-col h-full bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-[#C8AA6E]/30 shadow-2xl overflow-hidden relative group/container transition-all">
             
-            {/* === 顶部区域：Concise (战术总览) === */}
             <div className="shrink-0 p-4 border-b border-white/10 bg-gradient-to-b from-[#091428] to-[#0c1018] relative z-20">
                 <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Target size={60} /></div>
                 
                 <div className="flex items-start gap-3 md:gap-4 relative z-10">
                     <div 
                         onClick={() => thought && setShowThought(!showThought)}
-                        className={`
-                            relative p-2 md:p-3 rounded-lg border shrink-0 transition-all duration-300 mt-1
-                            ${thought ? 'cursor-pointer border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20' : 'opacity-40 border-transparent cursor-not-allowed bg-black/20'}
-                            ${isAnalyzing && !thought ? 'animate-pulse' : ''} 
-                        `}
+                        className={`relative p-2 md:p-3 rounded-lg border shrink-0 transition-all duration-300 mt-1 ${thought ? 'cursor-pointer border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20' : 'opacity-40 border-transparent cursor-not-allowed bg-black/20'}`}
                     >
                         <Lightbulb size={20} className={`md:w-6 md:h-6 transition-colors duration-300 ${thought ? 'text-amber-400' : 'text-slate-600'}`} />
                     </div>
                     
                     <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex justify-between items-center mb-1">
-                            <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-4 truncate">
-                                {concise.title || (isAnalyzing ? "正在进行战术推演..." : "等待分析结果")}
-                            </h2>
+                            <div className="flex items-center gap-2 md:gap-3">
+                                <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-2 truncate">
+                                    {concise.title || (isAnalyzing ? "正在进行战术推演..." : "等待分析结果")}
+                                </h2>
+                                
+                                {/* 🔥 Web 端 Concise 播放控件 */}
+                                {!isAnalyzing && concise.content && (
+                                    <div className="flex items-center bg-white/5 rounded-full border border-white/10 p-0.5">
+                                        <button
+                                            onClick={toggleVoice}
+                                            className={`
+                                                px-2 py-1 rounded-full text-[9px] font-bold flex items-center gap-1 transition-all
+                                                ${selectedVoice === 'guide' ? 'bg-pink-500/20 text-pink-300 hover:bg-pink-500/30' : selectedVoice === 'commander' ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' : 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30'}
+                                            `}
+                                            title="点击切换语音人格"
+                                        >
+                                            <Headphones size={10} />
+                                            <span>{selectedVoice === 'guide' ? '温婉' : selectedVoice === 'commander' ? '严肃' : '热血'}</span>
+                                        </button>
+
+                                        <div className="w-[1px] h-3 bg-white/10 mx-1"></div>
+
+                                        <button 
+                                            onClick={() => togglePlay('concise')}
+                                            disabled={isAudioBusy && playingContext !== 'concise'}
+                                            className={`
+                                                flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold transition-all
+                                                ${playingContext === 'concise' ? 'text-amber-400 bg-amber-500/10' : 'text-slate-400 hover:text-[#0AC8B9]'}
+                                            `}
+                                            title="播放/暂停"
+                                        >
+                                            {isFetchingAudio && playingContext === 'concise' ? <Loader2 size={12} className="animate-spin"/> : (
+                                                playingContext === 'concise' && !isPaused ? <Pause size={12}/> : <Volume2 size={12}/>
+                                            )}
+                                            <span className="hidden sm:inline">
+                                                {isFetchingAudio && playingContext === 'concise' ? "准备中" : (playingContext === 'concise' ? (isPaused ? "继续" : "暂停") : "播报")}
+                                            </span>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         
-                        {/* 思考过程 */}
                         {showThought && thought && (
                             <div className="mb-3 max-h-[300px] overflow-y-auto bg-black/40 border-l-2 border-amber-500/50 p-3 rounded-r-lg text-[10px] md:text-[11px] font-mono text-slate-400 leading-relaxed custom-scrollbar animate-in slide-in-from-top-2 fade-in">
                                 <div className="whitespace-pre-wrap break-words">{thought}</div>
                             </div>
                         )}
 
-                        {/* 卡片列表 */}
                         <div className="mb-2 max-w-[800px] overflow-y-auto max-h-[40vh] custom-scrollbar pr-2">
                             {conciseCards.length > 0 ? (
                                 <div className="space-y-1">
@@ -536,18 +804,12 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                             )}
                         </div>
 
-                        {/* 工具栏 */}
+                        {/* ... footer ... */}
                         <div className="flex justify-end items-center gap-2 mt-2 pt-2 border-t border-white/5">
                             <div className="flex-1"></div>
-                            
-                            <button 
-                                onClick={handleClear} 
-                                className="text-slate-600 hover:text-red-500 transition-colors p-1.5 rounded hover:bg-red-500/10 mr-1"
-                                title="清空当前分析结果"
-                            >
+                            <button onClick={handleClear} className="text-slate-600 hover:text-red-500 transition-colors p-1.5 rounded hover:bg-red-500/10 mr-1" title="清空当前分析结果">
                                 <Trash2 size={16}/>
                             </button>
-
                             <button onClick={handleCopyToTeam} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer select-none ${teamCopied ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:border-amber-500 hover:bg-amber-500/10'}`}>
                                 {teamCopied ? <Check size={12}/> : <Copy size={12}/>}<span>{teamCopied ? '已复制' : '复制'}</span>
                             </button>
@@ -557,13 +819,9 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                 </div>
             </div>
 
-            {/* === 底部区域：Tabs (详细内容) === */}
             <div className="flex-1 flex flex-col min-h-0 relative z-10 bg-transparent">
-                
-                {/* Tabs Header */}
                 <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/5 bg-[#2c2c33]/95 backdrop-blur-md pr-2 shadow-sm">
-                    {/* Tab 按钮组 */}
-                    <div className="flex overflow-x-auto scrollbar-hide flex-1">
+                    <div className="flex overflow-x-auto scrollbar-hide flex-1 items-center">
                         <div className="flex items-center px-3 border-r border-white/5 text-slate-500 shrink-0">
                             <Layout size={14} />
                         </div>
@@ -582,11 +840,22 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                                 {isAnalyzing ? "生成中..." : "等待数据..."}
                             </div>
                         )}
+                        
+                        {/* 🔥 Web 端 Tab 播放控件 */}
+                        {!isAnalyzing && activeTabsData.length > 0 && (
+                            <button 
+                                onClick={() => togglePlay(`tab-${webActiveTab}`)}
+                                className={`ml-2 p-1.5 rounded-full border transition-all ${playingContext === `tab-${webActiveTab}` ? 'bg-amber-500/20 border-amber-500 text-amber-400' : 'bg-white/5 border-white/10 hover:bg-[#0AC8B9]/10 hover:text-[#0AC8B9]'}`}
+                                title={playingContext === `tab-${webActiveTab}` ? (isPaused ? "继续播放" : "暂停播放") : "播放当前页"}
+                            >
+                                {isFetchingAudio && playingContext === `tab-${webActiveTab}` ? <Loader2 size={12} className="animate-spin"/> : (
+                                    playingContext === `tab-${webActiveTab}` && !isPaused ? <Pause size={12}/> : <Play size={12} fill="currentColor"/>
+                                )}
+                            </button>
+                        )}
                     </div>
 
-                    {/* 🔥 模式切换开关 (发光版) */}
                     <div className="flex items-center gap-1 bg-black/20 p-1 rounded-lg border border-white/5 m-1 shrink-0 ml-2">
-                        {/* 🔥 修复：使用外部传入的 setViewMode，确保与快捷键同步 */}
                         <button 
                             onClick={() => setViewMode && setViewMode('simple')}
                             className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500
@@ -612,7 +881,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                     </div>
                 </div>
                 
-                {/* Tab Content */}
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-transparent relative selection:bg-amber-500/30 selection:text-white scroll-smooth">
                     {activeTabsData[webActiveTab] ? (
                         <div className="prose prose-invert prose-sm max-w-[800px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -628,7 +896,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                     <SelectionFloatingButton />
                 </div>
                 
-                {/* Footer Actions */}
                 <div className="p-2 border-t border-white/5 flex justify-end bg-[#2c2c33]/40 rounded-b-xl shrink-0">
                 <div className="hidden md:flex items-center gap-2 text-[10px] text-slate-500 pl-2 opacity-60 hover:opacity-100 transition-opacity select-none cursor-help" title="每一条认真反馈，都在让 Hex Coach 更接近“真正的教练”。">
                         <div className="w-1.5 h-1.5 rounded-full bg-[#0AC8B9]"></div>

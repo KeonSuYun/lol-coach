@@ -125,17 +125,18 @@ const VK_MAP = {
     'Backslash': 0xDC, 'Semicolon': 0xBA, 'Quote': 0xDE, 'Comma': 0xBC, 'Period': 0xBE, 'Slash': 0xBF 
 };
 
-// 🔥 默认配置改为 Ctrl+ 系列，新增 toggleView
+// 🔥 默认配置改为 Ctrl+ 系列，新增 toggleView 和 playAudio
 let activeConfig = {
     toggle: 'Home', mouseMode: 'Tilde',
     refresh: 'Ctrl+F',           
-    toggleView: 'Ctrl+E',        // 🔥 新增：切换详情
+    toggleView: 'Ctrl+E',        
     modePrev: 'Ctrl+Z',          
     modeNext: 'Ctrl+C',          
     prevPage: 'Ctrl+A',          
     nextPage: 'Ctrl+D',          
     scrollUp: 'Ctrl+S',          
-    scrollDown: 'Ctrl+X'         
+    scrollDown: 'Ctrl+X',
+    playAudio: 'Ctrl+Space' // 🔥 [新增] 默认语音播报快捷键
 };
 
 let user32, GetAsyncKeyState;
@@ -155,13 +156,15 @@ function startKeyboardPolling() {
             { id: 'toggle', action: () => toggleOverlay() },
             { id: 'mouseMode', action: () => switchMouseMode() },
             { id: 'refresh', action: () => sendToOverlay('shortcut-triggered', 'refresh') },
-            { id: 'toggleView', action: () => sendToOverlay('shortcut-triggered', 'toggle_view') }, // 🔥 新增处理
+            { id: 'toggleView', action: () => sendToOverlay('shortcut-triggered', 'toggle_view') }, 
             { id: 'modePrev', action: () => sendToOverlay('shortcut-triggered', 'mode_prev') },
             { id: 'modeNext', action: () => sendToOverlay('shortcut-triggered', 'mode_next') },
             { id: 'prevPage', action: () => sendToOverlay('shortcut-triggered', 'nav_prev') },
             { id: 'nextPage', action: () => sendToOverlay('shortcut-triggered', 'nav_next') },
             { id: 'scrollUp', action: () => sendToOverlay('scroll-action', 'up') },
-            { id: 'scrollDown', action: () => sendToOverlay('scroll-action', 'down') }
+            { id: 'scrollDown', action: () => sendToOverlay('scroll-action', 'down') },
+            // 🔥 [新增] 监听 playAudio 动作
+            { id: 'playAudio', action: () => sendToOverlay('shortcut-triggered', 'playAudio') }
         ];
 
         actions.forEach(({ id, action }) => {

@@ -5,282 +5,14 @@ import {
   Target, RefreshCw, ThumbsUp, Crown, Save, X, 
   FileText, Calendar, ChevronLeft, ChevronRight, 
   ChevronLeft as ChevronLeftIcon, Tag, Plus, Palette,
-  CheckCircle2, AlertCircle, Hexagon, Sparkles, Flame, Leaf, Wind, Zap, Ghost, Trash2
+  CheckCircle2, AlertCircle, Hexagon, Sparkles, Flame, Leaf, Wind, Zap, Ghost, Trash2, Loader2
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
 
-// ==========================================
-// 1. 全局样式定义
-// ==========================================
-const BADGE_CUSTOM_STYLES = `
-  @keyframes border-flow {
-    0% { transform: translateX(-150%) skewX(-15deg); }
-    40%, 100% { transform: translateX(150%) skewX(-15deg); }
-  }
-  @keyframes spin-slow {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  @keyframes breathe {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.85; transform: scale(1.02); }
-  }
-  
-  /* 流光动画 */
-  .animate-flow-slow {
-    animation: border-flow 6s ease-in-out infinite;
-  }
-  
-  /* 微呼吸 */
-  .animate-breathe {
-    animation: breathe 5s ease-in-out infinite;
-  }
-  
-  .animate-spin-slow {
-    animation: spin-slow 4s linear infinite;
-  }
+// 🔥 核心修改：引用 BadgeSystem，不再本地定义
+import { TitleBadge, TITLE_TIERS, getRankTheme, cleanTitle, BadgeStyleInit } from './BadgeSystem';
 
-  /* 核心：边缘遮罩技术 */
-  .mask-border-only {
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    padding: 1.5px; 
-  }
-`;
-
-// ==========================================
-// 2. 头衔配置系统
-// ==========================================
-export const TITLE_TIERS = [
-  {
-    id: 'challenger',
-    label: "巅峰/王者系",
-    marker: '\u200B', 
-    keywords: ["王者", "Challenger", "巅峰", "第一", "Top1", "King"],
-    style: "bg-gradient-to-r from-slate-900 via-amber-600 to-slate-900 text-amber-100 border-amber-400/60 shadow-[0_0_15px_rgba(245,158,11,0.5)] ring-1 ring-amber-300/40",
-    icon: <Hexagon size={12} className="fill-amber-400 text-amber-100 animate-spin-slow" />,
-    animation: "animate-breathe", 
-    hasFlow: true, 
-    glow: "shadow-amber-500/40"
-  },
-  {
-    id: 'legendary',
-    label: "官方/传说系",
-    marker: '\u200C',
-    keywords: ["Admin", "GM", "Root", "官方", "S级", "Legend", "管理员"],
-    style: "bg-gradient-to-r from-red-950/90 via-rose-900/80 to-red-950/90 text-rose-100 border-rose-500/60 shadow-[0_0_15px_rgba(244,63,94,0.4)] ring-1 ring-rose-400/30",
-    icon: <Shield size={12} className="fill-rose-500/20" />,
-    animation: "animate-breathe",
-    hasFlow: true,
-    glow: "shadow-rose-500/30"
-  },
-  {
-    id: 'void',
-    label: "虚空/深渊系",
-    marker: '\u200D',
-    keywords: ["虚空", "Void", "进化", "吞噬", "深渊", "Kaisa"],
-    style: "bg-gradient-to-r from-violet-950 via-fuchsia-900 to-purple-950 text-fuchsia-100 border-fuchsia-500/60 shadow-[0_0_15px_rgba(192,38,211,0.4)]",
-    icon: <Sparkles size={12} className="text-fuchsia-400" />,
-    animation: "", 
-    hasFlow: true,
-    glow: "shadow-fuchsia-500/30"
-  },
-  {
-    id: 'fire',
-    label: "火焰/战斗系",
-    marker: '\u2060',
-    keywords: ["火焰", "地狱", "红莲", "燃烧", "龙魂", "Ignite"],
-    style: "bg-gradient-to-r from-orange-950 via-red-900 to-orange-950 text-orange-100 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.4)]",
-    icon: <Flame size={12} className="fill-orange-500/20 text-orange-400" />,
-    animation: "",
-    hasFlow: true,
-    glow: "shadow-orange-500/30"
-  },
-  {
-    id: 'epic',
-    label: "职业/核心系",
-    marker: '\u2062',
-    keywords: ["PRO", "核心", "绝活", "MVP", "职业", "冠军", "LPL"],
-    style: "bg-gradient-to-r from-amber-900/90 via-yellow-900/80 to-amber-900/90 text-amber-100 border-amber-500/60 shadow-[0_0_10px_rgba(245,158,11,0.3)]",
-    icon: <Crown size={12} className="fill-amber-500/20" />,
-    animation: "",
-    hasFlow: true,
-    glow: "shadow-amber-500/20"
-  },
-  {
-    id: 'nature',
-    label: "自然/治疗系",
-    marker: '\u2064',
-    keywords: ["自然", "艾欧尼亚", "绽灵", "森林", "守护", "Heal"],
-    style: "bg-gradient-to-r from-emerald-950 via-teal-900 to-green-950 text-emerald-100 border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.3)]",
-    icon: <Leaf size={12} className="text-emerald-400" />,
-    animation: "",
-    hasFlow: false,
-    glow: "shadow-emerald-500/20"
-  },
-  {
-    id: 'ice',
-    label: "极地/冰霜系",
-    marker: '\u2063',
-    keywords: ["冰霜", "弗雷尔卓德", "极地", "凛冬", "Cold"],
-    style: "bg-gradient-to-r from-cyan-950 via-sky-900 to-blue-950 text-sky-100 border-sky-400/50 shadow-[0_0_10px_rgba(56,189,248,0.3)]",
-    icon: <Wind size={12} className="text-sky-300" />,
-    animation: "",
-    hasFlow: false,
-    glow: "shadow-sky-500/20"
-  },
-  {
-    id: 'rare',
-    label: "专家/大师系",
-    marker: '\u2061',
-    keywords: ["作者", "攻略", "大师", "宗师", "钻石", "峡谷", "专家"],
-    style: "bg-gradient-to-r from-blue-900/90 to-cyan-900/90 text-cyan-100 border-cyan-500/50 shadow-[0_0_8px_rgba(6,182,212,0.2)]",
-    icon: <Zap size={12} className="fill-cyan-500/20" />,
-    animation: "",
-    hasFlow: false,
-    glow: "shadow-cyan-500/20"
-  },
-  {
-    id: 'shadow',
-    label: "暗影/潜行系",
-    marker: '', 
-    keywords: ["暗影", "刺客", "潜行", "幽灵", "Ninja"],
-    style: "bg-gradient-to-r from-slate-950 via-slate-800 to-slate-950 text-slate-200 border-slate-600 shadow-[0_0_8px_rgba(148,163,184,0.1)]",
-    icon: <Ghost size={12} className="text-slate-400" />,
-    animation: "",
-    hasFlow: false,
-    glow: ""
-  },
-  {
-    id: 'common',
-    label: "默认/普通系",
-    marker: '', 
-    keywords: [], 
-    style: "bg-slate-800/80 text-slate-300 border-slate-600/60 hover:bg-slate-700 transition-colors",
-    icon: <User size={12} />,
-    animation: "",
-    hasFlow: false,
-    glow: ""
-  }
-];
-
-// 辅助：获取头衔配置
-export const getTitleConfig = (title) => {
-  if (!title) return TITLE_TIERS[TITLE_TIERS.length - 1];
-  const markerMatch = TITLE_TIERS.find(tier => tier.marker && title.includes(tier.marker));
-  if (markerMatch) return markerMatch;
-  const keywordMatch = TITLE_TIERS.find(tier => tier.keywords.some(k => title.toLowerCase().includes(k.toLowerCase())));
-  return keywordMatch || TITLE_TIERS[TITLE_TIERS.length - 1]; 
-};
-
-// 辅助：清洗标题（去掉不可见字符）
-export const cleanTitle = (title) => {
-    if (!title) return "";
-    let clean = title;
-    TITLE_TIERS.forEach(tier => {
-        if (tier.marker) clean = clean.replaceAll(tier.marker, "");
-    });
-    return clean;
-};
-
-// 段位主题生成
-export const getRankTheme = (rank) => {
-    const r = (rank || "").toLowerCase();
-    let theme = {
-        border: "border-slate-700/60", bg: "bg-slate-800/40", text: "text-slate-300", accent: "text-slate-400",
-        shadow: "shadow-lg", glow: "", avatarRing: "border-slate-800",
-        gradientOverlay: "from-slate-900/0 via-slate-900/0 to-slate-900"
-    };
-
-    if (r.includes('challenger') || r.includes('王者')) {
-        theme = {
-            border: "border-amber-400/50", bg: "bg-amber-950/20", text: "text-amber-100", accent: "text-amber-400",
-            shadow: "shadow-amber-900/20", glow: "shadow-[0_0_20px_rgba(245,158,11,0.3)]",
-            avatarRing: "border-amber-500", gradientOverlay: "from-amber-500/10 via-transparent to-slate-900"
-        };
-    } else if (r.includes('grandmaster') || r.includes('宗师')) {
-        theme = {
-            border: "border-rose-500/50", bg: "bg-rose-950/20", text: "text-rose-100", accent: "text-rose-400",
-            shadow: "shadow-rose-900/20", glow: "shadow-[0_0_20px_rgba(244,63,94,0.3)]",
-            avatarRing: "border-rose-500", gradientOverlay: "from-rose-500/10 via-transparent to-slate-900"
-        };
-    } else if (r.includes('master') || r.includes('大师')) {
-        theme = {
-            border: "border-purple-500/50", bg: "bg-purple-950/20", text: "text-purple-100", accent: "text-purple-400",
-            shadow: "shadow-purple-900/20", glow: "shadow-[0_0_20px_rgba(168,85,247,0.3)]",
-            avatarRing: "border-purple-500", gradientOverlay: "from-purple-500/10 via-transparent to-slate-900"
-        };
-    } else if (r.includes('diamond') || r.includes('钻')) {
-        theme = {
-            border: "border-cyan-400/50", bg: "bg-cyan-950/20", text: "text-cyan-100", accent: "text-cyan-400",
-            shadow: "shadow-cyan-900/20", glow: "shadow-[0_0_20px_rgba(34,211,238,0.3)]",
-            avatarRing: "border-cyan-400", gradientOverlay: "from-cyan-500/10 via-transparent to-slate-900"
-        };
-    } else if (r.includes('platinum') || r.includes('铂金')) {
-        theme = {
-            border: "border-teal-400/50", bg: "bg-teal-950/20", text: "text-teal-100", accent: "text-teal-400",
-            shadow: "shadow-teal-900/20", glow: "shadow-[0_0_15px_rgba(45,212,191,0.2)]",
-            avatarRing: "border-teal-400", gradientOverlay: "from-teal-500/10 via-transparent to-slate-900"
-        };
-    } else if (r.includes('gold') || r.includes('黄金')) {
-        theme = {
-            border: "border-yellow-500/40", bg: "bg-yellow-950/10", text: "text-yellow-100", accent: "text-yellow-400",
-            shadow: "shadow-yellow-900/10", glow: "shadow-[0_0_15px_rgba(234,179,8,0.2)]",
-            avatarRing: "border-yellow-500", gradientOverlay: "from-yellow-500/5 via-transparent to-slate-900"
-        };
-    }
-    return theme;
-};
-
-// ==========================================
-// 3. 核心组件：头衔徽章
-// ==========================================
-export const TitleBadge = ({ title, onClick, showRemove, onRemove, className = "", styleOverride = null }) => {
-    if (!title && !styleOverride) return null;
-    
-    // 如果传入了 styleOverride (预览用)，直接使用；否则根据 title 计算
-    const config = styleOverride || getTitleConfig(title);
-    const displayText = styleOverride ? title : cleanTitle(title);
-
-    return (
-        <div 
-            onClick={onClick}
-            className={`
-                relative group flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-[10px] md:text-xs font-bold border tracking-wide select-none transition-all duration-300 overflow-hidden
-                ${config.style} 
-                ${config.animation}
-                ${onClick ? 'cursor-pointer hover:scale-105 active:scale-95' : ''}
-                ${className}
-            `}
-        >
-             {/* 边缘遮罩流光 */}
-            {config.hasFlow && (
-                <div className="absolute inset-0 rounded-full mask-border-only pointer-events-none z-0">
-                    <div className="w-full h-full bg-gradient-to-r from-transparent via-white/80 to-transparent -translate-x-full animate-flow-slow" />
-                </div>
-            )}
-            
-            <span className="opacity-90 relative z-10 shrink-0 flex items-center">{config.icon}</span>
-            <span className="relative z-10 drop-shadow-md whitespace-nowrap">{displayText}</span>
-
-            {showRemove && (
-                <button 
-                    onClick={(e) => { e.stopPropagation(); onRemove && onRemove(title); }}
-                    className="absolute right-0 top-0 bottom-0 px-1.5 bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition-colors flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 z-20"
-                    title="移除此头衔"
-                >
-                    <X size={10}/>
-                </button>
-            )}
-        </div>
-    );
-};
-
-// ==========================================
-// 4. UserProfile 主组件
-// ==========================================
 const UserProfile = ({ 
     onBack, 
     onOpenAdmin, 
@@ -291,19 +23,10 @@ const UserProfile = ({
     handleSyncProfile, 
     championList,
     viewingTarget = null,
-    onUpdateProfile
+    onUpdateProfile 
 }) => {
   
-  // 🔥 修复：样式持久化注入 (不返回清理函数)
-  useEffect(() => {
-    if (!document.getElementById('badge-system-styles')) {
-        const styleSheet = document.createElement("style");
-        styleSheet.id = 'badge-system-styles';
-        styleSheet.innerText = BADGE_CUSTOM_STYLES;
-        document.head.appendChild(styleSheet);
-    }
-  }, []);
-
+  // 基础 Profile 状态
   const [profile, setProfile] = useState({
     gameName: "加载中...",
     tag: "",
@@ -327,6 +50,7 @@ const UserProfile = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   // 管理员状态
   const [tempTitles, setTempTitles] = useState([]);
@@ -352,16 +76,12 @@ const UserProfile = ({
       return champ ? champ.name : '未知';
   };
 
-  // 🔥 核心逻辑：实时计算当前应显示的所有头衔 (解决“出去就没了”)
+  // 核心逻辑：计算所有应显示的头衔
   const displayTitles = useMemo(() => {
-      // 1. 获取基础列表
       let titles = [...(profile.availableTitles || [])];
-      
-      // 2. 兜底：确保有"社区成员"
       if (!titles.includes("社区成员")) titles.unshift("社区成员");
       
-      // 3. 自动注入特殊头衔 (管理员/PRO)
-      if (accountInfo && isMe) {
+      if (isMe && accountInfo) {
           const role = accountInfo.role;
           const adminTier = TITLE_TIERS.find(t => t.id === 'legendary');
           const proTier = TITLE_TIERS.find(t => t.id === 'epic');
@@ -381,7 +101,6 @@ const UserProfile = ({
   // 数据加载
   useEffect(() => {
     const loadData = async () => {
-        // 模式 A: 查看他人
         if (viewingTarget && viewingTarget !== currentUser) {
             try {
                 const res = await axios.get(`${API_BASE_URL}/users/profile/${viewingTarget}`, {
@@ -391,9 +110,9 @@ const UserProfile = ({
                 const gp = data.game_profile || {};
                 
                 setProfile({
-                    gameName: data.game_profile?.gameName || data.username,
-                    tag: data.game_profile?.tagLine || "#HEX",
-                    bio: data.bio,
+                    gameName: gp.gameName || data.username,
+                    tag: gp.tagLine || "#HEX",
+                    bio: data.bio || "这个人很懒，什么都没写。",
                     role: "JUNGLE", 
                     region: "艾欧尼亚",
                     avatarUrl: data.avatar_url,
@@ -412,7 +131,6 @@ const UserProfile = ({
                 onBack();
             }
         } 
-        // 模式 B: 查看自己
         else {
             setProfile(prev => {
                 let newData = { ...prev };
@@ -464,7 +182,6 @@ const UserProfile = ({
             });
         }
     };
-    
     loadData();
   }, [viewingTarget, accountInfo, lcuProfile, currentUser, token]);
 
@@ -495,7 +212,6 @@ const UserProfile = ({
   useEffect(() => {
     if (isEditing && canEdit) {
       setEditForm({ bio: profile.bio, role: profile.role });
-      // 使用自动注入后的列表作为编辑初始值
       setTempTitles([...displayTitles]);
     }
   }, [isEditing, profile, displayTitles, canEdit]);
@@ -507,9 +223,17 @@ const UserProfile = ({
       const titleWithMarker = val + selectedStyle.marker;
       
       if (!tempTitles.includes(titleWithMarker)) {
-          setTempTitles([...tempTitles, titleWithMarker]);
+          const newTemp = [...tempTitles, titleWithMarker];
+          setTempTitles(newTemp);
           setNewTitleInput("");
           toast.success(`已添加头衔: ${val}`);
+          // 自动保存
+          if (isAdmin) {
+             axios.post(`${API_BASE_URL}/admin/user/titles`, 
+                { username: currentUser, titles: newTemp },
+                { headers: { Authorization: `Bearer ${token}` } }
+            ).catch(e => console.error(e));
+          }
       } else {
           toast.error("该头衔已存在");
       }
@@ -526,8 +250,8 @@ const UserProfile = ({
       }
   };
 
-  // 🔥 修复：保存时触发全局更新
   const handleSaveProfile = async () => {
+    setIsSaving(true);
     try {
         if (isAdmin) {
              await axios.post(`${API_BASE_URL}/admin/user/titles`, 
@@ -551,18 +275,19 @@ const UserProfile = ({
         setIsEditing(false);
         toast.success("个人资料已更新");
         
-        // 🔥 通知父组件刷新，防止数据回滚
         if (onUpdateProfile) onUpdateProfile();
 
     } catch (e) {
         toast.error("保存失败: " + (e.response?.data?.detail || e.message));
+    } finally {
+        setIsSaving(false);
     }
   };
 
-  // 🔥 修复：快速佩戴也触发全局更新
   const handleQuickEquip = async (t) => {
+      // 乐观更新
+      setProfile(prev => ({...prev, activeTitle: t}));
       try {
-          setProfile(prev => ({...prev, activeTitle: t}));
           await axios.post(`${API_BASE_URL}/users/set_active_title`, 
               { active_title: t }, 
               { headers: { Authorization: `Bearer ${token}` } }
@@ -570,7 +295,7 @@ const UserProfile = ({
           toast.success(`已佩戴: ${cleanTitle(t)}`);
           if (onUpdateProfile) onUpdateProfile();
       } catch (e) {
-          toast.error("佩戴失败");
+          toast.error("佩戴失败，网络异常");
           if (onUpdateProfile) onUpdateProfile();
       }
   };
@@ -597,6 +322,9 @@ const UserProfile = ({
   return (
     <div className="fixed inset-0 z-[60] flex flex-col w-full h-full text-slate-100 bg-slate-900 overflow-y-auto custom-scrollbar font-sans animate-in slide-in-from-right duration-300">
       
+      {/* 🔥 关键：注入 Badge 系统样式 */}
+      <BadgeStyleInit />
+
       {/* 顶部返回按钮 */}
       <div className="absolute top-6 left-6 z-50">
          <button onClick={onBack} className="flex items-center gap-2 px-4 py-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition-all shadow-lg group">
@@ -631,8 +359,13 @@ const UserProfile = ({
                 <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-full text-white text-sm font-bold shadow-lg flex items-center gap-2">
                     <X size={16} /> 取消
                 </button>
-                <button onClick={handleSaveProfile} className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 rounded-full text-white text-sm font-bold shadow-lg flex items-center gap-2">
-                    <Save size={16} /> 保存
+                <button 
+                    onClick={handleSaveProfile} 
+                    disabled={isSaving}
+                    className={`px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 rounded-full text-white text-sm font-bold shadow-lg flex items-center gap-2 ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                    {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    {isSaving ? "保存中..." : "保存"}
                 </button>
                 </div>
             )}
@@ -674,7 +407,7 @@ const UserProfile = ({
               </h1>
             </div>
 
-            {/* 🔥 新增：在查看模式下也显示所有可佩戴头衔（解决“出去就没了”的视觉问题） */}
+            {/* 非编辑模式下显示所有头衔 (点击佩戴) */}
             {!isEditing && displayTitles.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-4 animate-in slide-in-from-left-2 duration-500">
                     {displayTitles.map(t => (
@@ -700,13 +433,14 @@ const UserProfile = ({
                         <div className="flex items-center justify-between mb-4">
                             <label className="text-xs font-bold text-[#C8AA6E] uppercase tracking-wider flex items-center gap-2">
                                 <Tag size={14} className="fill-current"/> 
-                                {isAdmin ? "头衔管理仓库 (点击佩戴 / 移除)" : "选择佩戴头衔"}
+                                {isAdmin ? "头衔工坊 (实时预览)" : "选择佩戴头衔"}
                             </label>
                             <span className="text-[10px] text-slate-500 font-mono">
                                 当前预览: {cleanTitle(profile.activeTitle)}
                             </span>
                         </div>
 
+                        {/* 1. 现有头衔列表 */}
                         <div className="flex flex-wrap gap-2 mb-4 min-h-[40px] bg-slate-900/30 p-2 rounded-lg border border-white/5">
                             {tempTitles.map(t => {
                                 const isActive = profile.activeTitle === t;
@@ -728,61 +462,90 @@ const UserProfile = ({
                             )}
                         </div>
 
+                        {/* 2. 管理员添加界面 (增强版：带预览) */}
                         {isAdmin && (
-                            <div className="flex flex-col gap-3 p-3 bg-black/30 rounded-lg border border-white/5 relative">
-                                <div className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1">
-                                    <Palette size={10}/> 新增头衔 (先选特效，再输文字)
+                            <div className="flex flex-col gap-4 p-4 bg-black/40 rounded-xl border border-white/10 relative mt-4">
+                                
+                                {/* 顶部：预览区 */}
+                                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                                    <div className="flex items-col gap-1">
+                                        <div className="text-xs font-bold text-[#C8AA6E] uppercase flex items-center gap-1.5">
+                                            <Palette size={14}/> 样式工坊
+                                        </div>
+                                        <div className="text-[10px] text-slate-500">定制专属荣耀</div>
+                                    </div>
+                                    
+                                    {/* 核心预览 */}
+                                    <div className="scale-110 origin-right">
+                                        <TitleBadge 
+                                            title={newTitleInput || "效果预览"} 
+                                            styleOverride={TITLE_TIERS.find(t => t.id === selectedStyleId)} 
+                                            className="shadow-2xl"
+                                        />
+                                    </div>
                                 </div>
-                                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                                     {TITLE_TIERS.filter(t => t.id !== 'common').map(tier => {
-                                         const isSelected = selectedStyleId === tier.id;
-                                         return (
-                                             <button 
-                                                key={tier.id}
-                                                onClick={() => setSelectedStyleId(tier.id)}
-                                                className={`relative h-8 rounded-md border transition-all flex items-center justify-center overflow-hidden ${isSelected ? 'border-white ring-1 ring-white/50 scale-105 z-10' : 'border-white/10 opacity-60 hover:opacity-100 hover:scale-105'}`}
-                                                title={tier.label}
-                                             >
-                                                 <div className="scale-75 pointer-events-none">
-                                                     <TitleBadge styleOverride={tier} title=" " />
-                                                 </div>
-                                                 {isSelected && <CheckCircle2 size={14} className="absolute top-0 right-0 text-white drop-shadow relative z-20"/>}
-                                             </button>
-                                         )
-                                     })}
-                                </div>
-                                <div className="flex gap-2 items-center mt-1">
-                                    <div className="flex-1 relative">
+
+                                {/* 中间：输入与选择 */}
+                                <div className="space-y-3">
+                                    {/* 输入框 */}
+                                    <div>
+                                        <label className="text-[10px] text-slate-500 mb-1.5 block ml-1">1. 输入显示文字</label>
                                         <input 
-                                            className="w-full bg-[#010A13] border border-slate-600 rounded px-3 py-1.5 text-xs text-white focus:border-[#C8AA6E] outline-none transition-colors placeholder:text-slate-600 pl-8"
-                                            placeholder="输入头衔显示文字 (如: 峡谷之巅)"
+                                            className="w-full bg-[#010A13] border border-slate-600 rounded-lg px-3 py-2 text-xs text-white focus:border-[#C8AA6E] outline-none transition-all placeholder:text-slate-700 text-center font-bold tracking-wide"
+                                            placeholder="输入文字 (如: 峡谷之巅)"
                                             value={newTitleInput}
                                             onChange={e => setNewTitleInput(e.target.value)}
                                             onKeyDown={e => e.key === 'Enter' && addTitle()}
                                         />
-                                        <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                                            {TITLE_TIERS.find(t=>t.id===selectedStyleId)?.icon}
+                                    </div>
+
+                                    {/* 样式选择器 */}
+                                    <div>
+                                        <label className="text-[10px] text-slate-500 mb-1.5 block ml-1">2. 选择特效样式</label>
+                                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                                            {TITLE_TIERS.filter(t => t.id !== 'common').map(tier => {
+                                                const isSelected = selectedStyleId === tier.id;
+                                                return (
+                                                    <button 
+                                                        key={tier.id}
+                                                        onClick={() => setSelectedStyleId(tier.id)}
+                                                        className={`
+                                                            relative h-9 rounded-md border transition-all flex items-center justify-center overflow-hidden
+                                                            ${isSelected ? 'border-[#C8AA6E] bg-[#C8AA6E]/10 ring-1 ring-[#C8AA6E]/50 z-10' : 'border-white/10 opacity-60 hover:opacity-100 hover:border-white/30 bg-black/20'}
+                                                        `}
+                                                        title={tier.label}
+                                                    >
+                                                        <div className="scale-[0.65] pointer-events-none">
+                                                            <TitleBadge styleOverride={tier} title="Aa" />
+                                                        </div>
+                                                        {isSelected && <div className="absolute inset-0 border border-[#C8AA6E] rounded-md pointer-events-none shadow-[inset_0_0_10px_rgba(200,170,110,0.3)]"></div>}
+                                                    </button>
+                                                )
+                                            })}
                                         </div>
                                     </div>
-                                    <button onClick={addTitle} className="px-4 py-1.5 bg-[#C8AA6E] text-[#091428] rounded text-xs font-bold hover:bg-[#b89b65] flex items-center gap-1 shadow-lg shadow-amber-900/20 active:scale-95 transition-all whitespace-nowrap">
-                                        <Plus size={14} strokeWidth={3}/> 添加
-                                    </button>
                                 </div>
+                                
+                                {/* 底部：添加按钮 */}
+                                <button 
+                                    onClick={addTitle} 
+                                    disabled={!newTitleInput.trim()}
+                                    className={`
+                                        w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg
+                                        ${newTitleInput.trim() 
+                                            ? 'bg-gradient-to-r from-[#C8AA6E] to-[#b89b65] text-[#091428] hover:brightness-110 active:scale-95 shadow-amber-900/20' 
+                                            : 'bg-slate-800 text-slate-500 cursor-not-allowed'}
+                                    `}
+                                >
+                                    <Plus size={14} strokeWidth={3}/> 生成并入库
+                                </button>
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* Role Tags */}
-            <div className="flex flex-wrap gap-2 mb-4">
-              {accountInfo?.role === 'admin' && (
-                <div className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold border shadow-sm uppercase tracking-wide bg-rose-900/20 text-rose-300 border-rose-500/30">
-                  <Shield size={10} /> 管理员
-                </div>
-              )}
-            </div>
-            
+            {/* Profile Info */}
             <div className="relative group mb-5">
               {isEditing ? (
                 <textarea 
