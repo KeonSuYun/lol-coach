@@ -248,13 +248,13 @@ const guessRoles = (team) => {
 
         // === 🚀 阶段四：暴力填空 (Phase 4: Fill Remaining) ===
         // 剩下的萝卜填剩下的坑
-        const remainingHeroes = team.filter((_, i) => !assignedIndices.has(i));
+        const remainingHeroes = team.filter((h, i) => !assignedIndices.has(i) && h); 
+        
         PHASE_1_ORDER.forEach(roleId => {
             if (!roles[roleId] && remainingHeroes.length > 0) {
                 roles[roleId] = remainingHeroes.shift().name;
             }
         });
-
         return roles;
     };
     const autoAssignLanes = (isEnemy) => {
