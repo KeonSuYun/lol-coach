@@ -326,6 +326,7 @@ const OverlayConsole = ({ state, actions }) => {
 
                 <div id="overlay-content-area" ref={contentRef} style={textShadowStyle} className="flex-1 min-h-0 overflow-y-auto p-2 no-drag relative flex flex-col custom-scrollbar scroll-smooth">
                     {effectiveResult ? (
+                        
                         <AnalysisResult 
                             aiResult={effectiveResult} 
                             isAnalyzing={isAnalyzing} 
@@ -343,7 +344,7 @@ const OverlayConsole = ({ state, actions }) => {
                         <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-4 p-6 min-h-[180px]">
                             <div className={`p-3 rounded-full ${isInGame ? 'bg-black/30' : 'bg-white/5 border border-white/5'}`}><Activity size={24} className="opacity-40"/></div>
                             {!isInGame && (<div className="text-center space-y-1"><p className="text-xs font-bold text-slate-400">阵容已就绪</p><p className="text-[10px] text-slate-600">请确认上方分路角标是否正确</p></div>)}
-                            <button onClick={() => handleAnalyze(effectiveMode, true)} disabled={isAnalyzing} className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-black tracking-wide shadow-lg transition-all active:scale-95 group ${isAnalyzing ? 'bg-slate-800 text-slate-500 cursor-wait' : 'bg-gradient-to-r from-[#0AC8B9] to-[#089186] text-[#091428] hover:brightness-110 hover:shadow-[#0AC8B9]/30'}`}><Zap size={14} className={isAnalyzing ? "animate-spin" : "fill-current"} /><span>{isAnalyzing ? "AI 思考中..." : "开始战术分析"}</span></button>
+                            <button onClick={() => handleAnalyze(effectiveMode, true)} disabled={isAnalyzing} className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-black tracking-wide shadow-lg transition-all active:scale-95 group ${isAnalyzing ? 'bg-slate-800 text-slate-500 cursor-wait' : 'bg-gradient-to-r from-[#0AC8B9] to-[#089186] text-[#091428] hover:brightness-110 hover:shadow-[#0AC8B9]/30'}`}><Zap size={14} className={isAnalyzing ? "animate-spin" : "fill-current"} /><span>{isAnalyzing ? "AI 思考中..." : "请在网页端开始分析"}</span></button>
                         </div>
                     )}
                 </div>

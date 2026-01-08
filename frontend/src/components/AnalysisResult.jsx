@@ -17,21 +17,38 @@ import { API_BASE_URL } from '../config/constants';
 const parseHybridContent = (rawString) => {
     if (!rawString || typeof rawString !== 'string') return { mode: 'loading', data: null, thought: "" };
     
+    // 1. 提取思考过程 (R1 模型特性)
     let thought = "";
     const thoughtMatch = rawString.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
     if (thoughtMatch) {
         thought = thoughtMatch[1].trim();
     }
 
+    // 2. 清理标签和 Markdown 代码块标记
     let cleanStr = rawString.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, ""); 
     cleanStr = cleanStr.replace(/```json/g, "").replace(/```/g, "").trim();
 
+    // 3. 尝试解析 JSON
     try {
         const parsed = JSON.parse(cleanStr);
+        
+        // 🔥🔥🔥 [核心修复] 兼容性映射 🔥🔥🔥
+        // 如果 AI 返回了 { "analysis": "..." } 但没返回 "concise"，手动修正结构
+        if (parsed.analysis && !parsed.concise) {
+            parsed.concise = {
+                title: "战术分析结果",
+                content: parsed.analysis
+            };
+        }
+        
+        // 确保数组存在，防止 .map 报错
         if (!parsed.simple_tabs) parsed.simple_tabs = [];
         if (!parsed.detailed_tabs) parsed.detailed_tabs = [];
+        
         return { mode: 'json', data: parsed, thought };
-    } catch (e) { }
+    } catch (e) { 
+        // JSON 解析失败，进入后续的流式容错处理
+    }
 
     const hasJsonStructure = cleanStr.includes('"concise"') || cleanStr.startsWith('{');
 
@@ -237,7 +254,14 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
     const simpleData = data?.simple_tabs || [];
     const detailedData = data?.detailed_tabs || [];
     
-    const activeTabsData = (viewMode === 'simple' && simpleData.length > 0) ? simpleData : (detailedData.length > 0 ? detailedData : []);
+    // 🔥 [修复] 智能回退逻辑：如果当前视图数据为空，自动尝试显示另一组数据
+    // 解决 BP 推荐等模式下，可能只有 simple_tabs 而导致详细模式为空白的问题
+    const activeTabsData = useMemo(() => {
+        if (viewMode === 'simple') {
+            return simpleData.length > 0 ? simpleData : detailedData;
+        }
+        return detailedData.length > 0 ? detailedData : simpleData;
+    }, [viewMode, simpleData, detailedData]);
 
     // 每次结果更新，停止播放
     useEffect(() => {

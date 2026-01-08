@@ -151,7 +151,7 @@ export default function MainConsole({ state, actions }) {
         setShowSettingsModal, setShowAdminPanel, setInputContent, setShowTipModal, setShowFeedbackModal,
         handlePostTip, handleReportError, handleLike, handleDeleteTip, handleSaveShortcuts, setTipTarget, handleTabClick,
         setMapSide, setShowDownloadModal,handleClearAnalysis,
-        setAdminView
+        setAdminView, handleSyncProfile
     } = actions;
 
     const [showGuide, setShowGuide] = useState(false);
@@ -258,6 +258,35 @@ export default function MainConsole({ state, actions }) {
     const handleShowCommunity = () => {
         actions.setShowCommunity(true);
     };
+
+    // 🔥🔥🔥 [新增功能] 进入主控台时，自动同步个人数据 (战绩/段位/头像) 🔥🔥🔥
+    useEffect(() => {
+        // 只有当“已进入主控台”且“LCU已连接”时才触发
+        if (hasStarted && lcuStatus === 'connected') {
+            
+            // 设置一个短延迟，避免页面渲染时的卡顿，并给用户一个视觉反馈的缓冲区
+            const timer = setTimeout(() => {
+                if (handleSyncProfile) {
+                    console.log("🔄 [AutoSync] LCU已连接，正在自动同步个人数据...");
+                    handleSyncProfile();
+                    
+                    // 给用户一个轻微的提示 (可选，如果您觉得太打扰可以去掉)
+                    toast.success("已自动同步最新游戏数据", { 
+                        icon: '🔄', 
+                        id: 'auto-sync-profile', // 防止重复弹窗
+                        duration: 3000,
+                        style: {
+                            background: '#091428',
+                            color: '#C8AA6E',
+                            border: '1px solid rgba(200, 170, 110, 0.3)'
+                        }
+                    });
+                }
+            }, 1500); // 1.5秒延迟
+
+            return () => clearTimeout(timer);
+        }
+    }, [hasStarted, lcuStatus, handleSyncProfile]);
 
     useEffect(() => {
         if (hasStarted && lcuStatus !== 'connected' && !blueTeam[userSlot]) {
@@ -449,7 +478,7 @@ export default function MainConsole({ state, actions }) {
                                 {[
                                     { id: 'bp', label: 'BP 推荐', icon: <Users size={18}/>, desc: '阵容优劣' },
                                     { id: 'personal', label: '王者私教', icon: <Zap size={18}/>, desc: '对线/打野' }, 
-                                    { id: 'team', label: '运营指挥', icon: <Brain size={18}/>, desc: '大局决策' },
+                                    { id: 'team', label: '团队策略', icon: <Brain size={18}/>, desc: '大局决策' },
                                 ].map(tab => {
                                     const isActive = analyzeType === tab.id;
                                     return (
@@ -603,6 +632,14 @@ export default function MainConsole({ state, actions }) {
                         <div className="relative flex-1 flex flex-col bg-[#091428] border-x border-b border-[#C8AA6E]/30 rounded-b-lg shadow-lg p-1">
                             <div className="absolute inset-0 opacity-5 pointer-events-none z-0 bg-[url('/hex-pattern.png')]"></div>
                             <div className="relative z-10 min-h-[500px] h-auto">
+                                {effectiveMode === 'bp' && (
+                                    <div className="bg-amber-950/40 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-center gap-2 animate-in fade-in slide-in-from-top-2 shrink-0">
+                                        <AlertCircle size={14} className="text-amber-400 animate-pulse" />
+                                        <span className="text-xs text-amber-200 font-bold tracking-wide">
+                                            BP推荐正在根据 S16 数据更新中，描述不正确的地方请反馈
+                                        </span>
+                                    </div>
+                                )}
                                 <AnalysisResult
                                     aiResult={aiResults[effectiveMode]} 
                                     isAnalyzing={isModeAnalyzing(effectiveMode)}

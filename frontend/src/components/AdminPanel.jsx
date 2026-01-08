@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, Search, User, Crown, XCircle, ChevronLeft, Tag, Plus, X, Trash2, Save, AlertCircle } from 'lucide-react';
+// 🔥 1. 引入 Cpu 图标
+import { Shield, Search, User, Crown, XCircle, ChevronLeft, Tag, Plus, X, Trash2, Save, AlertCircle, Cpu } from 'lucide-react';
 import { API_BASE_URL } from '../config/constants';
 import { toast } from 'react-hot-toast';
 
@@ -55,6 +56,33 @@ const AdminPanel = ({ onBack, token }) => {
             fetchUsers(); // 刷新列表
         } catch (e) {
             toast.error("操作失败: " + (e.response?.data?.detail || e.message));
+        }
+    };
+
+    // 🔥 [新增] 一键授予共创者头衔
+    const handleGrantCreator = async (user) => {
+        const targetTitle = "海克斯共创者";
+        
+        // 1. 检查是否已拥有
+        const currentTitles = Array.isArray(user.available_titles) ? user.available_titles : ["社区成员"];
+        if (currentTitles.includes(targetTitle)) {
+            return toast.error(`用户 [${user.username}] 已拥有该头衔`);
+        }
+
+        if (!confirm(`确定要授予用户 [${user.username}] "${targetTitle}" 荣誉吗？`)) return;
+
+        try {
+            // 2. 更新头衔列表
+            const newTitles = [...currentTitles, targetTitle];
+            await axios.post(`${API_BASE_URL}/admin/user/titles`, 
+                { username: user.username, titles: newTitles },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            toast.success(`🎖️ 已授予 [${user.username}] 共创者身份`);
+            fetchUsers(); // 刷新列表以显示最新状态
+        } catch (e) {
+            toast.error("授予失败: " + (e.response?.data?.detail || e.message));
         }
     };
 
@@ -212,6 +240,15 @@ const AdminPanel = ({ onBack, token }) => {
                                             <td className="p-4 text-right align-middle">
                                                 <div className="flex items-center justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
                                                     
+                                                    {/* 🔥 [新增按钮] 一键授予共创者 */}
+                                                    <button 
+                                                        onClick={() => handleGrantCreator(user)} 
+                                                        className="p-1.5 bg-slate-800 hover:bg-cyan-900/50 text-slate-400 hover:text-cyan-400 border border-slate-600 hover:border-cyan-500/50 rounded-lg transition-all" 
+                                                        title="一键授予 [海克斯共创者] 头衔"
+                                                    >
+                                                        <Cpu size={16} />
+                                                    </button>
+
                                                     {/* 按钮1：管理头衔 (打开弹窗) */}
                                                     <button 
                                                         onClick={() => openTitleEditor(user)} 

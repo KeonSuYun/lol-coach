@@ -82,6 +82,19 @@ function startWebSocketServer() {
                             overlayWindow.webContents.send('sync-analysis', parsed.data);
                         }
                     }
+                    else if (parsed.type === 'SYNC_LANE_ASSIGNMENTS' || parsed.type === 'SYNC_TEAM_DATA') {
+                        // 1. 广播给其他 WebSocket 客户端 (如其他网页标签)
+                        broadcast(rawMsg);
+                        
+                        // 2. 转发给 Electron 本地窗口 (Overlay 和 Dashboard)
+                        // 这样网页端的操作就能直接同步到悬浮窗了
+                        if (overlayWindow && !overlayWindow.isDestroyed()) {
+                            overlayWindow.webContents.send('broadcast-sync', parsed);
+                        }
+                        if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+                            dashboardWindow.webContents.send('broadcast-sync', parsed);
+                        }
+                    }
                 } catch (e) {}
             });
         });

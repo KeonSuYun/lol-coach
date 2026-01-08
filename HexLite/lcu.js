@@ -6,15 +6,25 @@ const axios = require('axios');
 
 const agent = new https.Agent({ rejectUnauthorized: false });
 
-// 缓存：分为“基础信息缓存”和“详细技能缓存”，避免重复请求
+// 缓存系统
 const basicInfoCache = {}; 
 const mechanicsCache = {};
+let currentSummonerId = null; // 本地玩家ID缓存
 
-// 🔥 队列 ID 映射表
+// 队列 ID 映射 (仅用于判断是否记录战绩)
 const QUEUE_ID_MAP = {
     420: "排位赛 单/双",
-    440: "灵活组排 5v5"
+    440: "灵活组排 5v5",
+    430: "匹配模式 (盲选)",
+    450: "大乱斗",
+    // 兼容其他模式防止报错
+    900: "无限火力",
+    830: "人机对战 (入门)",
+    840: "人机对战 (新手)",
+    850: "人机对战 (一般)"
 };
+
+// --- 基础连接功能 ---
 
 async function getCredentials() {
     try {
@@ -42,66 +52,57 @@ async function getCredentials() {
     }
 }
 
-// ⚡️ [智能获取] 根据需求决定是否解析技能文本
+// --- 数据获取功能 ---
+
 async function fetchChampionDetail(creds, championId, needMechanics = false) {
     if (!championId || championId === 0) return null;
 
-    // 1. 如果只需要基础信息(头像)，且已有缓存，直接返回
-    if (!needMechanics && basicInfoCache[championId]) {
-        return basicInfoCache[championId];
-    }
-
-    // 2. 如果需要详细技能，且已有详细缓存，直接返回
-    if (needMechanics && mechanicsCache[championId]) {
-        return mechanicsCache[championId];
-    }
+    // 缓存命中检查
+    if (!needMechanics && basicInfoCache[championId]) return basicInfoCache[championId];
+    if (needMechanics && mechanicsCache[championId]) return mechanicsCache[championId];
 
     try {
-        // 请求 LCU 获取数据
         const res = await axios.get(`${creds.url}/lol-game-data/assets/v1/champions/${championId}.json`, {
-            httpsAgent: agent,
-            headers: { 'Authorization': creds.auth, 'Accept': 'application/json' }
+            httpsAgent: agent, headers: { 'Authorization': creds.auth, 'Accept': 'application/json' },
+            timeout: 2000 // 防止请求挂起
         });
         
         const data = res.data;
         if (!data) return null;
 
-        // 构建基础信息 (用于显示头像)
-        const basicInfo = {
-            id: data.id,
-            alias: data.alias, // 核心：用于前端拼接图片URL
-            name: data.name
-        };
-        basicInfoCache[championId] = basicInfo; // 存入基础缓存
+        const basicInfo = { id: data.id, alias: data.alias, name: data.name };
+        basicInfoCache[championId] = basicInfo;
 
-        // 如果不需要技能，直接返回基础版，节省大量CPU
-        if (!needMechanics) {
-            return basicInfo;
-        }
+        if (!needMechanics) return basicInfo;
 
-        // --- 以下仅针对自己和对位执行 (繁重的文本处理) ---
-        const spellsInfo = data.spells.map(s => {
-            const cleanDesc = s.description.replace(/<[^>]+>/g, '').substring(0, 300);
+        // 详细技能处理 (仅对位和自己需要)
+        const spellsInfo = (data.spells || []).map(s => {
+            const cleanDesc = s.description ? s.description.replace(/<[^>]+>/g, '').substring(0, 300) : "暂无描述";
             return `【${s.spellKey.toUpperCase()} - ${s.name}】CD:${s.cooldownBurn}s | ${cleanDesc}`;
         });
-        const cleanPassive = data.passive.description.replace(/<[^>]+>/g, '').substring(0, 300);
-        const rawText = `【被动 - ${data.passive.name}】${cleanPassive}\n${spellsInfo.join('\n')}`;
+        const cleanPassive = data.passive?.description ? data.passive.description.replace(/<[^>]+>/g, '').substring(0, 300) : "暂无";
+        const rawText = `【被动 - ${data.passive?.name || '未知'}】${cleanPassive}\n${spellsInfo.join('\n')}`;
 
         const fullInfo = { ...basicInfo, fullMechanics: rawText };
-        mechanicsCache[championId] = fullInfo; // 存入详细缓存
-        
+        mechanicsCache[championId] = fullInfo;
         return fullInfo;
 
-    } catch (e) {
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
 async function fetchSession(creds) {
     try {
         const res = await axios.get(`${creds.url}/lol-champ-select/v1/session`, {
-            httpsAgent: agent,
-            headers: { 'Authorization': creds.auth, 'Accept': 'application/json' }
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 1500
+        });
+        return res.data;
+    } catch (e) { return null; }
+}
+
+async function fetchGameflowSession(creds) {
+    try {
+        const res = await axios.get(`${creds.url}/lol-gameflow/v1/session`, {
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 1500
         });
         return res.data;
     } catch (e) { return null; }
@@ -110,96 +111,147 @@ async function fetchSession(creds) {
 async function fetchGameFlowPhase(creds) {
     try {
         const res = await axios.get(`${creds.url}/lol-gameflow/v1/gameflow-phase`, {
-            httpsAgent: agent,
-            headers: { 'Authorization': creds.auth, 'Accept': 'application/json' }
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 1500
         });
         return res.data; 
     } catch (e) { return null; }
 }
 
-// 🔥 [逻辑核心] 智能识别对位 + 修复数据传递
+// --- 核心逻辑处理 ---
+
+// 1. 选人阶段 (Champ Select)
 async function processSession(session, creds, callback) {
     if (!session || !session.myTeam) return;
 
-    // 1. 找出我自己和我的对位
-    const localCellId = session.localPlayerCellId;
+    // 🔥 [修复] 变量名统一为 localPlayerCellId
+    const localPlayerCellId = session.localPlayerCellId;
     let myRole = null;
-    let targetChampionIds = new Set(); // 需要读取技能的英雄ID集合
+    let targetChampionIds = new Set();
 
-    // 先遍历找自己
-    const myPlayer = session.myTeam.find(p => p.cellId === localCellId);
+    // 找自己
+    const myPlayer = session.myTeam.find(p => p.cellId === localPlayerCellId);
     if (myPlayer) {
-        targetChampionIds.add(myPlayer.championId); // 添加自己
-        myRole = myPlayer.assignedPosition; // e.g., "JUNGLE"
+        targetChampionIds.add(myPlayer.championId);
+        myRole = myPlayer.assignedPosition;
     }
 
-    // 再遍历找对位 (在敌方阵营找同位置)
+    // 找对位
     if (myRole && session.theirTeam) {
         const enemyLaner = session.theirTeam.find(p => p.assignedPosition === myRole);
-        if (enemyLaner) {
-            targetChampionIds.add(enemyLaner.championId); // 添加对位
-        }
+        if (enemyLaner) targetChampionIds.add(enemyLaner.championId);
     }
 
-    // 2. 解析队伍 (应用智能筛选)
     const parseTeam = async (teamArr) => {
-        const processed = await Promise.all(teamArr.map(async (p) => {
+        if (!Array.isArray(teamArr)) return [];
+        return await Promise.all(teamArr.map(async (p) => {
             let key = null;
             if (p.championId && p.championId !== 0) {
-                // 🔥 关键判断：是否是目标英雄？
                 const isTarget = targetChampionIds.has(p.championId);
                 const detail = await fetchChampionDetail(creds, p.championId, isTarget);
-                
-                if (detail) key = detail.alias || detail.id; // 修复：确保前端能拿到 key
+                if (detail) key = detail.alias || detail.id;
             }
             return {
                 cellId: p.cellId,
                 championId: p.championId || 0,
-                championKey: key, // 用于显示头像
+                championKey: key,
                 summonerId: p.summonerId,
                 assignedPosition: p.assignedPosition || ""
             };
         }));
-        return processed;
     };
 
     const myTeam = await parseTeam(session.myTeam);
     const enemyTeam = await parseTeam(session.theirTeam);
 
-    // 3. 构建 extraMechanics (仅包含筛选出的两个英雄)
     const extraMechanics = {};
-    // 从缓存中提取刚才解析好的详细信息
     targetChampionIds.forEach(id => {
         if (mechanicsCache[id]) {
-            // 使用 ID 作为 Key，与 server.py 保持一致
-            // 注意：fetchChampionDetail 内部已经把 alias 放在 basicInfo 里了，
-            // 但 extraMechanics 的 key 需要看 server.py 是用 id 还是 alias 查的。
-            // 通常前端传给后端的是 ID (如 266) 或 Key (Aatrox)。
-            // 这里我们用 alias (标准英文名) 做 key 更稳妥，或者两个都存。
             const info = mechanicsCache[id];
             if (info.alias) extraMechanics[info.alias] = info.fullMechanics;
-            if (info.id) extraMechanics[info.id] = info.fullMechanics; // 兼容数字ID
+            if (info.id) extraMechanics[info.id] = info.fullMechanics;
         }
     });
 
-    // 4. 判断红蓝方
     let mapSide = 'unknown';
     if (session.myTeam && session.myTeam.length > 0) {
-        const firstMemberCellId = session.myTeam[0].cellId;
-        mapSide = firstMemberCellId < 5 ? 'blue' : 'red';
+        mapSide = session.myTeam[0].cellId < 5 ? 'blue' : 'red';
     }
 
-    // 5. 回调发送数据
-    callback({ 
-        myTeam, 
-        enemyTeam, 
+    // 🔥 [修复] 这里现在能正确引用变量了
+    callback({ myTeam, enemyTeam, mapSide, localPlayerCellId, extraMechanics });
+}
+
+// 2. 游戏加载阶段 (Gameflow - 修复盲选/人机问题)
+async function processGameStartData(gameData, creds, callback) {
+    if (!gameData || !gameData.gameData) return;
+    
+    const teamOne = gameData.gameData.teamOne || [];
+    const teamTwo = gameData.gameData.teamTwo || [];
+
+    // 确保有 summonerId
+    if (!currentSummonerId) {
+        const profile = await getProfileData();
+        if (profile) currentSummonerId = profile.summonerId;
+    }
+
+    // 强类型比对
+    let amInTeamOne = teamOne.some(p => String(p.summonerId) === String(currentSummonerId));
+    let amInTeamTwo = teamTwo.some(p => String(p.summonerId) === String(currentSummonerId));
+
+    // 智能兜底：人机模式下 ID 可能变异，靠人数判断
+    if (!amInTeamOne && !amInTeamTwo) {
+        if (teamOne.length > 0 && teamTwo.length === 0) amInTeamOne = true;
+        else if (teamOne.length === 0 && teamTwo.length > 0) amInTeamOne = false;
+        else amInTeamOne = true; // 默认蓝方
+    }
+
+    const myRawTeam = amInTeamOne ? teamOne : teamTwo;
+    const enemyRawTeam = amInTeamOne ? teamTwo : teamOne;
+    const mapSide = amInTeamOne ? 'blue' : 'red';
+
+    // 手动计算 CellId (0-4 vs 5-9)
+    let localPlayerCellId = 0;
+    const myIndex = myRawTeam.findIndex(p => String(p.summonerId) === String(currentSummonerId));
+    if (myIndex !== -1) {
+        localPlayerCellId = (amInTeamOne ? 0 : 5) + myIndex;
+    }
+
+    const parseGameTeam = async (rawArr, offset) => {
+        if (!Array.isArray(rawArr)) return [];
+        return await Promise.all(rawArr.map(async (p, index) => {
+            let key = null;
+            if (p.championId && p.championId !== 0) {
+                // 加载界面只读基础信息，不读技能，防卡顿
+                const detail = await fetchChampionDetail(creds, p.championId, false);
+                if (detail) key = detail.alias || detail.id;
+            }
+            return {
+                cellId: offset + index, // 🔥 强制座位号
+                championId: p.championId || 0,
+                championKey: key,
+                summonerName: p.summonerName,
+                assignedPosition: p.selectedPosition || "" 
+            };
+        }));
+    };
+
+    const myTeam = await parseGameTeam(myRawTeam, amInTeamOne ? 0 : 5);
+    const enemyTeam = await parseGameTeam(enemyRawTeam, amInTeamOne ? 5 : 0);
+
+    // 防止空更新
+    if (myTeam.length === 0) return;
+
+    callback({
+        myTeam,
+        enemyTeam,
         mapSide,
-        localPlayerCellId: localCellId,
-        extraMechanics // ✅ 现在这里只包含极少量数据，不会卡顿
+        localPlayerCellId,
+        extraMechanics: {} 
     });
 }
 
-// ... getProfileData 保持不变 ...
+// --- 用户信息获取 ---
+
 async function getProfileData() {
     const creds = await getCredentials();
     if (creds.status !== 'success') return null;
@@ -211,15 +263,16 @@ async function getProfileData() {
     let calculatedKda = "0.0";
 
     try {
-        const res = await axios.get(`${creds.url}/lol-summoner/v1/current-summoner`, {
-            httpsAgent: agent, headers: { 'Authorization': creds.auth }
+        const res = await axios.get(`${creds.url}/lol-summoner/v1/current-summoner`, { 
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 2000 
         });
         summoner = res.data;
+        currentSummonerId = summoner.summonerId;
     } catch (e) { return null; }
 
     try {
-        const res = await axios.get(`${creds.url}/lol-ranked/v1/current-ranked-stats`, {
-            httpsAgent: agent, headers: { 'Authorization': creds.auth }
+        const res = await axios.get(`${creds.url}/lol-ranked/v1/current-ranked-stats`, { 
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 2000 
         });
         const queues = res.data.queues || [];
         rankedStats = queues.find(q => q.queueType === "RANKED_SOLO_5x5") || 
@@ -228,8 +281,8 @@ async function getProfileData() {
     } catch (e) {}
 
     try {
-        const res = await axios.get(`${creds.url}/lol-champion-mastery/v1/local-player/champion-mastery`, {
-            httpsAgent: agent, headers: { 'Authorization': creds.auth }
+        const res = await axios.get(`${creds.url}/lol-champion-mastery/v1/local-player/champion-mastery`, { 
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 2000 
         });
         if (Array.isArray(res.data)) {
             masteryIds = res.data.sort((a, b) => b.championPoints - a.championPoints).slice(0, 3).map(m => m.championId);
@@ -237,43 +290,31 @@ async function getProfileData() {
     } catch (e) {}
 
     try {
-        const matchRes = await axios.get(`${creds.url}/lol-match-history/v1/products/lol/current-summoner/matches`, {
-            httpsAgent: agent, headers: { 'Authorization': creds.auth }
+        const matchRes = await axios.get(`${creds.url}/lol-match-history/v1/products/lol/current-summoner/matches`, { 
+            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 3000 
         });
-        const rawGames = matchRes.data.games ? matchRes.data.games.games : [];
+        const rawGames = matchRes.data.games?.games || [];
         const allGamesSorted = rawGames.sort((a, b) => b.gameCreation - a.gameCreation);
 
-        let validGames = [];
-        let totalKills = 0, totalDeaths = 0, totalAssists = 0;
-
+        let validGames = [], k=0, d=0, a=0;
         for (const g of allGamesSorted) {
             if (!QUEUE_ID_MAP[g.queueId]) continue;
             const p = g.participants[0];
-            totalKills += p.stats.kills;
-            totalDeaths += p.stats.deaths;
-            totalAssists += p.stats.assists;
-
-            const diffMs = Date.now() - g.gameCreation;
-            let timeStr = diffMs > 86400000 ? `${Math.floor(diffMs / 86400000)}天前` : "今天";
-
+            k+=p.stats.kills; d+=p.stats.deaths; a+=p.stats.assists;
             validGames.push({
-                id: g.gameId,
-                type: p.stats.win ? "victory" : "defeat",
-                champ: p.championId,
+                id: g.gameId, type: p.stats.win ? "victory" : "defeat", champ: p.championId,
                 kda: `${p.stats.kills}/${p.stats.deaths}/${p.stats.assists}`,
-                time: timeStr,
+                time: (Date.now() - g.gameCreation > 86400000) ? `${Math.floor((Date.now()-g.gameCreation)/86400000)}天前` : "今天",
                 mode: QUEUE_ID_MAP[g.queueId]
             });
             if (validGames.length >= 30) break;
         }
         matchList = validGames;
-        if (matchList.length > 0) {
-            const avgD = totalDeaths === 0 ? 1 : totalDeaths;
-            calculatedKda = ((totalKills + totalAssists) / avgD).toFixed(1) + ":1";
-        }
+        if (matchList.length > 0) calculatedKda = ((k+a)/(d===0?1:d)).toFixed(1) + ":1";
     } catch (e) {}
 
     return {
+        summonerId: summoner.summonerId,
         gameName: summoner.gameName || summoner.displayName || "Unknown", 
         tagLine: summoner.tagLine || "",
         level: summoner.summonerLevel || 1,
@@ -281,11 +322,11 @@ async function getProfileData() {
         rank: rankedStats.tier ? `${rankedStats.tier} ${rankedStats.division}` : 'UNRANKED',
         lp: rankedStats.leaguePoints || 0,
         winRate: (rankedStats.wins + rankedStats.losses) > 0 ? Math.round((rankedStats.wins / (rankedStats.wins + rankedStats.losses)) * 100) : 0,
-        matches: matchList, 
-        kda: calculatedKda, 
-        mastery: masteryIds
+        matches: matchList, kda: calculatedKda, mastery: masteryIds
     };
 }
+
+// --- 主连接函数 ---
 
 async function connectToLCU(callback, onWarning) {
     const result = await getCredentials();
@@ -293,17 +334,26 @@ async function connectToLCU(callback, onWarning) {
         if (result.status === 'permission-denied' && onWarning) onWarning('permission-denied');
         return;
     }
-
     const creds = result; 
 
-    // 初始化获取
-    const initialData = await fetchSession(creds);
-    if (initialData) await processSession(initialData, creds, callback);
+    // 初始状态检查
+    try {
+        const initialData = await fetchSession(creds);
+        if (initialData) await processSession(initialData, creds, callback);
+        
+        await getProfileData(); // 预热 ID
 
-    const initialPhase = await fetchGameFlowPhase(creds);
-    if (initialPhase) callback({ gamePhase: initialPhase });
+        const initialPhase = await fetchGameFlowPhase(creds);
+        if (initialPhase) {
+            callback({ gamePhase: initialPhase });
+            if (initialPhase === 'InProgress') {
+                const gameData = await fetchGameflowSession(creds);
+                if (gameData) await processGameStartData(gameData, creds, callback);
+            }
+        }
+    } catch (e) {}
 
-    // WebSocket 监听
+    // WebSocket 连接
     const wsUrl = `wss://riot:${creds.password}@127.0.0.1:${creds.port}`;
     const ws = new WebSocket(wsUrl, { rejectUnauthorized: false });
 
@@ -313,23 +363,41 @@ async function connectToLCU(callback, onWarning) {
         ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-gameflow_v1_gameflow-phase']));
     });
 
+    ws.on('error', () => { /* 静默错误，等待重连逻辑 */ });
+
     ws.on('message', async (data) => {
         try {
+            if (!data) return;
             const json = JSON.parse(data);
             if (!json || !json[2]) return;
 
+            const uri = json[2].uri;
+            const eventType = json[2].eventType;
+            const payload = json[2].data;
+
             // BP 变化
-            if (json[2].uri === '/lol-champ-select/v1/session') {
-                if (json[2].eventType === 'Delete') { 
+            if (uri === '/lol-champ-select/v1/session') {
+                if (eventType === 'Delete') { 
                     callback({ myTeam: [], enemyTeam: [] }); 
                     return; 
                 }
-                await processSession(json[2].data, creds, callback);
+                await processSession(payload, creds, callback);
             }
             
             // 阶段变化
-            if (json[2].uri === '/lol-gameflow/v1/gameflow-phase') {
-                callback({ gamePhase: json[2].data });
+            if (uri === '/lol-gameflow/v1/gameflow-phase') {
+                callback({ gamePhase: payload });
+                
+                // 🔥 加载界面重读逻辑
+                if (payload === 'InProgress') {
+                    console.log('🔄 [LCU] 进入加载界面，尝试 Gameflow 数据...');
+                    setTimeout(async () => {
+                        try {
+                            const gameData = await fetchGameflowSession(creds);
+                            if (gameData) await processGameStartData(gameData, creds, callback);
+                        } catch (e) { console.error('Error fetching gameflow:', e); }
+                    }, 2000); 
+                }
             }
         } catch (e) {}
     });
