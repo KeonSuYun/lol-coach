@@ -1837,23 +1837,25 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     for cat_key, cat_val in modules.items():
         if isinstance(cat_val, dict) and 'items' in cat_val:
             
-            # 🛑 核心鉴权过滤 🛑
-            
             # 1. 屏蔽打野专属数据 (如果是线上玩家)
             if cat_key == 'jungle_data' and user_role_key != 'JUNGLE':
                 continue
-
-            # 2. 屏蔽打野高阶博弈 (如果是线上玩家)
+            
+            # 2. 屏蔽打野高阶博弈
             if cat_key == 'jungle_pro_logic' and user_role_key != 'JUNGLE':
                 continue
 
-            # 3. 全局地图规则 (global_map_rules) 默认全员放行
-
             for item in cat_val['items']:
+                # 🔥🔥🔥 [新增核心逻辑] 分路任务精确过滤 🔥🔥🔥
+                # 如果 item 中定义了 role_key (例如 "TOP"), 且与当前 user_role_key 不一致，则跳过
+                target_role = item.get('role_key')
+                if target_role and target_role != user_role_key:
+                    continue
+
                 mechanics_list.append(f"{item.get('name')}: {item.get('rule')} ({item.get('note')})")
 
     s16_details = "; ".join(mechanics_list)
-    s16_context = f"【S16/峡谷常识库】: {s16_details if s16_details else '暂无特殊机制数据'}"
+    s16_context = f"【S16/分路与机制库】: {s16_details if s16_details else '暂无特殊机制数据'}"
     # ---------------------------------------------------------
     # ⚡ 核心逻辑：智能生态构建 (Smart Context Logic)
     # ---------------------------------------------------------

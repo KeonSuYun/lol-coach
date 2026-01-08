@@ -125,10 +125,11 @@ const VK_MAP = {
     'Backslash': 0xDC, 'Semicolon': 0xBA, 'Quote': 0xDE, 'Comma': 0xBC, 'Period': 0xBE, 'Slash': 0xBF 
 };
 
-// 🔥 默认配置改为 Ctrl+ 系列
+// 🔥 默认配置改为 Ctrl+ 系列，新增 toggleView
 let activeConfig = {
     toggle: 'Home', mouseMode: 'Tilde',
     refresh: 'Ctrl+F',           
+    toggleView: 'Ctrl+E',        // 🔥 新增：切换详情
     modePrev: 'Ctrl+Z',          
     modeNext: 'Ctrl+C',          
     prevPage: 'Ctrl+A',          
@@ -154,6 +155,7 @@ function startKeyboardPolling() {
             { id: 'toggle', action: () => toggleOverlay() },
             { id: 'mouseMode', action: () => switchMouseMode() },
             { id: 'refresh', action: () => sendToOverlay('shortcut-triggered', 'refresh') },
+            { id: 'toggleView', action: () => sendToOverlay('shortcut-triggered', 'toggle_view') }, // 🔥 新增处理
             { id: 'modePrev', action: () => sendToOverlay('shortcut-triggered', 'mode_prev') },
             { id: 'modeNext', action: () => sendToOverlay('shortcut-triggered', 'mode_next') },
             { id: 'prevPage', action: () => sendToOverlay('shortcut-triggered', 'nav_prev') },

@@ -9,8 +9,11 @@ import remarkGfm from 'remark-gfm';
 import { toast } from 'react-hot-toast';
 import { createPortal } from 'react-dom';
 
+// ... (parseHybridContent 和 enhanceMarkdown 等辅助函数保持不变，篇幅原因省略，请确保保留原文件中的这些函数) ...
+// ⚠️ 为了确保完整性，我再次提供这些函数，确保直接覆盖不报错。
+
 // =================================================================
-// 🛠️ 智能解析器 V3.2 (保持不变)
+// 🛠️ 智能解析器 V3.2
 // =================================================================
 const parseHybridContent = (rawString) => {
     if (!rawString || typeof rawString !== 'string') return { mode: 'loading', data: null, thought: "" };
@@ -105,9 +108,6 @@ const parseHybridContent = (rawString) => {
     return { mode: 'loading', data: null, thought };
 };
 
-// =================================================================
-// 🎨 视觉增强组件 & 辅助函数
-// =================================================================
 const enhanceMarkdown = (text) => {
     if (!text) return "";
     let formatted = text.replace(/^【(.*?)】[：:]?/gm, "### ⚡ $1"); 
@@ -183,13 +183,15 @@ const HexMarkdownComponents = {
 // =================================================================
 // 🚀 主组件
 // =================================================================
-const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedbackContent, sendChatTrigger, forceTab, onClear }) => {
+// 🔥 修正：接受 viewMode 和 setViewMode 作为 props
+const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedbackContent, sendChatTrigger, forceTab, onClear, setActiveTab, viewMode, setViewMode }) => {
     const [webActiveTab, setWebActiveTab] = useState(0);
     const [showDebug, setShowDebug] = useState(false);
     const [showThought, setShowThought] = useState(false); 
     const [teamCopied, setTeamCopied] = useState(false);
     const [selectionMenu, setSelectionMenu] = useState(null); 
-    const [viewMode, setViewMode] = useState('simple'); 
+    
+    // 🔥 移除本地 state: const [viewMode, setViewMode] = useState('simple'); 
     
     const scrollRef = useRef(null);
 
@@ -199,6 +201,8 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
 
     const simpleData = data?.simple_tabs || [];
     const detailedData = data?.detailed_tabs || [];
+    
+    // 🔥 使用 props 中的 viewMode 决定显示内容
     const activeTabsData = (viewMode === 'simple' && simpleData.length > 0) ? simpleData : (detailedData.length > 0 ? detailedData : []);
 
     // 首次有数据时提示用户
@@ -214,21 +218,48 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         }
     }, [isAnalyzing, activeTabsData]);
 
+    // 🔥🔥 [关键修复] 监听自定义事件，实现 Overlay 内的翻页和滚动
     useEffect(() => {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            const handleScroll = (event, direction) => {
-                if (forceTab !== undefined && scrollRef.current) {
-                    const scrollAmount = 40; 
-                    const currentTop = scrollRef.current.scrollTop;
-                    scrollRef.current.scrollTop = direction === 'down' ? currentTop + scrollAmount : currentTop - scrollAmount;
-                }
-            };
-            ipcRenderer.on('scroll-action', handleScroll);
-            return () => ipcRenderer.removeListener('scroll-action', handleScroll);
-        }
-    }, [forceTab]);
+        const handleOverlayScroll = (e) => {
+            const direction = e.detail; // 'up' or 'down'
+            if (scrollRef.current) {
+                const amount = 50;
+                scrollRef.current.scrollTop += (direction === 'down' ? amount : -amount);
+            }
+        };
 
+        const handleOverlayNav = (e) => {
+            const command = e.detail; // 'nav_prev' or 'nav_next'
+            // 如果是在 Overlay 模式 (forceTab 存在)
+            if (forceTab !== undefined && setActiveTab) {
+                // 计算最大页数 (Concise(0) + Tabs.length)
+                const maxTab = activeTabsData.length; // Tabs从1开始，所以总页数是 1(0) + length
+                // forceTab: 0=Concise, 1..N=Tabs
+                
+                let nextTab = forceTab;
+                if (command === 'nav_next') {
+                    nextTab = forceTab + 1;
+                    if (nextTab > maxTab) nextTab = 0; // 循环
+                } else if (command === 'nav_prev') {
+                    nextTab = forceTab - 1;
+                    if (nextTab < 0) nextTab = maxTab; // 循环
+                }
+                
+                setActiveTab(nextTab);
+                toast(nextTab === 0 ? "战术总览" : `战术详情 ${nextTab}`, { icon: '📄', duration: 800 });
+            }
+        };
+
+        window.addEventListener('overlay-scroll', handleOverlayScroll);
+        window.addEventListener('overlay-nav', handleOverlayNav);
+
+        return () => {
+            window.removeEventListener('overlay-scroll', handleOverlayScroll);
+            window.removeEventListener('overlay-nav', handleOverlayNav);
+        };
+    }, [forceTab, setActiveTab, activeTabsData.length]);
+
+    // 自动滚动到底部 (仅在生成时)
     useEffect(() => {
         if (isAnalyzing && scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -555,8 +586,9 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
 
                     {/* 🔥 模式切换开关 (发光版) */}
                     <div className="flex items-center gap-1 bg-black/20 p-1 rounded-lg border border-white/5 m-1 shrink-0 ml-2">
+                        {/* 🔥 修复：使用外部传入的 setViewMode，确保与快捷键同步 */}
                         <button 
-                            onClick={() => setViewMode('simple')}
+                            onClick={() => setViewMode && setViewMode('simple')}
                             className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500
                                 ${viewMode === 'simple' 
                                     ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(245,158,11,0.5)] border border-amber-400 border-opacity-100 scale-105 z-10' 
@@ -567,7 +599,7 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                             <Zap size={10} fill={viewMode === 'simple' ? "currentColor" : "none"}/> 简略
                         </button>
                         <button 
-                            onClick={() => setViewMode('detailed')}
+                            onClick={() => setViewMode && setViewMode('detailed')}
                             className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500
                                 ${viewMode === 'detailed' 
                                     ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] border border-blue-400 border-opacity-100 scale-105 z-10' 

@@ -11,13 +11,14 @@ const OverlayConsole = ({ state, actions }) => {
         currentShortcuts, showSettingsModal, activeTab,
         blueTeam, redTeam, myTeamRoles, enemyLaneAssignments, myLaneAssignments, 
         championList, 
-        gamePhase 
+        gamePhase,
+        viewMode // 🔥 修正：从 state 中获取 viewMode
     } = state;
 
     const { 
         handleAnalyze, setShowSettingsModal, setFeedbackContent,
-        setShowFeedbackModal, sendChatTrigger, setActiveTab,
-        handleClearAnalysis 
+        setShowFeedbackModal, sendChatTrigger, setActiveTab, setViewMode, 
+        handleClearAnalysis
     } = actions;
 
     const [isMouseLocked, setIsMouseLocked] = useState(true);
@@ -48,6 +49,7 @@ const OverlayConsole = ({ state, actions }) => {
 
     const mouseKey = fmt(currentShortcuts?.mouseMode || 'Tilde');
     const refreshKey = fmt(currentShortcuts?.refresh || 'Ctrl+F'); 
+    const toggleViewKey = fmt(currentShortcuts?.toggleView || 'Ctrl+E'); 
     const scrollUpKey = fmt(currentShortcuts?.scrollUp || 'Ctrl+S'); 
     const scrollDownKey = fmt(currentShortcuts?.scrollDown || 'Ctrl+X'); 
     const toggleKey = fmt(currentShortcuts?.toggle || 'Home');
@@ -71,13 +73,10 @@ const OverlayConsole = ({ state, actions }) => {
     };
 
     const { effectiveResult, effectiveMode } = useMemo(() => {
-        if (analyzeType === 'personal' && aiResults && aiResults['role_jungle_farming']) {
-            return { effectiveResult: aiResults['role_jungle_farming'], effectiveMode: 'role_jungle_farming' };
-        }
-        if (aiResults && aiResults[analyzeType]) {
-            return { effectiveResult: aiResults[analyzeType], effectiveMode: analyzeType };
-        }
-        return { effectiveResult: null, effectiveMode: analyzeType };
+        return { 
+            effectiveResult: aiResults ? aiResults[analyzeType] : null, 
+            effectiveMode: analyzeType 
+        };
     }, [aiResults, analyzeType]);
 
     const isAnalyzing = isModeAnalyzing(effectiveMode);
@@ -129,10 +128,7 @@ const OverlayConsole = ({ state, actions }) => {
             };
 
             const handleScroll = (event, direction) => {
-                if (contentRef.current) {
-                    const scrollAmount = 40; 
-                    contentRef.current.scrollTop += (direction === 'down' ? scrollAmount : -scrollAmount);
-                }
+                window.dispatchEvent(new CustomEvent('overlay-scroll', { detail: direction }));
             };
 
             const handleCommand = (event, command) => {
@@ -143,11 +139,13 @@ const OverlayConsole = ({ state, actions }) => {
                     }
                 }
                 if (command === 'nav_prev' || command === 'nav_next') {
-                    if (contentRef.current) {
-                        const pageHeight = contentRef.current.clientHeight * 0.8;
-                        contentRef.current.scrollTop += (command === 'nav_next' ? pageHeight : -pageHeight);
-                        toast(command === 'nav_next' ? "下一页" : "上一页", { icon: '📄', duration: 500, id: 'nav-toast' });
-                    }
+                    window.dispatchEvent(new CustomEvent('overlay-nav', { detail: command }));
+                }
+                if (command === 'toggle_view') {
+                    // 🔥 使用最新的 viewMode 状态进行切换
+                    const nextMode = viewMode === 'simple' ? 'detailed' : 'simple';
+                    setViewMode(nextMode);
+                    toast(nextMode === 'simple' ? "简略模式" : "详细模式", { icon: nextMode === 'simple' ? '⚡' : '📝', duration: 800, id: 'view-toast' });
                 }
             };
 
@@ -165,9 +163,7 @@ const OverlayConsole = ({ state, actions }) => {
         } else {
             setIsMouseLocked(false);
         }
-    }, [mouseKey, isAnalyzing, effectiveMode, isElectron]); 
-
-    useEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0; }, [activeTab, effectiveMode]); 
+    }, [mouseKey, isAnalyzing, effectiveMode, isElectron, viewMode, setViewMode]); 
 
     // TeamIcons 智能匹配
     const ROLE_CN = { "TOP": "上", "JUNGLE": "野", "MID": "中", "ADC": "下", "SUPPORT": "辅", "NONE": "?" };
@@ -265,7 +261,18 @@ const OverlayConsole = ({ state, actions }) => {
 
                 <div id="overlay-content-area" ref={contentRef} style={textShadowStyle} className="flex-1 min-h-0 overflow-y-auto p-2 no-drag relative flex flex-col custom-scrollbar scroll-smooth">
                     {effectiveResult ? (
-                        <AnalysisResult aiResult={effectiveResult} isAnalyzing={isAnalyzing} setShowFeedbackModal={setShowFeedbackModal} setFeedbackContent={setFeedbackContent} sendChatTrigger={sendChatTrigger} forceTab={activeTab} onClear={() => handleClearAnalysis && handleClearAnalysis(effectiveMode)} />
+                        <AnalysisResult 
+                            aiResult={effectiveResult} 
+                            isAnalyzing={isAnalyzing} 
+                            setShowFeedbackModal={setShowFeedbackModal} 
+                            setFeedbackContent={setFeedbackContent} 
+                            sendChatTrigger={sendChatTrigger} 
+                            forceTab={activeTab} 
+                            setActiveTab={setActiveTab} 
+                            onClear={() => handleClearAnalysis && handleClearAnalysis(effectiveMode)} 
+                            viewMode={viewMode} 
+                            setViewMode={setViewMode} 
+                        />
                     ) : (
                         <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-4 p-6 min-h-[180px]">
                             <div className={`p-3 rounded-full ${isInGame ? 'bg-black/30' : 'bg-white/5 border border-white/5'}`}><Activity size={24} className="opacity-40"/></div>
@@ -281,6 +288,8 @@ const OverlayConsole = ({ state, actions }) => {
                             <span className="whitespace-nowrap flex items-center gap-1" title="切换功能模块"><b className="text-slate-400 font-sans">{modePrevKey}/{modeNextKey}</b> 切换</span>
                             <span className="w-px h-2 bg-white/10"></span>
                             <span className="whitespace-nowrap flex items-center gap-1" title="切换当前页内容"><b className="text-slate-400 font-sans">{prevPageKey}/{nextPageKey}</b> 翻页</span>
+                            <span className="w-px h-2 bg-white/10"></span>
+                            <span className="whitespace-nowrap flex items-center gap-1" title="切换 简略/详细"><b className="text-slate-400 font-sans">{toggleViewKey}</b> 详情</span>
                             <span className="w-px h-2 bg-white/10"></span>
                             <span className="whitespace-nowrap flex items-center gap-1" title="上下滚动文字"><b className="text-slate-400 font-sans">{scrollUpKey}/{scrollDownKey}</b> 滚动</span>
                         </div>
