@@ -249,7 +249,6 @@ const guessRoles = (team) => {
         // === 🚀 阶段四：暴力填空 (Phase 4: Fill Remaining) ===
         // 剩下的萝卜填剩下的坑
         const remainingHeroes = team.filter((h, i) => !assignedIndices.has(i) && h); 
-        
         PHASE_1_ORDER.forEach(roleId => {
             if (!roles[roleId] && remainingHeroes.length > 0) {
                 roles[roleId] = remainingHeroes.shift().name;
@@ -693,7 +692,11 @@ const guessRoles = (team) => {
         if (!target) {
             if (userRole && enemyLaneAssignments[userRole]) target = enemyLaneAssignments[userRole];
             else if (userRole === 'JUNGLE') {
-                const enemyJg = Object.values(enemyLaneAssignments).find(h => redTeam.find(c => c?.name === h)?.tags.includes("Jungle")) || redTeam.find(c => c?.tags.includes("Jungle"))?.name;
+                // ✅ 修复：增加 ?.includes 并在 find 中过滤空值 (c && c.tags)
+                const enemyJg = Object.values(enemyLaneAssignments).find(h => 
+                    redTeam.find(c => c?.name === h)?.tags?.includes("Jungle")
+                ) || redTeam.find(c => c && c.tags && c.tags.includes("Jungle"))?.name;
+                
                 target = enemyJg;
             }
             if (!target) target = redTeam.find(c => c)?.name;
