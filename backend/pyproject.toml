@@ -12,10 +12,13 @@ authors = [
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "pydantic>=2.10.0",
+    "pydantic[email]>=2.10.0",  # 添加 email 支持
     "python-multipart>=0.0.18",
 
+    # 数据库
     "pymongo>=4.10.0",
+    "motor>=3.6.0",           # 异步 MongoDB 驱动
+    "beanie>=1.27.0",         # MongoDB ORM
 
     "python-dotenv>=1.0.0",
 
