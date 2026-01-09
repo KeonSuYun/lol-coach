@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from '../config/constants';
-
+import { fetchMatchTips } from '../api/GlobalAPI';
 const loadState = (key, defaultVal) => {
     try {
         const saved = localStorage.getItem(key);
@@ -624,19 +624,36 @@ export function useGameCore() {
 
     const fetchTips = async (targetOverride = null) => {
         const myHeroName = blueTeam[userSlot]?.name;
+        // 如果自己没选英雄，直接不请求
         if (!myHeroName) return;
+        
         let target = targetOverride || tipTarget;
+        
+        // 如果没有指定目标，尝试自动寻找对位
         if (!target) {
-            if (userRole && enemyLaneAssignments[userRole]) target = enemyLaneAssignments[userRole];
+            // 1. 优先找当前分路的对手 (例如我是上单，找对面已知的上单)
+            if (userRole && enemyLaneAssignments[userRole]) {
+                target = enemyLaneAssignments[userRole];
+            } 
+            // 2. 如果我是打野，且分路表里没找到，尝试去对面阵容里找带 "Jungle" 标签的英雄
             else if (userRole === 'JUNGLE') {
                 const enemyJg = Object.values(enemyLaneAssignments).find(h => 
                     redTeam.find(c => c?.name === h)?.tags?.includes("Jungle")
                 ) || redTeam.find(c => c && c.tags && c.tags.includes("Jungle"))?.name;
                 target = enemyJg;
             }
+            // 3. 实在找不到，兜底找对面第一个有名字的英雄 (防止报错)
             if (!target) target = redTeam.find(c => c)?.name;
         }
-        try { const res = await axios.get(`${API_BASE_URL}/tips`, { params: { hero: myHeroName, enemy: target || "None" } }); setTips(res.data); } catch (e) {}
+
+        // ✅ 使用带缓存的新 API (这就解决了刷屏问题)
+        const data = await fetchMatchTips(myHeroName, target);
+        
+        // 🔒 只有当数据真的变了才更新 State，彻底杜绝死循环
+        setTips(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+            return data;
+        });
     };
     useEffect(() => { if (tipTarget) fetchTips(); }, [tipTarget]);
     useEffect(() => { setTipTarget(null); fetchTips(); }, [blueTeam[userSlot], enemyLaneAssignments, userRole, redTeam]);

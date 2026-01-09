@@ -13,6 +13,7 @@ import sys
 import asyncio
 import edge_tts
 import ssl
+
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -2031,21 +2032,30 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
     rank_type = "Diamond+" if data.rank in ["Diamond", "Master", "Challenger"] else "Platinum-"
     
-    # 🔥 [修改] 传入全套阵容参数
-    algo_recommendations = recommend_heroes_algo(
-        db, 
-        user_role_key, 
-        rank_type, 
-        enemy_hero_name=primary_enemy, # 对位英雄 (可以是 "None")
-        enemy_team_list=data.enemyTeam, # 敌方全队列表
-        my_team_list=data.myTeam        # 我方全队列表 (为未来 Synergy 预留)
-    )
+    # 🔥 [修复] 调用正确的函数名 recommend_heroes_hybrid，并正确传参
+    # 注意：该函数返回两个值 (推荐列表, 阵容统计)，需要解包
+    try:
+        algo_recommendations, comp_stats = recommend_heroes_hybrid(
+            db_instance=db, 
+            user_role=user_role_key, 
+            rank_tier=rank_type, 
+            my_team=data.myTeam,       # 对应定义的 my_team
+            enemy_team=data.enemyTeam, # 对应定义的 enemy_team
+            enemy_laner=primary_enemy  # 对应定义的 enemy_laner
+        )
+    except Exception as e:
+        print(f"❌ 推荐算法错误: {e}")
+        algo_recommendations = []
+        comp_stats = {}
     
     rec_str = ""
     for idx, rec in enumerate(algo_recommendations):
-        # ✅ 使用定义好的 get_hero_cn_name 翻译，推荐列表也变中文了
+        # ✅ 使用定义好的 get_hero_cn_name 翻译
         rec_name_cn = get_hero_cn_name(rec['name'])
-        rec_str += f"{idx+1}. {rec_name_cn} ({rec['tier']}) - {rec['reason']}\n"
+        # 🔥 [修复] 新算法返回的是 'score' 而不是 'reason'，这里做适配
+        score_val = rec.get('score', 0)
+        rec_str += f"{idx+1}. {rec_name_cn} ({rec.get('tier', 'T?')}级) - 适配分: {score_val:.1f}\n"
+        
     if not rec_str: rec_str = "(暂无数据)"
 
     # =========================================================================
