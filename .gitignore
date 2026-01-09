@@ -183,6 +183,16 @@ web_modules/
 .env.production.local
 .env.local
 
+# Frontend environment files
+frontend/.env
+frontend/.env.development
+frontend/.env.local
+frontend/.env.*.local
+
+# Backend environment files
+backend/.env
+backend/.env.local
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
