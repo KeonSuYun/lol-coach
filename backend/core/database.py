@@ -1,6 +1,7 @@
 # backend/core/database.py
 
 import os
+from core.logger import logger
 import datetime
 import time
 import re
@@ -12,7 +13,7 @@ from bson.errors import InvalidId
 
 class KnowledgeBase:
     def __init__(self):
-        # 🟢 1. 获取 URI
+        #  1. 获取 URI
         self.uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URL") or "mongodb://localhost:27017"
         
         self._log_connection_attempt()
@@ -20,16 +21,16 @@ class KnowledgeBase:
         try:
             self.client = MongoClient(self.uri, serverSelectionTimeoutMS=5000)
             
-            # 🟢 2. 强制连通性检查
+            #  2. 强制连通性检查
             self.client.admin.command('ping')
             
-            # 🟢 3. 智能数据库选择
+            #  3. 智能数据库选择
             try:
                 self.db = self.client.get_default_database()
-                print(f"✅ [Database] 使用 URI 指定的数据库: {self.db.name}")
+                logger.info(f" [Database] 使用 URI 指定的数据库: {self.db.name}")
             except (ConfigurationError, ValueError):
                 self.db = self.client['lol_community']
-                print(f"✅ [Database] URI 未指定库名，使用默认数据库: {self.db.name}")
+                logger.info(f" [Database] URI 未指定库名，使用默认数据库: {self.db.name}")
             
             # === 集合定义 ===
             self.tips_col = self.db['tips']
@@ -56,9 +57,9 @@ class KnowledgeBase:
             self._init_indexes()
 
         except ServerSelectionTimeoutError:
-            print(f"❌ [Database] 连接超时! 请检查 MongoDB 服务。")
+            logger.info(f" [Database] 连接超时! 请检查 MongoDB 服务。")
         except Exception as e:
-            print(f"❌ [Database] 初始化发生未知错误: {e}")
+            logger.info(f" [Database] 初始化发生未知错误: {e}")
 
     def _to_oid(self, id_str):
         if not id_str or not isinstance(id_str, str): return None
@@ -69,11 +70,11 @@ class KnowledgeBase:
         try:
             if "@" in self.uri:
                 part_after_at = self.uri.split("@")[1]
-                print(f"🔌 [Database] 正在尝试连接: mongodb://****:****@{part_after_at}")
+                logger.info(f" [Database] 正在尝试连接: mongodb://****:****@{part_after_at}")
             else:
-                print(f"🔌 [Database] 正在尝试连接: {self.uri}")
+                logger.info(f" [Database] 正在尝试连接: {self.uri}")
         except:
-            print("🔌 [Database] 正在尝试连接 MongoDB...")
+            logger.info(" [Database] 正在尝试连接 MongoDB...")
 
     def _init_indexes(self):
         """创建索引 (含金融级并发防护)"""
@@ -100,11 +101,11 @@ class KnowledgeBase:
             self.sales_records_col.create_index([("salesperson", 1), ("created_at", -1)])
             self.sales_records_col.create_index([("salesperson", 1), ("status", 1)]) # 用于快速筛选 pending/paid
             
-            # 🔥🔥🔥 [防护 1] 防止并发双重支付 (同一订单号只能产生一条佣金)
+            #  [防护 1] 防止并发双重支付 (同一订单号只能产生一条佣金)
             # 作用：拦截多线程/网络重试导致的重复写佣金
             self.sales_records_col.create_index("order_no", unique=True)
 
-            # 🔥🔥🔥 [防护 2] 防止并发双重首单 (同一个买家只能有一条"首单奖励")
+            #  [防护 2] 防止并发双重首单 (同一个买家只能有一条"首单奖励")
             # 作用：防止用户极速连点两单，骗取两份40%佣金
             try:
                 self.sales_records_col.create_index(
@@ -113,7 +114,7 @@ class KnowledgeBase:
                     partialFilterExpression={"type": "首单奖励"}
                 )
             except Exception as e:
-                print(f"⚠️ [Index] 首单唯一索引创建警告 (可能已有旧数据冲突): {e}")
+                logger.info(f" [Index] 首单唯一索引创建警告 (可能已有旧数据冲突): {e}")
 
             # === 3. 社区与私信索引 ===
             try:
@@ -124,15 +125,15 @@ class KnowledgeBase:
                 self.messages_col.create_index([("sender", 1), ("receiver", 1), ("created_at", -1)])
                 self.messages_col.create_index([("receiver", 1), ("read", 1)])
             except Exception as e:
-                print(f"⚠️ [Community] 索引创建警告: {e}")
+                logger.info(f" [Community] 索引创建警告: {e}")
 
-            print("✅ [Database] 索引检查完毕 (已启用金融级并发防护)")
+            logger.info(" [Database] 索引检查完毕 (已启用金融级并发防护)")
 
         except Exception as e:
-            print(f"⚠️ [Database] 索引创建总体警告: {e}")
+            logger.info(f" [Database] 索引创建总体警告: {e}")
 
     # ==========================
-    # 🔍 核心查询与数据获取
+    #  核心查询与数据获取
     # ==========================
     def get_champion_info(self, name_or_id):
         if not name_or_id: return None
@@ -162,7 +163,7 @@ class KnowledgeBase:
         
         # 智能兜底
         if not result:
-            print(f"⚠️ [Database] 未找到英雄 '{name_or_id}' (DB Miss)，启用临时兜底模式。")
+            logger.info(f" [Database] 未找到英雄 '{name_or_id}' (DB Miss)，启用临时兜底模式。")
             return {
                 "id": name_or_id, "name": name_or_id, "alias": [name_or_id], 
                 "role": "unknown", "tier": "unknown",
@@ -171,7 +172,7 @@ class KnowledgeBase:
         return result
 
     # ==========================
-    # 💬 私信系统
+    #  私信系统
     # ==========================
     def get_unread_count_total(self, username):
         if self.messages_col is None: return 0
@@ -276,7 +277,7 @@ class KnowledgeBase:
                     return True, "没有其他用户需要发送"
                     
             except Exception as e:
-                print(f"❌ Broadcast Error: {e}")
+                logger.info(f" Broadcast Error: {e}")
                 return False, f"广播失败: {str(e)}"
 
     def delete_conversation(self, operator, target_user):
@@ -290,7 +291,7 @@ class KnowledgeBase:
         except: return False
 
     # ==========================
-    # ✨ 验证码管理
+    #  验证码管理
     # ==========================
     def save_otp(self, contact, code):
         expire_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
@@ -305,7 +306,7 @@ class KnowledgeBase:
         return False
 
     # ==========================
-    # 💰 充值与会员系统
+    #  充值与会员系统
     # ==========================
     def upgrade_user_role(self, username, days=30):
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -325,7 +326,7 @@ class KnowledgeBase:
         )
         return True
     
-    # 🔥 [修改] 核心：阶梯佣金处理逻辑 (首单40%, 复购15%)
+    #  [修改] 核心：阶梯佣金处理逻辑 (首单40%, 复购15%)
     def process_afdian_order(self, order_no, username, amount, sku_detail):
         # ================= 1. 智能幂等性检查 (防止掉单) =================
         existing_order = self.orders_col.find_one({"order_no": order_no})
@@ -337,7 +338,7 @@ class KnowledgeBase:
                 # 检查是否已存在佣金记录
                 existing_comm = self.sales_records_col.find_one({"order_no": order_no})
                 if not existing_comm:
-                    print(f"⚠️ [Order Fix] 发现掉单: {order_no}，正在尝试补录佣金...")
+                    logger.info(f" [Order Fix] 发现掉单: {order_no}，正在尝试补录佣金...")
                     # 允许程序继续向下执行，去跑佣金逻辑
                     pass 
                 else:
@@ -371,7 +372,7 @@ class KnowledgeBase:
                         "created_at": datetime.datetime.now(datetime.timezone.utc)
                     })
             except Exception as e:
-                print(f"Order Insert Skip (Normal if fixing drop): {e}")
+                logger.info(f"Order Insert Skip (Normal if fixing drop): {e}")
 
             # B. 处理佣金 (Sales Ref Check)
             sales_ref = user.get("sales_ref")
@@ -384,7 +385,7 @@ class KnowledgeBase:
                         "username": username, "order_no": {"$ne": order_no}
                     })
 
-                    # 💰 阶梯佣金配置
+                    #  阶梯佣金配置
                     commission_rate = 0.0
                     commission_type = ""
 
@@ -471,7 +472,7 @@ class KnowledgeBase:
             "r1_limit": total_limit, 
             "r1_used": r1_used, 
             "r1_remaining": max(0, total_limit - r1_used) if not is_pro else -1,
-            # 🔥 新增返回字段
+            #  新增返回字段
             "chat_hourly_limit": chat_limit,
             "chat_used": chat_used
         }
@@ -493,11 +494,11 @@ class KnowledgeBase:
         now = datetime.datetime.now(datetime.timezone.utc)
         today_str = now.strftime("%Y-%m-%d")
         
-        # 2. 初始化或重置每日统计 (🔥 修改：需要保留 bonus_chat)
+        # 2. 初始化或重置每日统计 ( 修改：需要保留 bonus_chat)
         usage_data = user.get("usage_stats", {})
         if usage_data.get("last_reset_date") != today_str:
             current_bonus_r1 = usage_data.get("bonus_r1", 0)
-            current_bonus_chat = usage_data.get("bonus_chat", 0) # 🔥 继承快速模型奖励
+            current_bonus_chat = usage_data.get("bonus_chat", 0) #  继承快速模型奖励
             
             usage_data = {
                 "last_reset_date": today_str, 
@@ -507,11 +508,11 @@ class KnowledgeBase:
                 "hourly_start": now.isoformat(), 
                 "hourly_count": 0,
                 "bonus_r1": current_bonus_r1,
-                "bonus_chat": current_bonus_chat # 🔥 写入新一天的记录
+                "bonus_chat": current_bonus_chat #  写入新一天的记录
             }
         
         # 3. 小时频控 (防刷)
-        # 🔥 修改：应用 bonus_chat 提升快速模型上限
+        #  修改：应用 bonus_chat 提升快速模型上限
         bonus_chat = usage_data.get("bonus_chat", 0)
         base_hourly = 30 if is_pro else 10
         HOURLY_LIMIT = base_hourly + bonus_chat
@@ -537,10 +538,10 @@ class KnowledgeBase:
                     return False, "AI思考中", int(COOLDOWN - (now - last_time).total_seconds())
             except: pass
 
-        # 5. 🔥 修改 2：深度思考 (R1) 次数限制检查 (10 -> 3)
+        # 5.  修改 2：深度思考 (R1) 次数限制检查 (10 -> 3)
         if not is_pro and model_type == "reasoner":
             bonus = usage_data.get("bonus_r1", 0)
-            daily_r1_limit = 3 + bonus  # 🔥 这里改为 3
+            daily_r1_limit = 3 + bonus  #  这里改为 3
             
             used_today = sum(usage_data.get("counts_reasoner", {}).values())
             
@@ -560,7 +561,7 @@ class KnowledgeBase:
         self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
         return True, "OK", 0
     # ==========================
-    # 🔥 管理员 & 统计功能
+    #  管理员 & 统计功能
     # ==========================
     
     # 1. 基础用户管理
@@ -585,7 +586,7 @@ class KnowledgeBase:
     # 找到 get_all_users 方法
     def get_all_users(self, limit=20, search="", skip=0):
         """
-        🔥 [修改] 支持分页 skip/limit，并返回 (list, total) 元组
+         [修改] 支持分页 skip/limit，并返回 (list, total) 元组
         """
         query = {"username": {"$regex": search, "$options": "i"}} if search else {}
         
@@ -631,7 +632,7 @@ class KnowledgeBase:
             return True, "用户已删除"
         return False, "未知操作"
 
-    # 🔥 [修改] 销售报表：区分 待结算(Pending) 和 已结算(Paid)
+    #  [修改] 销售报表：区分 待结算(Pending) 和 已结算(Paid)
     def get_admin_sales_summary(self):
         pipeline = [
             {"$group": {
@@ -658,7 +659,7 @@ class KnowledgeBase:
         try: 
             results = list(self.sales_records_col.aggregate(pipeline))
         except Exception as e: 
-            print(f"Agg Error: {e}")
+            logger.info(f"Agg Error: {e}")
             return []
             
         final_list = []
@@ -682,13 +683,13 @@ class KnowledgeBase:
             })
         return final_list
 
-    # 🔥 [新增] 执行结算：将该用户所有未结算订单标记为已结算
+    #  [新增] 执行结算：将该用户所有未结算订单标记为已结算
     def settle_sales_partner(self, salesperson, operator_name):
         try:
-            # 🔥 [加固] 记录当前时间作为“结算截止点”
+            #  [加固] 记录当前时间作为“结算截止点”
             cutoff_time = datetime.datetime.now(datetime.timezone.utc)
             
-            # 🔥 [加固] 查询条件增加时间限制：只结算截止时间之前的订单
+            #  [加固] 查询条件增加时间限制：只结算截止时间之前的订单
             query = {
                 "salesperson": salesperson, 
                 "status": {"$ne": "paid"},
@@ -712,7 +713,7 @@ class KnowledgeBase:
         except Exception as e:
             return False, str(e)
 
-    # 🔥 [新增] 全局统计看板数据源
+    #  [新增] 全局统计看板数据源
     def get_admin_stats(self):
         total_users = self.users_col.count_documents({})
         pro_users = self.users_col.count_documents({"role": {"$in": ["pro", "vip", "svip", "admin"]}})
@@ -813,11 +814,11 @@ class KnowledgeBase:
 
     def get_mixed_tips(self, hero, enemy, limit=10):
         matchup_tips = list(self.tips_col.find({"hero": hero, "enemy": enemy}).sort([("is_fake", 1), ("liked_by", -1)]).limit(limit))
-        for t in matchup_tips: t['tag_label'] = "🔥 对位绝活"
+        for t in matchup_tips: t['tag_label'] = " 对位绝活"
         if len(matchup_tips) < limit:
             needed = limit - len(matchup_tips)
             general_tips = list(self.tips_col.find({"hero": hero, "enemy": "general"}).sort([("is_fake", 1), ("liked_by", -1)]).limit(needed))
-            for t in general_tips: t['tag_label'] = "📚 英雄必修"
+            for t in general_tips: t['tag_label'] = " 英雄必修"
             matchup_tips.extend(general_tips)
         
         final_list = []
@@ -833,8 +834,8 @@ class KnowledgeBase:
     def get_top_knowledge_for_ai(self, hero, enemy):
         tips = self.get_mixed_tips(hero, enemy, limit=6)
         return {
-            "general": [t['content'] for t in tips if t['tag_label'] == "📚 英雄必修"],
-            "matchup": [t['content'] for t in tips if t['tag_label'] == "🔥 对位绝活"]
+            "general": [t['content'] for t in tips if t['tag_label'] == " 英雄必修"],
+            "matchup": [t['content'] for t in tips if t['tag_label'] == " 对位绝活"]
         }
 
     def get_corrections(self, my_hero, enemy_hero, my_role=None, mode=None):
@@ -856,7 +857,7 @@ class KnowledgeBase:
                     if mode == "role_jungle_farming":
                         hero_keys.append("role_jungle_farming")
                     elif mode == "role_jungle_ganking": 
-                        # ✅ server.py 传过来的新默认值
+                        #  server.py 传过来的新默认值
                         hero_keys.append("role_jungle_ganking")
                     else:
                         # 兜底
@@ -885,7 +886,7 @@ class KnowledgeBase:
             return res
 
         except Exception as e:
-            print("get_corrections error:", e)
+            logger.info("get_corrections error:", e)
             return []
 
 
@@ -928,10 +929,10 @@ class KnowledgeBase:
                 # 根据类型增加对应的 bonus
                 if reward_type == "r1":
                     inc_field = {"usage_stats.bonus_r1": actual_reward}
-                    print(f"🎁 [Reward] 用户 {username} 获得 {actual_reward} 次【核心模型】")
+                    logger.info(f" [Reward] 用户 {username} 获得 {actual_reward} 次【核心模型】")
                 elif reward_type == "chat":
                     inc_field = {"usage_stats.bonus_chat": actual_reward}
-                    print(f"🎁 [Reward] 用户 {username} 获得 {actual_reward} 次【快速模型】上限")
+                    logger.info(f" [Reward] 用户 {username} 获得 {actual_reward} 次【快速模型】上限")
                 
                 if inc_field:
                     self.users_col.update_one(
@@ -941,7 +942,7 @@ class KnowledgeBase:
                 
             return True
         except Exception as e:
-            print(f"Resolve Error: {e}")
+            logger.info(f"Resolve Error: {e}")
             return False
         
     def get_prompt_template(self, mode): return self.prompt_templates_col.find_one({"mode": mode})
@@ -1042,5 +1043,5 @@ class KnowledgeBase:
             )
             return True
         except Exception as e:
-            print(f"Config Update Error: {e}")
+            logger.info(f"Config Update Error: {e}")
             return False

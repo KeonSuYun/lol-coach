@@ -1,17 +1,18 @@
 import requests
+from core.logger import logger
 import json
 import random
 import sys
 import time
 
-# ================= ⚙️ 配置区域 =================
+# =================  配置区域 =================
 API_URL = "http://localhost:8000"
 
-# 👤 测试账号
+#  测试账号
 USER_NAME = "hex_tester"
 USER_PASS = "TestPassword123!"
 
-# 👑 管理员账号
+#  管理员账号
 ADMIN_NAME = "admin"
 ADMIN_PASS = "Su123123"
 # ===============================================
@@ -25,17 +26,17 @@ class Color:
     BOLD = '\033[1m'
 
 def log(msg, color=Color.RESET):
-    print(f"{color}{msg}{Color.RESET}")
+    logger.info(f"{color}{msg}{Color.RESET}")
 
 def login(username, password):
     try:
         resp = requests.post(f"{API_URL}/token", data={"username": username, "password": password})
         if resp.status_code == 200:
             return resp.json().get("access_token")
-        log(f"❌ 登录失败 [{username}]: {resp.text}", Color.RED)
+        log(f" 登录失败 [{username}]: {resp.text}", Color.RED)
         sys.exit(1)
     except Exception as e:
-        log(f"❌ 服务未启动? {e}", Color.RED)
+        log(f" 服务未启动? {e}", Color.RED)
         sys.exit(1)
 
 def get_user_stats(token):
@@ -75,7 +76,7 @@ def resolve_feedback(admin_token, tag, adopt, reward_amount=1):
             break
             
     if not target_id:
-        log(f"   ⚠️ 未找到 Tag 为 {tag} 的反馈，可能已被处理或延迟。", Color.RED)
+        log(f"    未找到 Tag 为 {tag} 的反馈，可能已被处理或延迟。", Color.RED)
         return False
 
     # 2. 处理
@@ -89,21 +90,21 @@ def resolve_feedback(admin_token, tag, adopt, reward_amount=1):
 
 # ================= 主测试逻辑 =================
 def run_complex_test():
-    log(f"🚀 开始 [复杂场景] 压力测试...", Color.BOLD)
+    log(f" 开始 [复杂场景] 压力测试...", Color.BOLD)
     
     # 1. 初始化
     user_token = login(USER_NAME, USER_PASS)
     admin_token = login(ADMIN_NAME, ADMIN_PASS)
     
     start_limit = get_user_stats(user_token)
-    log(f"\n📊 [基准线] 用户当前 R1 总额度: {start_limit}", Color.CYAN)
+    log(f"\n [基准线] 用户当前 R1 总额度: {start_limit}", Color.CYAN)
     
     current_limit = start_limit
 
     # ---------------------------------------------------------
-    # 🧪 测试场景 A：【拒绝采纳】(预期：额度不变)
+    #  测试场景 A：【拒绝采纳】(预期：额度不变)
     # ---------------------------------------------------------
-    log(f"\n🧪 [测试 A] 提交垃圾反馈 -> 管理员拒收 (只归档)", Color.YELLOW)
+    log(f"\n [测试 A] 提交垃圾反馈 -> 管理员拒收 (只归档)", Color.YELLOW)
     tag_a = submit_feedback(user_token, "这是一条无意义的反馈")
     if tag_a:
         log(f"   User: 提交成功 ({tag_a})")
@@ -111,19 +112,19 @@ def run_complex_test():
         if resolve_feedback(admin_token, tag_a, adopt=False):
             log(f"   Admin: 已执行归档操作 (无奖励)")
         else:
-            log(f"   ❌ Admin 操作失败", Color.RED)
+            log(f"    Admin 操作失败", Color.RED)
     
     # 验证 A
     new_limit = get_user_stats(user_token)
     if new_limit == current_limit:
-        log(f"   ✅ [PASS] 额度未变化 (当前: {new_limit})", Color.GREEN)
+        log(f"    [PASS] 额度未变化 (当前: {new_limit})", Color.GREEN)
     else:
-        log(f"   ❌ [FAIL] 额度错误变化! ({current_limit} -> {new_limit})", Color.RED)
+        log(f"    [FAIL] 额度错误变化! ({current_limit} -> {new_limit})", Color.RED)
 
     # ---------------------------------------------------------
-    # 🧪 测试场景 B：【连续采纳】(预期：额度累加)
+    #  测试场景 B：【连续采纳】(预期：额度累加)
     # ---------------------------------------------------------
-    log(f"\n🧪 [测试 B] 连续提交2条优质反馈 -> 全部采纳", Color.YELLOW)
+    log(f"\n [测试 B] 连续提交2条优质反馈 -> 全部采纳", Color.YELLOW)
     tag_b1 = submit_feedback(user_token, "优质反馈 1")
     tag_b2 = submit_feedback(user_token, "优质反馈 2")
     
@@ -138,14 +139,14 @@ def run_complex_test():
     current_limit += 2
     new_limit = get_user_stats(user_token)
     if new_limit == current_limit:
-        log(f"   ✅ [PASS] 额度成功累加 +2 (当前: {new_limit})", Color.GREEN)
+        log(f"    [PASS] 额度成功累加 +2 (当前: {new_limit})", Color.GREEN)
     else:
-        log(f"   ❌ [FAIL] 累加计算错误! (预期: {current_limit}, 实际: {new_limit})", Color.RED)
+        log(f"    [FAIL] 累加计算错误! (预期: {current_limit}, 实际: {new_limit})", Color.RED)
 
     # ---------------------------------------------------------
-    # 🧪 测试场景 C：【暴击奖励】(预期：一次加很多)
+    #  测试场景 C：【暴击奖励】(预期：一次加很多)
     # ---------------------------------------------------------
-    log(f"\n🧪 [测试 C] 提交核弹级Bug -> 管理员手动奖励 5 次", Color.YELLOW)
+    log(f"\n [测试 C] 提交核弹级Bug -> 管理员手动奖励 5 次", Color.YELLOW)
     tag_c = submit_feedback(user_token, "我发现了一个重大漏洞！")
     submit_feedback(user_token, "我发现了一个重大漏洞！") # 提交
     
@@ -158,15 +159,15 @@ def run_complex_test():
     current_limit += 5
     new_limit = get_user_stats(user_token)
     
-    log(f"\n🏁 [最终结算]", Color.BOLD)
+    log(f"\n [最终结算]", Color.BOLD)
     log(f"   初始: {start_limit}")
     log(f"   预期: {current_limit} (+0 +1 +1 +5)")
     log(f"   实际: {new_limit}")
     
     if new_limit == current_limit:
-        log(f"\n🎉🎉🎉 完美通过！系统逻辑无懈可击！ 🎉🎉🎉", Color.GREEN)
+        log(f"\n 完美通过！系统逻辑无懈可击！ ", Color.GREEN)
     else:
-        log(f"\n⚠️ 测试未完全通过，请检查逻辑。", Color.RED)
+        log(f"\n 测试未完全通过，请检查逻辑。", Color.RED)
 
 if __name__ == "__main__":
     run_complex_test()

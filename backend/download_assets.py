@@ -1,4 +1,5 @@
 import os
+from core.logger import logger
 import requests
 import cv2
 import numpy as np
@@ -48,19 +49,19 @@ def process_image(img_bytes, champ_name):
 def main():
     if not os.path.exists(ASSETS_DIR):
         os.makedirs(ASSETS_DIR)
-        print(f"📁 创建目录: {ASSETS_DIR}")
+        logger.info(f" 创建目录: {ASSETS_DIR}")
 
-    print("🔍 正在获取最新版本号...")
+    logger.info(" 正在获取最新版本号...")
     version = get_latest_version()
-    print(f"✅ 当前版本: {version}")
+    logger.info(f" 当前版本: {version}")
 
     # 获取英雄列表
-    print("📋 正在获取英雄列表...")
+    logger.info(" 正在获取英雄列表...")
     list_url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
     data = requests.get(list_url).json()
     champions = data['data']
 
-    print(f"🚀 开始下载 {len(champions)} 个英雄头像...")
+    logger.info(f" 开始下载 {len(champions)} 个英雄头像...")
     
     count = 0
     for champ_id, champ_data in champions.items():
@@ -74,12 +75,12 @@ def main():
             if resp.status_code == 200:
                 process_image(resp.content, champ_id)
                 count += 1
-                print(f"[{count}/{len(champions)}] 已处理: {champ_id}", end='\r')
+                logger.info(f"[{count}/{len(champions)}] 已处理: {champ_id}", end='\r')
         except Exception as e:
-            print(f"\n❌ 处理 {champ_id} 失败: {e}")
+            logger.info(f"\n 处理 {champ_id} 失败: {e}")
 
-    print(f"\n✨ 全部完成！已生成 {count * len(TARGET_SIZES)} 个模板文件。")
-    print(f"📂 请查看: {ASSETS_DIR}")
+    logger.info(f"\n 全部完成！已生成 {count * len(TARGET_SIZES)} 个模板文件。")
+    logger.info(f" 请查看: {ASSETS_DIR}")
 
 if __name__ == "__main__":
     main()

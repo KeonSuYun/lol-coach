@@ -1,11 +1,12 @@
 import mss
+from core.logger import logger
 import cv2
 import numpy as np
 import time
 import threading
 import json
 
-# 🎯 小地图区域配置 (以 1920x1080 为基准，不同分辨率需缩放)
+#  小地图区域配置 (以 1920x1080 为基准，不同分辨率需缩放)
 # 你需要根据实际截图调整这些坐标，这里是大概位置
 MINIMAP_CONFIG = {
     "1920x1080": {"top": 810, "left": 1650, "width": 270, "height": 270}
@@ -27,7 +28,7 @@ class JungleTracker:
         self.running = False
 
     def _loop(self):
-        print("👁️ [CV] 打野追踪引擎已启动 (每秒检测1次)...")
+        logger.info(" [CV] 打野追踪引擎已启动 (每秒检测1次)...")
         region = MINIMAP_CONFIG["1920x1080"] # 默认 1080p
 
         while self.running:
@@ -59,7 +60,7 @@ class JungleTracker:
                 # 如果检测到红色像素 > 20 (大概是一个头像的大小)，且距离上次警报超过 10秒
                 if red_pixels > 20 and (time.time() - self.last_alert_time > 10):
                     self.last_alert_time = time.time()
-                    print(f"⚠️ [CV警报] 发现敌方英雄! (像素量: {red_pixels})")
+                    logger.info(f" [CV警报] 发现敌方英雄! (像素量: {red_pixels})")
                     
                     # 通过 WebSocket 发送给前端
                     self.callback({
@@ -78,5 +79,5 @@ class JungleTracker:
                 time.sleep(sleep_time)
 
             except Exception as e:
-                print(f"❌ CV Error: {e}")
+                logger.info(f" CV Error: {e}")
                 time.sleep(2)

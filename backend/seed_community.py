@@ -1,4 +1,5 @@
 import os
+from core.logger import logger
 import datetime
 import time
 from pymongo import MongoClient
@@ -12,7 +13,7 @@ load_dotenv()
 # 1. 示例数据配置区域 (AI 批量生成时只需替换这里)
 # ==========================================
 
-# 📘 [Wiki 攻略] 示例数据
+#  [Wiki 攻略] 示例数据
 DATA_WIKI_POSTS = [
     {
         "ref_id": "#AN-001",
@@ -77,7 +78,7 @@ DATA_WIKI_POSTS = [
     }
 ]
 
-# 🍺 [酒馆动态] 示例数据
+#  [酒馆动态] 示例数据
 DATA_TAVERN_POSTS = [
     {
         "author_name": "可爱的蓝火",
@@ -117,7 +118,7 @@ DATA_TAVERN_POSTS = [
     }
 ]
 
-# 📖 [Wiki 总览] 示例数据
+#  [Wiki 总览] 示例数据
 DATA_WIKI_SUMMARIES = [
     {
         "hero_id": "1",  # Annie
@@ -143,56 +144,56 @@ DATA_WIKI_SUMMARIES = [
 def seed_database():
     # 1. 连接数据库
     uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URL") or "mongodb://localhost:27017"
-    print(f"🔌 连接数据库: {uri} ...")
+    logger.info(f" 连接数据库: {uri} ...")
     
     try:
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        # 🟢 [修复] 智能选择数据库，防止 ConfigurationError
+        #  [修复] 智能选择数据库，防止 ConfigurationError
         try:
             db = client.get_default_database()
         except (ConfigurationError, ValueError):
             db = client['lol_community']
             
-        print(f"✅ 成功连接至数据库: {db.name}")
+        logger.info(f" 成功连接至数据库: {db.name}")
     except Exception as e:
-        print(f"❌ 连接失败: {e}")
+        logger.info(f" 连接失败: {e}")
         return
 
     # 2. 写入 Wiki 攻略 (Wiki Posts)
     col_wiki = db['wiki_posts']
-    print(f"\n📘 正在写入攻略数据 ({len(DATA_WIKI_POSTS)} 条)...")
+    logger.info(f"\n 正在写入攻略数据 ({len(DATA_WIKI_POSTS)} 条)...")
     
     count_wiki = 0
     for post in DATA_WIKI_POSTS:
         # 查重 (基于 ref_id)
         if col_wiki.find_one({"ref_id": post["ref_id"]}):
-            print(f"   - 跳过已存在: {post['title']}")
+            logger.info(f"   - 跳过已存在: {post['title']}")
             continue
             
         post["created_at"] = datetime.datetime.utcnow()
         col_wiki.insert_one(post)
         count_wiki += 1
-    print(f"   ✅ 新增 {count_wiki} 条攻略")
+    logger.info(f"    新增 {count_wiki} 条攻略")
 
     # 3. 写入酒馆动态 (Tavern Posts)
     col_tavern = db['tavern_posts']
-    print(f"\n🍺 正在写入酒馆动态 ({len(DATA_TAVERN_POSTS)} 条)...")
+    logger.info(f"\n 正在写入酒馆动态 ({len(DATA_TAVERN_POSTS)} 条)...")
     
     count_tavern = 0
     for post in DATA_TAVERN_POSTS:
         # 简单查重 (基于内容前20字符)
         if col_tavern.find_one({"content": post["content"], "author_name": post["author_name"]}):
-            print(f"   - 跳过已存在动态: {post['author_name']}")
+            logger.info(f"   - 跳过已存在动态: {post['author_name']}")
             continue
             
         post["created_at"] = datetime.datetime.utcnow()
         col_tavern.insert_one(post)
         count_tavern += 1
-    print(f"   ✅ 新增 {count_tavern} 条动态")
+    logger.info(f"    新增 {count_tavern} 条动态")
 
     # 4. 写入 Wiki 总览 (Wiki Summaries)
     col_summary = db['wiki_summaries']
-    print(f"\n📖 正在写入英雄总览 ({len(DATA_WIKI_SUMMARIES)} 条)...")
+    logger.info(f"\n 正在写入英雄总览 ({len(DATA_WIKI_SUMMARIES)} 条)...")
     
     count_summary = 0
     for summary in DATA_WIKI_SUMMARIES:
@@ -204,9 +205,9 @@ def seed_database():
         )
         if result.upserted_id:
             count_summary += 1
-    print(f"   ✅ 更新/新增 {count_summary} 条英雄总览")
+    logger.info(f"    更新/新增 {count_summary} 条英雄总览")
 
-    print("\n✨ 所有数据处理完成！")
+    logger.info("\n 所有数据处理完成！")
 
 if __name__ == "__main__":
     seed_database()

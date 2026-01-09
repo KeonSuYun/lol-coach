@@ -1,4 +1,5 @@
 import os
+from core.logger import logger
 import json
 import uvicorn
 import datetime
@@ -19,7 +20,7 @@ from email.utils import formataddr
 from dotenv import load_dotenv
 from typing import List, Optional, Dict, Any
 from fastapi.staticfiles import StaticFiles
-# 🟢 [修改] 引入 RedirectResponse 用于重定向下载
+#  [修改] 引入 RedirectResponse 用于重定向下载
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
 from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -29,11 +30,11 @@ from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
 import shutil
 app = FastAPI()
-# ✨ 关键修改：引入异步客户端，解决排队问题
+#  关键修改：引入异步客户端，解决排队问题
 from bson import ObjectId
 from openai import AsyncOpenAI, APIError
 
-# 🔐 安全库
+#  安全库
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
@@ -46,12 +47,12 @@ try:
 except ImportError:
     seed_data = None
 
-# ================= 🔧 强制加载根目录 .env =================
+# =================  强制加载根目录 .env =================
 RATE_LIMIT_STORE = {}      # 邮件发送频控
 LOGIN_LIMIT_STORE = {}     # 登录接口频控
 ANALYZE_LIMIT_STORE = {}   # AI分析频控
 CHAMPION_CACHE = {}        # 全局英雄缓存
-# 🟢 全局英雄名称映射表 (用于自动纠错)
+#  全局英雄名称映射表 (用于自动纠错)
 CHAMPION_NAME_MAP = {}
 
 current_dir = Path(__file__).resolve().parent
@@ -59,7 +60,7 @@ root_dir = current_dir.parent
 env_path = root_dir / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# ================= 🛡️ 注册风控配置 (防薅羊毛) =================
+# =================  注册风控配置 (防薅羊毛) =================
 # 定义允许注册的邮箱域名白名单
 ALLOWED_EMAIL_DOMAINS = [
     "qq.com", 
@@ -73,17 +74,17 @@ ALLOWED_EMAIL_DOMAINS = [
     "sina.com"
 ]
 
-# ================= 🛡️ 生产环境安全配置 =================
+# =================  生产环境安全配置 =================
 
 # 1. 密钥配置 (生产环境强制检查)
 APP_ENV = os.getenv("APP_ENV", "development") # 获取当前环境
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     if APP_ENV == "production":
-        # 🛑 生产环境强制报错，禁止启动
-        raise ValueError("❌ 严重安全错误：生产环境未配置 SECRET_KEY！服务拒绝启动。")
+        #  生产环境强制报错，禁止启动
+        raise ValueError(" 严重安全错误：生产环境未配置 SECRET_KEY！服务拒绝启动。")
     else:
-        print("⚠️ [警告] 开发模式使用默认密钥，请勿用于生产环境")
+        logger.info(" [警告] 开发模式使用默认密钥，请勿用于生产环境")
         SECRET_KEY = "dev_secret_key_please_change_in_production"
 
 ALGORITHM = "HS256"
@@ -101,25 +102,25 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
-# ✨ 初始化异步 OpenAI 客户端
+#  初始化异步 OpenAI 客户端
 client = AsyncOpenAI(
     api_key=DEEPSEEK_API_KEY, 
     base_url="https://api.deepseek.com"
 )
 
-# 🟢 2. 新增：名称归一化工具函数
+#  2. 新增：名称归一化工具函数
 def normalize_simple(name):
     """去除所有非字母数字字符并转小写 (Jarvan IV -> jarvaniv)"""
     if not name: return ""
     return re.sub(r'[^a-zA-Z0-9]+', '', name).lower()
 
-# 🟢 3. 新增：预加载名称映射
+#  3. 新增：预加载名称映射
 def preload_champion_map():
     global CHAMPION_NAME_MAP
     try:
         json_path = current_dir / "secure_data" / "champions.json"
         if not json_path.exists(): 
-            print("⚠️ 未找到 champions.json，名称自动纠错功能可能受限")
+            logger.info(" 未找到 champions.json，名称自动纠错功能可能受限")
             return
         
         with open(json_path, "r", encoding="utf-8") as f:
@@ -146,32 +147,32 @@ def preload_champion_map():
         CHAMPION_NAME_MAP["wukong"] = "Wukong"
         CHAMPION_NAME_MAP["jarvaniv"] = "Jarvan IV" # 强制补充
         
-        print(f"✅ [Init] 英雄名称自动纠错字典已加载: {len(CHAMPION_NAME_MAP)} 条索引")
+        logger.info(f" [Init] 英雄名称自动纠错字典已加载: {len(CHAMPION_NAME_MAP)} 条索引")
         
     except Exception as e:
-        print(f"❌ [Init] 名称映射加载失败: {e}")
+        logger.info(f" [Init] 名称映射加载失败: {e}")
 
-# ================= 🚀 Lifespan (生命周期) 管理 =================
+# =================  Lifespan (生命周期) 管理 =================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- 启动逻辑 ---
-    # 🟢 4. 启动时加载映射
+    #  4. 启动时加载映射
     preload_champion_map()
 
     if seed_data:
-        print("🔄 [Startup] 检测到 seed_data 模块，正在尝试同步数据库...")
+        logger.info(" [Startup] 检测到 seed_data 模块，正在尝试同步数据库...")
         try:
             seed_data()
-            print("✅ [Startup] 数据库同步完成！")
+            logger.info(" [Startup] 数据库同步完成！")
         except Exception as e:
-            print(f"⚠️ [Startup] 数据库同步失败 (非致命): {e}")
+            logger.info(f" [Startup] 数据库同步失败 (非致命): {e}")
     
     yield  # 服务运行中...
     
     # --- 关闭逻辑 (如果有) ---
     pass
 
-# 🔒 生产环境关闭 Swagger UI，并注册 lifespan
+#  生产环境关闭 Swagger UI，并注册 lifespan
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan) 
 db = KnowledgeBase()
 assets_path = current_dir / "assets"
@@ -195,7 +196,7 @@ async def download_client():
 if os.path.exists("frontend/dist/assets"):
     app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
-# 🟢 3. 严格 CORS 配置 (强制包含本地开发地址)
+#  3. 严格 CORS 配置 (强制包含本地开发地址)
 ORIGINS = [
     "https://www.haxcoach.com",
     "https://haxcoach.com",
@@ -212,12 +213,12 @@ env_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
 if env_origins:
     ORIGINS.extend([o.strip() for o in env_origins if o.strip()])
 
-# 🛡️ [安全增强] 生产环境自动移除本地调试地址
+#  [安全增强] 生产环境自动移除本地调试地址
 if APP_ENV == "production":
-    print("🔒 [Security] 生产模式：移除 Localhost 跨域支持")
+    logger.info(" [Security] 生产模式：移除 Localhost 跨域支持")
     ORIGINS = [origin for origin in ORIGINS if "localhost" not in origin and "127.0.0.1" not in origin]
 
-print(f"🔓 [CORS] 当前允许的跨域来源: {ORIGINS}")
+logger.info(f" [CORS] 当前允许的跨域来源: {ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -267,7 +268,7 @@ class AdminUserUpdate(BaseModel):
     action: str  # "add_days", "set_role", "rename", "delete"
     value: str   # 天数/角色/新名字/空字符串
 
-# 🔥 [新增] 头衔管理模型
+#  [新增] 头衔管理模型
 class AdminTitleUpdate(BaseModel):
     username: str
     titles: List[str]
@@ -319,16 +320,16 @@ class AnalyzeRequest(BaseModel):
     enemyTeam: List[str] = []
     userRole: str = "" 
     
-    # ✨ 新增段位字段，默认为黄金/白金
+    #  新增段位字段，默认为黄金/白金
     rank: str = "Gold"
-    # 🔥🔥🔥 [新增] 接收地图方位参数
+    #  [新增] 接收地图方位参数
     mapSide: str = "unknown" 
     
     myLaneAssignments: Optional[Dict[str, str]] = None 
     enemyLaneAssignments: Optional[Dict[str, str]] = None
     model_type: str = "chat" # 'chat' or 'reasoner'
     
-    # 🔥🔥🔥 [关键修复] 添加 extraMechanics 字段
+    #  [关键修复] 添加 extraMechanics 字段
     # 允许接收 HexLite 发送的实时技能包 (Dict: 英雄名 -> 技能描述文本)
     extraMechanics: Optional[Dict[str, str]] = {} 
 
@@ -362,7 +363,7 @@ class TavernPostUpdate(BaseModel):
 class MessageSend(BaseModel):
     receiver: str
     content: str
-# ================= 🔐 核心权限逻辑 =================
+# =================  核心权限逻辑 =================
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -403,7 +404,7 @@ def get_author_name(user):
     # 否则使用注册时的用户名
     return user["username"]
 
-# ================= 🧠 智能分路与算法 =================
+# =================  智能分路与算法 =================
 
 def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str, str]] = None):
     clean_team = [h.strip() for h in team_list if h] if team_list else []
@@ -450,7 +451,7 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     return {k: v for k, v in final_roles.items() if v != "Unknown"}
 
 # ==========================================
-# 🧮 核心算法：推荐英雄 (纯净版 - 无对位数据)
+#  核心算法：推荐英雄 (纯净版 - 无对位数据)
 # ==========================================
 def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None):
     """
@@ -466,7 +467,7 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
     candidates = []
 
     for hero in cursor:
-        # ✨ 核心：只读取 seed_data.py 生成的 positions 字段
+        #  核心：只读取 seed_data.py 生成的 positions 字段
         positions_data = hero.get('positions', {})
         role_stats = positions_data.get(current_role)
         
@@ -494,16 +495,16 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
         
         # 4. 段位偏好逻辑
         if rank_tier == "Diamond+":
-            # 💎 高分段：看重 Meta (Pick率)
+            #  高分段：看重 Meta (Pick率)
             score += pick_rate * 50
             reason = f"高分段T{tier}热门 (选取率: {pick_rate:.1%})"
         else:
-            # 🥇 低分段：看重 胜率 & Ban率
+            #  低分段：看重 胜率 & Ban率
             score += ban_rate * 20
             score += (win_rate - 0.5) * 100 
             reason = f"当前版本T{tier}强势 (胜率: {win_rate:.1%})"
 
-        # ⚠️ 已移除所有克制微调逻辑
+        #  已移除所有克制微调逻辑
 
         candidates.append({
             "name": hero['name'], # 存英文ID
@@ -524,7 +525,7 @@ def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None
     candidates.sort(key=lambda x: x['score'], reverse=True)
     return candidates[:3]
 
-# 🟢 FastAPI 版本的邀请码接口 (已增加 30 天上限逻辑)
+#  FastAPI 版本的邀请码接口 (已增加 30 天上限逻辑)
 # ================= 辅助函数 (请确保定义在接口上方) =================
 def calculate_new_expire(user_obj, days=3):
     """计算会员过期时间：在当前剩余时间基础上增加，或从现在开始计算"""
@@ -542,7 +543,7 @@ def calculate_new_expire(user_obj, days=3):
         # 如果没过期，在原基础上顺延
         return current_expire + datetime.timedelta(days=days)
 
-# ================= 🔥🔥🔥 [重构] 双向绑定 + 连坐扣次接口 =================
+# =================  [重构] 双向绑定 + 连坐扣次接口 =================
 @app.post("/user/redeem_invite")
 async def redeem_invite(
     payload: InviteRequest, 
@@ -575,7 +576,7 @@ async def redeem_invite(
     invalid_fps = ["unknown", "unknown_client_error", "none", ""]
     
     if (user_device not in invalid_fps) and (user_device == target_device):
-        print(f"🚫 [Security] 拦截同设备互刷: {user_a['username']} <-> {user_b['username']}")
+        logger.info(f" [Security] 拦截同设备互刷: {user_a['username']} <-> {user_b['username']}")
         raise HTTPException(status_code=400, detail="系统检测到设备环境异常 (同设备无法建立契约)")
 
     # === 核心逻辑：更换次数与解绑处理 ===
@@ -636,9 +637,9 @@ async def redeem_invite(
         }
     )
 
-    return {"status": "success", "msg": "🎉 契约缔结成功！双方 Pro 权限已激活。"}
+    return {"status": "success", "msg": " 契约缔结成功！双方 Pro 权限已激活。"}
 
-# 🔥 [修改 2] 直接读取本地 champions.json，复用主控台的数据源
+#  [修改 2] 直接读取本地 champions.json，复用主控台的数据源
 @app.get("/champions")
 def get_local_champions():
     path = current_dir / "secure_data" / "champions.json"
@@ -647,13 +648,13 @@ def get_local_champions():
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# ================= 🚀 API 接口 =================
+# =================  API 接口 =================
 
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
 
-# 🟢 修改：严格基于 champions.json 的分路获取接口
+#  修改：严格基于 champions.json 的分路获取接口
 @app.get("/champions/roles")
 def get_champion_roles():
     try:
@@ -661,7 +662,7 @@ def get_champion_roles():
         json_path = current_dir / "secure_data" / "champions.json"
         
         if not json_path.exists():
-            print("⚠️ 未找到 champions.json")
+            logger.info(" 未找到 champions.json")
             return {}
 
         with open(json_path, "r", encoding="utf-8") as f:
@@ -669,7 +670,7 @@ def get_champion_roles():
             
         mapping = {}
         
-        # 🛡️ 映射表：将您 JSON 里可能的各种写法，强制统一为前端能看懂的 Key
+        #  映射表：将您 JSON 里可能的各种写法，强制统一为前端能看懂的 Key
         role_standardization = {
             # 下路 (JSON 可能是 bot, bottom, marksman -> 统一为 ADC)
             "BOT": "ADC", "BOTTOM": "ADC", "ADC": "ADC", "MARKSMAN": "ADC",
@@ -683,7 +684,7 @@ def get_champion_roles():
             "TOP": "TOP"
         }
 
-        # 🛡️ 名字清洗：去掉空格、标点，转小写 (Miss Fortune -> missfortune)
+        #  名字清洗：去掉空格、标点，转小写 (Miss Fortune -> missfortune)
         def normalize_key(raw_name):
             if not raw_name: return ""
             return re.sub(r'[\s\.\'\-]+', '', raw_name).lower()
@@ -721,7 +722,7 @@ def get_champion_roles():
         return mapping
 
     except Exception as e:
-        print(f"❌ Role Load Error: {e}")
+        logger.info(f" Role Load Error: {e}")
         return {}
 
 @app.post("/tips")
@@ -790,7 +791,7 @@ def send_email_code(req: EmailRequest, request: Request):
     if not re.match(r"[^@]+@[^@]+\.[^@]+", req.email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
 
-    # ================= 🛡️ 新增：防薅羊毛逻辑 =================
+    # =================  新增：防薅羊毛逻辑 =================
     email_lower = req.email.lower().strip()
     try:
         domain = email_lower.split("@")[1]
@@ -799,7 +800,7 @@ def send_email_code(req: EmailRequest, request: Request):
 
     # A. 域名白名单检查
     if domain not in ALLOWED_EMAIL_DOMAINS:
-        print(f"🚫 [Security] 拦截非白名单域名注册: {req.email} (IP: {client_ip})")
+        logger.info(f" [Security] 拦截非白名单域名注册: {req.email} (IP: {client_ip})")
         raise HTTPException(
             status_code=400, 
             detail="不支持该邮箱服务商，请使用 QQ/微信/Gmail/Outlook 等常用邮箱"
@@ -807,7 +808,7 @@ def send_email_code(req: EmailRequest, request: Request):
 
     # B. Gmail 别名拦截 (防止 user+123@gmail.com 无限注册)
     if "gmail.com" in domain and "+" in email_lower:
-        print(f"🚫 [Security] 拦截 Gmail 别名注册: {req.email} (IP: {client_ip})")
+        logger.info(f" [Security] 拦截 Gmail 别名注册: {req.email} (IP: {client_ip})")
         raise HTTPException(status_code=400, detail="不支持使用别名邮箱，请使用原始邮箱地址")
     # ========================================================
 
@@ -817,7 +818,7 @@ def send_email_code(req: EmailRequest, request: Request):
     try:
         db.save_otp(req.email, code)
     except Exception as e:
-        print(f"❌ DB Error: {e}")
+        logger.info(f" DB Error: {e}")
         raise HTTPException(status_code=500, detail="系统繁忙，请稍后重试")
 
     # 发送邮件
@@ -832,7 +833,7 @@ def send_email_code(req: EmailRequest, request: Request):
         server.sendmail(SMTP_USER, [req.email], msg.as_string())
         server.quit()
     except Exception as e:
-        print(f"❌ SMTP Send Error: {e}")
+        logger.info(f" SMTP Send Error: {e}")
         raise HTTPException(status_code=500, detail="邮件发送失败，请检查邮箱地址是否正确")
 
     return {"status": "success", "msg": "验证码已发送至您的邮箱"}
@@ -847,7 +848,7 @@ def register(user: UserCreate, request: Request):
         if device_count >= 3: # 您可以把这个数字调大，比如 5 或 10
             raise HTTPException(
                 status_code=400, 
-                detail="⛔ 该设备注册账号数量已达上限"
+                detail=" 该设备注册账号数量已达上限"
             )
     client_ip = request.client.host
     if any(r in user.username.lower() for r in RESERVED):
@@ -888,7 +889,7 @@ def register(user: UserCreate, request: Request):
 
 @app.post("/token", response_model=Token)
 def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
-    # ================= 🛡️ 新增：防爆破限流 (1分钟10次) =================
+    # =================  新增：防爆破限流 (1分钟10次) =================
     client_ip = get_real_ip(request)
     now = time.time()
     
@@ -927,7 +928,7 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
     access_token = create_access_token(data={"sub": user['username']})
     return {"access_token": access_token, "token_type": "bearer", "username": user['username']}
 
-# ✨ 增强版用户信息接口 (返回 R1 使用情况)
+#  增强版用户信息接口 (返回 R1 使用情况)
 @app.get("/users/me")
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     status_info = db.get_user_usage_status(current_user['username'])
@@ -940,7 +941,7 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
     except:
         unread_count = 0
 
-    # 🔥 [新增] 获取战友名字 (将 invited_by 的 ObjectId 转为 username)
+    #  [新增] 获取战友名字 (将 invited_by 的 ObjectId 转为 username)
     partner_name = None
     if current_user.get("invited_by"):
         partner = db.users_col.find_one({"_id": current_user["invited_by"]})
@@ -961,7 +962,7 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
         "active_title": current_user.get("active_title", "社区成员"),
         "unread_msg_count": unread_count,
         
-        # 🔥 [新增] 返回给前端 InviteCard 使用
+        #  [新增] 返回给前端 InviteCard 使用
         "invited_by": partner_name, 
         "invite_change_count": current_user.get("invite_change_count", 0),
 
@@ -979,7 +980,7 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
         }
     }
 
-# 🔥🔥🔥 [修复] 个人档案同步 (使用 db.users_col + 修复时间) 🔥🔥🔥
+#  [修复] 个人档案同步 (使用 db.users_col + 修复时间) 
 @app.post("/users/sync_profile")
 async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(get_current_user)):
     # 1. [核心修复] 获取数据库中已有的旧战绩
@@ -1025,7 +1026,7 @@ async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(
         "profile_icon_id": data.profileIconId,
         "mastery": data.mastery,
         
-        # 🔥🔥🔥 关键修改：使用合并后的 merged_matches，而不是 data.matches 🔥🔥🔥
+        #  关键修改：使用合并后的 merged_matches，而不是 data.matches 
         "matches": merged_matches, 
         
         # 记录同步时间 (UTC)
@@ -1036,13 +1037,13 @@ async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(
     try:
         db.users_col.update_one({"username": current_user['username']}, {"$set": update_doc})
     except Exception as e:
-        print(f"Sync DB Error: {e}")
+        logger.info(f"Sync DB Error: {e}")
         raise HTTPException(status_code=500, detail="数据库更新失败")
             
     return {"status": "success", "msg": f"同步成功 (已存储 {len(merged_matches)} 场战绩)"}
 
 # ==========================
-# 💬 私信 API 接口
+#  私信 API 接口
 # ==========================
 @app.post("/messages")
 def send_msg(data: MessageSend, current_user: dict = Depends(get_current_user)):
@@ -1051,7 +1052,7 @@ def send_msg(data: MessageSend, current_user: dict = Depends(get_current_user)):
     if data.receiver == current_user['username']:
         raise HTTPException(400, "不能给自己发消息")
     
-    # 🔥 [新增] 内容风控：禁止空消息和超长消息
+    #  [新增] 内容风控：禁止空消息和超长消息
     if not data.content.strip():
         raise HTTPException(400, "消息内容不能为空")
     if len(data.content) > 500:
@@ -1119,7 +1120,7 @@ def parse_user_info(user_doc, default_name):
     if not user_doc:
         return icon_id, display_name
 
-    # 🔥 [核心修复] 优先从根目录读取 (sync_profile 存的位置)
+    #  [核心修复] 优先从根目录读取 (sync_profile 存的位置)
     # 你的数据库里存的是 profile_icon_id (下划线)，不是驼峰
     if user_doc.get("profile_icon_id"):
         icon_id = user_doc.get("profile_icon_id")
@@ -1131,7 +1132,7 @@ def parse_user_info(user_doc, default_name):
         if gn and gn != "Unknown":
             display_name = f"{gn} #{tl}" if tl else gn
     
-    # 🍂 [兜底兼容] 如果根目录没有，再尝试从 game_profile 嵌套对象读取 (兼容旧数据)
+    #  [兜底兼容] 如果根目录没有，再尝试从 game_profile 嵌套对象读取 (兼容旧数据)
     elif user_doc.get("game_profile"):
         profile = user_doc.get("game_profile")
         if isinstance(profile, str):
@@ -1158,14 +1159,14 @@ def delete_conversation_endpoint(contact: str, current_user: dict = Depends(get_
 
 @app.get("/messages/conversations")
 def get_conversations(current_user: dict = Depends(get_current_user)):
-    """获取会话列表 (🚀 性能优化版：批量查询)"""
+    """获取会话列表 ( 性能优化版：批量查询)"""
     raw = db.get_my_conversations(current_user['username'])
     res = []
     
     # 1. 提取所有联系人的 username
     contact_ids = [item['_id'] for item in raw if item['_id']]
     
-    # 2. 🔥 [优化] 批量查询所有相关用户，而不是在循环里一个个查
+    # 2.  [优化] 批量查询所有相关用户，而不是在循环里一个个查
     users_cursor = db.users_col.find({"username": {"$in": contact_ids}})
     # 将结果转为字典方便查找: { "username": user_doc }
     users_map = {u['username']: u for u in users_cursor}
@@ -1235,7 +1236,7 @@ def get_user_public_profile(target_input: str, current_user: dict = Depends(get_
             }
         raise HTTPException(status_code=404, detail="未找到该用户")
     
-    # 🔥 构造返回数据 (与 UserProfile 所需格式对齐)
+    #  构造返回数据 (与 UserProfile 所需格式对齐)
     real_username = user['username']
     icon_id, nickname = parse_user_info(user, real_username)
     
@@ -1339,11 +1340,11 @@ async def tts_proxy(req: TTSRequest):
         return Response(content=audio_data, media_type="audio/mp3")
 
     except Exception as e:
-        print(f"❌ [TTS] Error: {e}")
+        logger.info(f" [TTS] Error: {e}")
         raise HTTPException(status_code=500, detail="语音服务生成失败")
 
 # ==========================
-# ⚡ 爱发电 Webhook 接口
+#  爱发电 Webhook 接口
 # ==========================
 @app.post("/api/webhook/afdian")
 async def afdian_webhook(request: Request):
@@ -1367,17 +1368,17 @@ async def afdian_webhook(request: Request):
     if not out_trade_no:
         return {"ec": 200}
 
-    # 🛡️ 安全验证 (防止伪造回调)
+    #  安全验证 (防止伪造回调)
     if AFDIAN_USER_ID and AFDIAN_TOKEN:
         verified = verify_afdian_order(out_trade_no, amount)
         if not verified:
-            print(f"🚨 [Security] 拦截伪造的爱发电订单: {out_trade_no}")
+            logger.info(f" [Security] 拦截伪造的爱发电订单: {out_trade_no}")
             return {"ec": 200}
     else:
-        print("⚠️ 未配置爱发电 Token，跳过二次验证 (仅开发环境建议)")
+        logger.info(" 未配置爱发电 Token，跳过二次验证 (仅开发环境建议)")
 
     if not remark:
-        print(f"⚠️ 订单 {out_trade_no} 未填写用户名，需人工处理")
+        logger.info(f" 订单 {out_trade_no} 未填写用户名，需人工处理")
         return {"ec": 200}
 
     # 调用数据库处理
@@ -1414,7 +1415,7 @@ def verify_afdian_order(order_no, amount_str):
                     return True
         return False
     except Exception as e:
-        print(f"Verification Error: {e}")
+        logger.info(f"Verification Error: {e}")
         return False
 
 # --- 绝活社区 ---
@@ -1467,7 +1468,7 @@ def resolve_feedback_endpoint(req: ResolveFeedbackRequest, current_user: dict = 
         return {"status": "success", "msg": f"反馈已处理{msg_suffix}"}
     
     raise HTTPException(status_code=500, detail="操作失败")
-# 🟢 新增：获取用户列表接口
+#  新增：获取用户列表接口
 @app.get("/admin/users")
 def get_admin_users(
     search: str = "", 
@@ -1507,18 +1508,18 @@ def get_admin_users(
         }
 
     except Exception as e:
-        print(f"❌ [Admin Users Error]: {str(e)}")
+        logger.info(f" [Admin Users Error]: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
-# 🟢 新增：管理员更新用户信息接口
+#  新增：管理员更新用户信息接口
 @app.post("/admin/user/update")
 def update_user_admin(data: AdminUserUpdate, current_user: dict = Depends(get_current_user)):
     # 严格限制：普通 Admin 是只读的，只有 Root 能改
     if current_user.get("role") != "root":
         raise HTTPException(status_code=403, detail="权限不足：普通管理员仅拥有查看权限，无法修改用户信息")
 
-    # 🛡️ 安全检查：禁止对自己进行破坏性操作 (删除/封禁)
+    #  安全检查：禁止对自己进行破坏性操作 (删除/封禁)
     if data.username == current_user['username']:
         if data.action == 'delete':
             raise HTTPException(status_code=400, detail="为了安全，您不能删除自己的管理员账号")
@@ -1531,13 +1532,13 @@ def update_user_admin(data: AdminUserUpdate, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "success", "msg": msg}
 
-# 🔥🔥🔥 [修复] 管理员给用户分配头衔 (使用 db.users_col) 🔥🔥🔥
+#  [修复] 管理员给用户分配头衔 (使用 db.users_col) 
 @app.post("/admin/user/titles")
 def admin_update_titles(data: AdminTitleUpdate, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") not in ["admin", "root"]: 
         raise HTTPException(status_code=403, detail="权限不足")
     
-    # ✅ 修复
+    #  修复
     db.users_col.update_one(
         {"username": data.username}, 
         {"$set": {"available_titles": data.titles}}
@@ -1549,10 +1550,10 @@ def admin_update_titles(data: AdminTitleUpdate, current_user: dict = Depends(get
         
     return {"status": "success", "msg": "头衔列表已更新"}
 
-# 🔥🔥🔥 [修复] 用户选择佩戴头衔 (使用 db.users_col) 🔥🔥🔥
+#  [修复] 用户选择佩戴头衔 (使用 db.users_col) 
 @app.post("/users/set_active_title")
 def set_active_title(data: UserSetTitle, current_user: dict = Depends(get_current_user)):
-    # ✅ 修复
+    #  修复
     user = db.users_col.find_one({"username": current_user['username']})
     available = user.get("available_titles", [])
     if "社区成员" not in available: available.append("社区成员")
@@ -1567,7 +1568,7 @@ def set_active_title(data: UserSetTitle, current_user: dict = Depends(get_curren
     return {"status": "success", "msg": "佩戴成功"}
 
 # ==========================
-# 📘 绝活社区 API
+#  绝活社区 API
 # ==========================
 
 @app.get("/community/posts")
@@ -1595,7 +1596,7 @@ def get_community_posts(heroId: str = None, category: str = None):
 
 @app.post("/community/posts")
 def publish_community_post(data: WikiPostCreate, current_user: dict = Depends(get_current_user)):
-    # 🔥 [新增] 获取显示名称
+    #  [新增] 获取显示名称
     display_name = get_author_name(current_user)
 
     post_data = {
@@ -1606,7 +1607,7 @@ def publish_community_post(data: WikiPostCreate, current_user: dict = Depends(ge
         "opponent_id": data.opponentId,
         "tags": data.tags,
         "author_id": str(current_user["_id"]),
-        "author_name": display_name # 🔥 使用游戏ID
+        "author_name": display_name #  使用游戏ID
     }
     new_post = db.create_wiki_post(post_data)
     
@@ -1650,7 +1651,7 @@ def publish_tavern_post(data: TavernPostCreate, current_user: dict = Depends(get
     hero_info = db.get_champion_info(data.heroId)
     avatar_alias = hero_info.get("alias", "Teemo") if hero_info else "Teemo"
 
-    # 🔥 [新增] 获取显示名称
+    #  [新增] 获取显示名称
     display_name = get_author_name(current_user)
 
     post_data = {
@@ -1660,7 +1661,7 @@ def publish_tavern_post(data: TavernPostCreate, current_user: dict = Depends(get
         "avatar_hero": avatar_alias,
         "image": data.image,
         "author_id": str(current_user["_id"]),
-        "author_name": display_name # 🔥 使用游戏ID
+        "author_name": display_name #  使用游戏ID
     }
     new_post = db.create_tavern_post(post_data)
     
@@ -1704,13 +1705,13 @@ def add_post_comment(data: CommentCreate, current_user: dict = Depends(get_curre
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="内容不能为空")
     
-    # 🔥 [新增] 获取显示名称
+    #  [新增] 获取显示名称
     display_name = get_author_name(current_user)
 
     new_comment = db.add_comment(
         data.postId, 
         current_user["_id"], 
-        display_name, # 🔥 使用游戏ID
+        display_name, #  使用游戏ID
         data.content
     )
     return new_comment
@@ -1718,7 +1719,7 @@ def add_post_comment(data: CommentCreate, current_user: dict = Depends(get_curre
 
 @app.post("/analyze")
 async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_current_user)): 
-    # 🟢 [防刷] 3秒冷却机制
+    #  [防刷] 3秒冷却机制
     username = current_user['username']
     now = time.time()
     last_request_time = ANALYZE_LIMIT_STORE.get(username, 0)
@@ -1760,22 +1761,22 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 2. 频控检查 (传入 model_type 进行分级计费)
     allowed, msg, remaining = db.check_and_update_usage(current_user['username'], data.mode, data.model_type)
     
-    # 🔥🔥🔥 [修复核心] Test 2 零余额保护：明确返回 403 状态码
+    #  [修复核心] Test 2 零余额保护：明确返回 403 状态码
     if not allowed:
         return JSONResponse(
             status_code=403,
             content={
                 "concise": {
                     "title": "请求被拒绝", 
-                    "content": msg + ("\n💡 升级 Pro 可解锁无限次使用！" if remaining == -1 else "")
+                    "content": msg + ("\n 升级 Pro 可解锁无限次使用！" if remaining == -1 else "")
                 }
             }
         )
 
-    # 🟢 5. 输入自动纠错 (JarvanIV -> Jarvan IV)
+    #  5. 输入自动纠错 (JarvanIV -> Jarvan IV)
     def fix_name(n):
         if not n: return ""
-        # 🔥 关键：放行 None，允许未选英雄
+        #  关键：放行 None，允许未选英雄
         if n == "None": return "None"
         # 优先查表修正，如果没查到则尝试归一化查，最后保留原值
         return CHAMPION_NAME_MAP.get(n) or CHAMPION_NAME_MAP.get(normalize_simple(n)) or n
@@ -1792,7 +1793,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         data.enemyLaneAssignments = {k: fix_name(v) for k, v in data.enemyLaneAssignments.items()}
 
     # 3. Input Sanitization (输入清洗 - 验证清洗后的名称)
-    # 🔥 关键修改：如果是 "None"，跳过数据库校验
+    #  关键修改：如果是 "None"，跳过数据库校验
     if data.myHero and data.myHero != "None":
         hero_info = db.get_champion_info(data.myHero)
         if not hero_info:
@@ -1809,7 +1810,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     game_constants = await run_in_threadpool(db.get_game_constants)
     
     # =========================================================
-    # 🛠️ 【关键位置调整】辅助函数定义提前到这里！ (解决 NameError)
+    #  【关键位置调整】辅助函数定义提前到这里！ (解决 NameError)
     # =========================================================
     def get_hero_cn_name(hero_id):
         """优先提取中文名 (Alias > Name)"""
@@ -1837,7 +1838,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         if not info:
             return name, "常规英雄", "全期"
         
-        # 🟢 修正点：使用 get_hero_cn_name 翻译名字
+        #  修正点：使用 get_hero_cn_name 翻译名字
         c_name = get_hero_cn_name(name)
         
         # 1. 尝试获取自定义标签 (mechanic_type)
@@ -1856,7 +1857,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     enemy_roles_map = infer_team_roles(data.enemyTeam, data.enemyLaneAssignments)
 
     # ---------------------------------------------------------
-    # ⚡ 核心逻辑：智能身份推断 (User Role Logic)
+    #  核心逻辑：智能身份推断 (User Role Logic)
     # ---------------------------------------------------------
     user_role_key = "MID" 
     manual_role_set = False
@@ -1870,7 +1871,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         for r, h in my_roles_map.items():
             if h == data.myHero: user_role_key = r; break
 
-    # ⚡ 修正：如果用户没手动指定，且推断出的位置很奇怪（比如盲僧上单）
+    #  修正：如果用户没手动指定，且推断出的位置很奇怪（比如盲僧上单）
     # 我们查库看看这个英雄的"本命位置"是不是打野
     if not manual_role_set and data.myHero and data.myHero != "None":
         hero_info_doc = db.get_champion_info(data.myHero)
@@ -1882,7 +1883,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             if user_role_key in ["TOP", "MID"] and 'jungle' not in teammate_roles:
                 user_role_key = "JUNGLE"
     # =========================================================
-    # 🔥 [新增/搬运] 机制库动态过滤 (必须放在 user_role_key 确定之后)
+    #  [新增/搬运] 机制库动态过滤 (必须放在 user_role_key 确定之后)
     # =========================================================
     modules = game_constants.get('data_modules', {})
     mechanics_list = []
@@ -1899,7 +1900,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 continue
 
             for item in cat_val['items']:
-                # 🔥🔥🔥 [新增核心逻辑] 分路任务精确过滤 🔥🔥🔥
+                #  [新增核心逻辑] 分路任务精确过滤 
                 # 如果 item 中定义了 role_key (例如 "TOP"), 且与当前 user_role_key 不一致，则跳过
                 target_role = item.get('role_key')
                 if target_role and target_role != user_role_key:
@@ -1910,11 +1911,11 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     s16_details = "; ".join(mechanics_list)
     s16_context = f"【S16/分路与机制库】: {s16_details if s16_details else '暂无特殊机制数据'}"
     # ---------------------------------------------------------
-    # ⚡ 核心逻辑：智能生态构建 (Smart Context Logic)
+    #  核心逻辑：智能生态构建 (Smart Context Logic)
     # ---------------------------------------------------------
     primary_enemy = "Unknown"
     
-    # 🌟 统一变量：无论哪路，分析结果都存入这里，传给 Prompt 的 {compInfo} 插槽
+    #  统一变量：无论哪路，分析结果都存入这里，传给 Prompt 的 {compInfo} 插槽
     lane_matchup_context = "" 
 
     # === A. 下路 (ADC/SUPPORT) 生态 ===
@@ -1932,7 +1933,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         en_sup_n, en_sup_t, _ = get_champ_meta(en_sup)
 
         lane_matchup_context = f"""
-        \n--------- ⚔️ 下路2v2生态系统 (Bot Lane Ecosystem) ⚔️ ---------
+        \n---------  下路2v2生态系统 (Bot Lane Ecosystem)  ---------
         【我方体系】：{my_ad_n} ({my_ad_t}) + {my_sup_n} ({my_sup_t})
         - 化学反应：这是一组由“{my_ad_t}”配合“{my_sup_t}”构建的防线。
         
@@ -1949,7 +1950,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         """
 
     # === B. 中单 (MID) ===
-    # 🟢 修正：只针对中单生成“中野联动”Prompt，不包含打野
+    #  修正：只针对中单生成“中野联动”Prompt，不包含打野
     elif user_role_key == "MID":
         primary_enemy = enemy_roles_map.get("MID", "Unknown")
 
@@ -1964,12 +1965,12 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         en_jg_n,  en_jg_t,  _  = get_champ_meta(en_jg)
 
         lane_matchup_context = f"""
-        \n--------- 🌪️ 中野2v2节奏引擎 (Mid-Jungle Engine) 🌪️ ---------
-        【我方中野】：{my_mid_n} ({my_mid_t}) ➕ {my_jg_n} ({my_jg_t})
+        \n---------  中野2v2节奏引擎 (Mid-Jungle Engine)  ---------
+        【我方中野】：{my_mid_n} ({my_mid_t})  {my_jg_n} ({my_jg_t})
         - 联动逻辑：基于我方打野是“{my_jg_t}”，中单应扮演什么角色？
         - 强势期：注意 {my_jg_n} 的强势期在【{my_jg_p}】，请据此规划前15分钟节奏。
         
-        【敌方中野】：{en_mid_n} ({en_mid_t}) ➕ {en_jg_n} ({en_jg_t})
+        【敌方中野】：{en_mid_n} ({en_mid_t})  {en_jg_n} ({en_jg_t})
         - 警报：敌方是“{en_mid_t}”+“{en_jg_t}”的组合。请计算他们在中路或河道的 2v2 爆发能力。
         
         【博弈定性】：
@@ -1981,9 +1982,9 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         """
 
     # === C. 打野 (JUNGLE) ===
-    # 🟢 修正：打野使用专属的 Prompts 模板，不生成额外的 Python Context 指令
+    #  修正：打野使用专属的 Prompts 模板，不生成额外的 Python Context 指令
     # === C. 打野 (JUNGLE) ===
-    # 🟢 修正：为打野注入全图对线生态，防止敌我不分
+    #  修正：为打野注入全图对线生态，防止敌我不分
     elif user_role_key == "JUNGLE":
         primary_enemy = enemy_roles_map.get("JUNGLE", "Unknown")
         if primary_enemy == "Unknown" and data.enemyHero and data.enemyHero != "None":
@@ -1999,9 +2000,9 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         en_ad_n, _, _ = get_champ_meta(enemy_roles_map.get("ADC", "Unknown"))
         en_sup_n, _, _ = get_champ_meta(enemy_roles_map.get("SUPPORT", "Unknown"))
 
-        # 🔥 关键修复：构建清晰的对线列表，强制 AI 理解敌我关系
+        #  关键修复：构建清晰的对线列表，强制 AI 理解敌我关系
         lane_matchup_context = f"""
-        \n--------- 🌲 全局对线生态 (Jungle Perspective) 🌲 ---------
+        \n---------  全局对线生态 (Jungle Perspective)  ---------
         【上路对位】：我方 [{my_top_n}] VS 敌方 [{en_top_n}]
         【中路对位】：我方 [{my_mid_n}] VS 敌方 [{en_mid_n}]
         【下路对位】：我方 [{my_ad_n}+{my_sup_n}] VS 敌方 [{en_ad_n}+{en_sup_n}]
@@ -2022,13 +2023,13 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     if primary_enemy == "Unknown" and data.enemyHero and data.enemyHero != "None": 
         primary_enemy = data.enemyHero
 
-    # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
+    # 6.  触发推荐算法 (纯净版) 
     rank_type = "Diamond+" if data.rank in ["Diamond", "Master", "Challenger"] else "Platinum-"
     algo_recommendations = recommend_heroes_algo(db, user_role_key, rank_type, None)
     
     rec_str = ""
     for idx, rec in enumerate(algo_recommendations):
-        # ✅ 使用定义好的 get_hero_cn_name 翻译，推荐列表也变中文了
+        #  使用定义好的 get_hero_cn_name 翻译，推荐列表也变中文了
         rec_name_cn = get_hero_cn_name(rec['name'])
         rec_str += f"{idx+1}. {rec_name_cn} ({rec['tier']}) - {rec['reason']}\n"
     if not rec_str: rec_str = "(暂无数据)"
@@ -2039,7 +2040,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     top_tips = []
     corrections = []
     
-    # 🔥 A. 定义模式 (Template vs Style)
+    #  A. 定义模式 (Template vs Style)
     target_mode = data.mode
     style_mode = "default"
 
@@ -2074,7 +2075,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         else:
             top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
             
-        # 🔥 B. 获取修正数据 (传入 style_mode)
+        #  B. 获取修正数据 (传入 style_mode)
         # 注意：这里不再会被覆盖了！
         corrections = await run_in_threadpool(
             db.get_corrections, 
@@ -2084,7 +2085,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             style_mode  # <--- 传入流派模式
         )
 
-    # 🔥 C. 处理修正数据格式 (Dict -> String)
+    #  C. 处理修正数据格式 (Dict -> String)
     correction_texts = []
     if corrections:
         for c in corrections:
@@ -2097,7 +2098,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 
     correction_prompt = "修正:\n" + "\n".join([f"- {t}" for t in correction_texts]) if correction_texts else ""
 
-    # 🛡️ 安全修改：使用 XML 标签隔离不可信内容
+    #  安全修改：使用 XML 标签隔离不可信内容
     if top_tips:
         safe_tips = []
         for t in top_tips:
@@ -2109,13 +2110,13 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         tips_text = "(暂无社区数据)"
 
     # =========================================================================
-    # 8. Prompt 构建 (🔥 终极缓存优化版：Global Prefix + Sandwich Structure)
+    # 8. Prompt 构建 ( 终极缓存优化版：Global Prefix + Sandwich Structure)
     # =========================================================================
     
     # 1. 准备基础 Context 变量
     full_s16_context = f"{s16_context}"
 
-    # 🔥 [Global Prefix] 全局元规则 (所有模式共享，确保 100% 缓存命中头部)
+    #  [Global Prefix] 全局元规则 (所有模式共享，确保 100% 缓存命中头部)
     META_SYSTEM_PROMPT = """
 【元规则 (系统底层指令)】
 1. **身份定义**：你是 HexCoach 战术副官，服务于英雄联盟玩家。
@@ -2129,9 +2130,9 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
    - **拒绝堆砌**：不要把所有信息塞进一段，必须换行。
 """
 
-    # 🔥 [Mode Specific] 野核专属校验 (仅野核模式追加)
+    #  [Mode Specific] 野核专属校验 (仅野核模式追加)
     JUNGLE_FARM_RECAP = """
-=== 🛑 最终校验 (FINAL CHECK) ===
+===  最终校验 (FINAL CHECK) ===
 1. **逻辑自检**：
    - 0-4分钟：必须包含【黄金路线】(F6-石-红-狼-蛙-蓝)。
    - 5:30节点：必须包含【三狼(2)+蛤蟆(2)】的决策。
@@ -2167,8 +2168,8 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             # 兜底：如果模板里没写占位符，手动拼接
             formatted_body = (
                 f"{sys_tpl_body}\n\n"
-                f"=== 🌍 S16 Context ===\n{full_s16_context}\n\n"
-                f"=== 📚 Community Tips ===\n{tips_text}\n\n"
+                f"===  S16 Context ===\n{full_s16_context}\n\n"
+                f"===  Community Tips ===\n{tips_text}\n\n"
                 f"{correction_prompt}"
             )
             tips_in_system = True 
@@ -2177,15 +2178,15 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         system_content = f"{META_SYSTEM_PROMPT}\n\n{formatted_body}\n\n{recap_section}"
 
     except Exception as e:
-        print(f"⚠️ Prompt Formatting Warning: {e}")
+        logger.info(f" Prompt Formatting Warning: {e}")
         # 降级方案
         system_content = f"{META_SYSTEM_PROMPT}\n\n{sys_tpl_body}\n\nContext: {full_s16_context}\n\n{recap_section}"
 
     # 5. JSON 强制约束兜底
     if "Output JSON only" not in system_content:
-        system_content += "\n⚠️ IMPORTANT: You must return PURE JSON only."
+        system_content += "\n IMPORTANT: You must return PURE JSON only."
     # ---------------------------------------------------------
-    # ⚡ 关键步骤：中文翻译 (确保 AI 输出中文)
+    #  关键步骤：中文翻译 (确保 AI 输出中文)
     # ---------------------------------------------------------
     def translate_roles(role_map):
         translated_map = {}
@@ -2211,18 +2212,18 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         return " | ".join([f"{k}: {v}" for k, v in role_map.items()])
 
     # B. 组装 User Content (动态部分)
-    # 🔥🔥🔥 接收并处理 mapSide 参数
+    #  接收并处理 mapSide 参数
     map_side_desc = "未知阵营"
     enemy_side_desc = "未知阵营" 
 
     if data.mapSide == "blue":
-        map_side_desc = "🔵 蓝色方 (基地左下)"
-        enemy_side_desc = "🔴 红色方 (基地右上)" 
+        map_side_desc = " 蓝色方 (基地左下)"
+        enemy_side_desc = " 红色方 (基地右上)" 
     elif data.mapSide == "red":
-        map_side_desc = "🔴 红色方 (基地右上)"
-        enemy_side_desc = "🔵 蓝色方 (基地左下)" 
+        map_side_desc = " 红色方 (基地右上)"
+        enemy_side_desc = " 蓝色方 (基地左下)" 
 
-    # 🔥 决定传给 User 的 Tips 内容
+    #  决定传给 User 的 Tips 内容
     # 如果 System 已经包含了 Tips，User 端就传个占位符省流量
     # 如果 System 没包含 (例如 personal_jungle 模板)，User 端必须传真实内容
     user_tips_content = "(已加载至 System Context)" if tips_in_system else tips_text
@@ -2231,31 +2232,31 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         mode=data.mode,
         user_rank=data.rank,        
         db_suggestions=rec_str,     
-        myTeam=format_roles_str(my_roles_cn),       # ✅ 中文阵容 (别名)
-        enemyTeam=format_roles_str(enemy_roles_cn), # ✅ 中文阵容 (别名)
-        myHero=my_hero_cn,          # ✅ 中文名 (别名)
-        enemyHero=enemy_hero_cn,    # ✅ 中文名 (别名)
+        myTeam=format_roles_str(my_roles_cn),       #  中文阵容 (别名)
+        enemyTeam=format_roles_str(enemy_roles_cn), #  中文阵容 (别名)
+        myHero=my_hero_cn,          #  中文名 (别名)
+        enemyHero=enemy_hero_cn,    #  中文名 (别名)
         userRole=user_role_key,    
         
-        # 🔥 注入红蓝方信息
+        #  注入红蓝方信息
         mapSide=map_side_desc,
         enemySide=enemy_side_desc,
 
-        # 👇 关键优化：不再重复传输大段文本
+        #  关键优化：不再重复传输大段文本
         s16_context="(机制库已加载至 System Context)", 
         
         compInfo=lane_matchup_context,
-        tips_text=user_tips_content, # 🔥 智能填充
+        tips_text=user_tips_content, #  智能填充
         correction_prompt=""         # 修正内容通常在 System 中处理
     )
 
     # 9. AI 调用
     if data.model_type == "reasoner":
         MODEL_NAME = "deepseek-reasoner"
-        print(f"🧠 [AI] 核心算力 Request - User: {current_user['username']}")
+        logger.info(f" [AI] 核心算力 Request - User: {current_user['username']}")
     else:
         MODEL_NAME = "deepseek-chat"
-        print(f"🚀 [AI] 基础算力 Request - User: {current_user['username']}")
+        logger.info(f" [AI] 基础算力 Request - User: {current_user['username']}")
 
     async def event_stream():
         try:
@@ -2265,7 +2266,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 stream=True, temperature=0.6, max_tokens=4000
             )
             
-            # 🟢 新增状态标记：是否正在输出思考过程
+            #  新增状态标记：是否正在输出思考过程
             is_thinking = False
             
             async for chunk in stream:
@@ -2277,23 +2278,23 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                     
                     if reasoning:
                         if not is_thinking:
-                            yield "<think>" # 💡 手动加上开始标签，前端才能识别
+                            yield "<think>" #  手动加上开始标签，前端才能识别
                             is_thinking = True
                         yield reasoning
                     
                     # 2. 处理正式回复 (content)
                     elif delta.content:
                         if is_thinking:
-                            yield "</think>" # 💡 思考结束，闭合标签
+                            yield "</think>" #  思考结束，闭合标签
                             is_thinking = False
                         yield delta.content
                         
-            # 🛡️ 兜底：防止流结束时思考标签没闭合
+            #  兜底：防止流结束时思考标签没闭合
             if is_thinking:
                 yield "</think>"
                 
         except Exception as e:
-            print(f"❌ AI Error: {e}")
+            logger.info(f" AI Error: {e}")
             yield json.dumps({"concise": {"title": "错误", "content": "AI服务繁忙，请稍后重试。"}})
 
     return StreamingResponse(event_stream(), media_type="text/plain")
@@ -2308,7 +2309,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
-        print(f"❌ WS Error: {e}")
+        logger.info(f" WS Error: {e}")
         manager.disconnect(websocket)
 
 @app.get("/admin/stats")
@@ -2320,7 +2321,7 @@ def get_admin_stats_endpoint(current_user: dict = Depends(get_current_user)):
     # 获取原始数据
     stats = db.get_admin_stats()
     
-    # 🔥🔥🔥 核心：如果不是 root，屏蔽敏感财务数据
+    #  核心：如果不是 root，屏蔽敏感财务数据
     if current_user.get("role") != "root":
         stats["total_revenue"] = 0
         stats["total_commissions"] = 0
@@ -2329,7 +2330,7 @@ def get_admin_stats_endpoint(current_user: dict = Depends(get_current_user)):
     
     return stats
 
-# 2. 🔥 [修改] 销售报表 (仅限 Root)
+# 2.  [修改] 销售报表 (仅限 Root)
 @app.get("/admin/sales/summary")
 def get_admin_sales_summary_endpoint(current_user: dict = Depends(get_current_user)):
     # 严格限制：只有 root 能看钱
@@ -2337,7 +2338,7 @@ def get_admin_sales_summary_endpoint(current_user: dict = Depends(get_current_us
         raise HTTPException(status_code=403, detail="权限不足：仅超级管理员可查看财务数据")
     return db.get_admin_sales_summary()
 
-# 3. 🔥 [修改] 销售结算操作 (仅限 Root)
+# 3.  [修改] 销售结算操作 (仅限 Root)
 @app.post("/admin/sales/settle")
 def settle_sales_endpoint(req: SettleRequest, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "root":
@@ -2348,13 +2349,13 @@ def settle_sales_endpoint(req: SettleRequest, current_user: dict = Depends(get_c
         raise HTTPException(status_code=500, detail=msg)
     return {"status": "success", "msg": msg}
 # ==========================================
-# 🌟 静态文件与路由修复 
+#  静态文件与路由修复 
 # ==========================================
 
 # 定义前端构建目录的路径 (根据你的 Dockerfile 结构)
 DIST_DIR = Path("frontend/dist") 
 
-# 🟢 [新增] 全员公开下载接口 (无需 Token，支持对象存储重定向)
+#  [新增] 全员公开下载接口 (无需 Token，支持对象存储重定向)
 @app.get("/api/download/client")
 async def download_client_public():
     """
@@ -2408,7 +2409,7 @@ async def favicon(ext: str):
         
     raise HTTPException(status_code=404)
 
-# ================= 🚀 热更新接口 (无需重启) =================
+# =================  热更新接口 (无需重启) =================
 
 @app.post("/admin/hot-update")
 async def hot_update_config(
@@ -2417,7 +2418,7 @@ async def hot_update_config(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    🚀 零停机更新配置！
+     零停机更新配置！
     用法：在 Postman 中 POST /admin/hot-update
     Body (form-data):
       - file: 选择你的 json 文件
@@ -2446,7 +2447,7 @@ async def hot_update_config(
         # 写入新文件
         with open(target_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        print(f"🔥 [HotUpdate] {target_filename} 文件已覆盖")
+        logger.info(f" [HotUpdate] {target_filename} 文件已覆盖")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件写入失败: {str(e)}")
 
@@ -2455,13 +2456,13 @@ async def hot_update_config(
         # A. 如果是英雄数据，刷新名称映射表
         if file_type == "champions":
             preload_champion_map()
-            print("🔄 [HotUpdate] 英雄名称映射表已重载")
+            logger.info(" [HotUpdate] 英雄名称映射表已重载")
 
         # B. 重新运行 seed_data 同步到 MongoDB
         # 你的 seed_data 脚本会自动读取刚才覆盖的新文件，并更新到数据库
         if seed_data:
             seed_data()
-            print("🔄 [HotUpdate] 数据库已同步")
+            logger.info(" [HotUpdate] 数据库已同步")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据同步失败: {str(e)}")
@@ -2493,7 +2494,7 @@ def update_community_post(post_id: str, data: WikiPostUpdate, current_user: dict
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
         
-    # 🔥 [修改] 权限放开：作者本人 OR 管理员
+    #  [修改] 权限放开：作者本人 OR 管理员
     is_author = str(post.get("author_id")) == str(current_user["_id"])
     is_admin = current_user.get("role") in ["admin", "root"]
     
@@ -2511,7 +2512,7 @@ def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict 
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
         
-    # 🔥 [修改] 权限逻辑：作者本人 OR 管理员
+    #  [修改] 权限逻辑：作者本人 OR 管理员
     is_author = str(post.get("author_id")) == str(current_user["_id"])
     is_admin = current_user.get("role") in ["admin", "root"]
 
@@ -2546,7 +2547,7 @@ def update_community_post(post_id: str, data: WikiPostUpdate, current_user: dict
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
     
-    # 🔥 [修改] 权限逻辑
+    #  [修改] 权限逻辑
     is_author = str(post.get("author_id")) == str(current_user["_id"])
     is_admin = current_user.get("role") in ["admin", "root"]
 
@@ -2564,7 +2565,7 @@ def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict 
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
         
-    # 🔥 [修改] 权限逻辑：作者本人 OR 管理员
+    #  [修改] 权限逻辑：作者本人 OR 管理员
     is_author = str(post.get("author_id")) == str(current_user["_id"])
     is_admin = current_user.get("role") in ["admin", "root"]
 
@@ -2577,7 +2578,7 @@ def update_tavern_post(post_id: str, data: TavernPostUpdate, current_user: dict 
     raise HTTPException(status_code=500, detail="更新失败")
 @app.get("/sales/dashboard")
 def get_sales_dashboard(current_user: dict = Depends(get_current_user)):
-    # 🔥🔥🔥 [修改] 增加权限验证：只有 管理员 或 销售 才能看
+    #  [修改] 增加权限验证：只有 管理员 或 销售 才能看
     allowed_roles = ['admin', 'root', 'sales']
     if current_user.get('role') not in allowed_roles:
         raise HTTPException(status_code=403, detail="您不是销售合伙人，无法查看此数据")
@@ -2585,7 +2586,7 @@ def get_sales_dashboard(current_user: dict = Depends(get_current_user)):
     data = db.get_sales_dashboard_data(current_user['username'])
     return data
 # ==========================
-# ⚙️ 系统配置 API
+#  系统配置 API
 # ==========================
 
 # 1. 公开接口：获取下载链接 (给 DownloadModal 用)
@@ -2611,7 +2612,7 @@ def update_client_config_endpoint(data: ClientConfigUpdate, current_user: dict =
 # 2. 在 API 路由区域添加广播接口
 @app.post("/admin/broadcast")
 def broadcast_message_endpoint(req: BroadcastRequest, current_user: dict = Depends(get_current_user)):
-    # 🛡️ 严格权限检查：仅限 root
+    #  严格权限检查：仅限 root
     if current_user.get("role") != "root":
         raise HTTPException(status_code=403, detail="权限不足：仅超级管理员(Root)可使用广播功能")
     
@@ -2626,7 +2627,7 @@ def broadcast_message_endpoint(req: BroadcastRequest, current_user: dict = Depen
         
     return {"status": "success", "msg": msg}
 # ========================================
-# 🚨 兜底路由 (必须放在所有 API 之后)
+#  兜底路由 (必须放在所有 API 之后)
 # ==========================================
 
 # 2. 捕获所有其他路径 -> 智能判断是文件还是页面
