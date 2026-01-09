@@ -450,79 +450,105 @@ def infer_team_roles(team_list: List[str], fixed_assignments: Optional[Dict[str,
     return {k: v for k, v in final_roles.items() if v != "Unknown"}
 
 # ==========================================
-# 🧮 核心算法：推荐英雄 (纯净版 - 无对位数据)
+# 🧠 V6.0 混合驱动核心算法 (Hybrid Engine)
 # ==========================================
-def recommend_heroes_algo(db_instance, user_role, rank_tier, enemy_hero_doc=None):
+
+def analyze_composition_tags(team_list, db_instance):
     """
-    根据段位和当前分路，计算推荐列表。
-    完全移除对位 (Matchup) 逻辑，仅基于版本强度 (Tier/WinRate/PickRate)。
+    [V6.0] 快速扫描阵容成分 (基于数据库 Tags)
     """
-    recommendations = []
-    current_role = user_role.upper() # 确保是大写 (TOP/MID...)
+    stats = {
+        "ap_count": 0,
+        "ad_count": 0,
+        "tank_count": 0,
+        "engagers": 0  # 开团点
+    }
     
-    # 1. 获取所有英雄
-    cursor = db_instance.champions_col.find({})
+    for hero_name in team_list:
+        if not hero_name or hero_name == "None": continue
+        
+        # 模糊查找英雄数据
+        hero_data = db_instance.champions_col.find_one({"name": hero_name})
+        if not hero_data: continue
+        
+        tags = [t.lower() for t in hero_data.get('tags', [])]
+        
+        # 1. 伤害类型估算
+        if 'mage' in tags or 'support' in tags or 'ap' in tags: 
+            stats['ap_count'] += 1
+        else:
+            stats['ad_count'] += 1
+            
+        # 2. 前排估算
+        if 'tank' in tags or 'fighter' in tags:
+            stats['tank_count'] += 1
+            
+    return stats
+
+def recommend_heroes_hybrid(db_instance, user_role, rank_tier, my_team, enemy_team, enemy_laner):
+    """
+    [V6.0] 混合推荐逻辑
+    Python 负责海选 (WinRate + Basic Synergy) -> Top 10 Candidates
+    LLM 负责精选 (Three-Dimensional Logic) -> Final 3
+    """
+    current_role = user_role.lower() # 数据库通常存小写 role
+    
+    # 1. 分析局势
+    comp_stats = analyze_composition_tags(my_team, db_instance)
+    
+    # 2. 设定海选池 (从数据库拉取该位置所有英雄)
+    # 注意：确保你的数据库 champions_col 里有 role 字段
+    cursor = db_instance.champions_col.find({"role": current_role})
     
     candidates = []
-
+    
     for hero in cursor:
-        # ✨ 核心：只读取 seed_data.py 生成的 positions 字段
-        positions_data = hero.get('positions', {})
-        role_stats = positions_data.get(current_role)
+        # --- A. 基础分：版本强度 (Win Rate) ---
+        try:
+            # 处理 "50.52%" -> 50.52
+            win_rate_str = hero.get('win_rate', '50%').replace('%', '')
+            win_rate = float(win_rate_str)
+        except:
+            win_rate = 50.0
+            
+        score = win_rate * 2  # 基础分 (约 100 分)
+        tags = [t.lower() for t in hero.get('tags', [])]
         
-        # 如果该英雄不打这个位置，跳过
-        if not role_stats:
-            continue
-
-        # 2. 提取关键指标
-        tier = role_stats.get('tier', 5)
-        win_rate = role_stats.get('win_rate', 0)
-        pick_rate = role_stats.get('pick_rate', 0)
-        ban_rate = role_stats.get('ban_rate', 0)
+        # --- B. 阵容修补加分 (诱导 AI 关注) ---
         
-        # 3. 计算得分 (Score)
-        # 基础分：胜率 (0.50 -> 50分)
-        score = win_rate * 100 
+        # 1. 菜刀队修正 (全队缺 AP)
+        # 如果队友 AD >= 3 且 AP < 1，给法伤英雄加分
+        if comp_stats['ad_count'] >= 3 and comp_stats['ap_count'] < 1:
+            if 'mage' in tags or 'ap' in tags:
+                score += 15 
         
-        # 层级加权: T1=+25, T2=+15, T3=+5
-        if tier == 1: score += 25
-        elif tier == 2: score += 15
-        elif tier == 3: score += 5
-        else: score -= 5
-
-        reason = ""
+        # 2. 零前排修正
+        # 如果全队无前排，给坦克/战士加分
+        if comp_stats['tank_count'] == 0:
+            if 'tank' in tags or 'fighter' in tags:
+                score += 10
         
-        # 4. 段位偏好逻辑
-        if rank_tier == "Diamond+":
-            # 💎 高分段：看重 Meta (Pick率)
-            score += pick_rate * 50
-            reason = f"高分段T{tier}热门 (选取率: {pick_rate:.1%})"
-        else:
-            # 🥇 低分段：看重 胜率 & Ban率
-            score += ban_rate * 20
-            score += (win_rate - 0.5) * 100 
-            reason = f"当前版本T{tier}强势 (胜率: {win_rate:.1%})"
-
-        # ⚠️ 已移除所有克制微调逻辑
-
+        # 3. Tier 加分 (T1 > T2 > T3)
+        tier = hero.get('tier', 'T3')
+        if tier == 'T1': score += 12
+        elif tier == 'T2': score += 6
+        
+        # --- C. 封装数据 ---
+        # 必须把 tags 传给 LLM，让它判断 "是否有位移"、"是否能清线"
         candidates.append({
-            "name": hero['name'], # 存英文ID
-            "score": score,
-            "tier": f"T{tier}",
-            "data": {
-                # 统一口径：因为没有对位数据，这里填全局胜率，并在 Prompt 里修改解释
-                "vs_win": f"{win_rate:.1%}",      
-                "lane_kill": "-",               # 明确标识无数据
-                "win_rate": f"{win_rate:.1%}",
-                "pick_rate": f"{pick_rate:.1%}",
-                "games": "High"                 
-            },
-            "reason": reason
+            "name": hero['name'],
+            "alias": hero.get('alias', [hero['name']])[0], # 中文名
+            "win_rate": hero.get('win_rate', '50%'),
+            "tags": tags,
+            "tier": tier,
+            "score": score
         })
-
-    # 5. 排序并取 Top 3
+    
+    # 3. 按分数排序，取 Top 12 个 "入围者"
     candidates.sort(key=lambda x: x['score'], reverse=True)
-    return candidates[:3]
+    top_candidates = candidates[:12] 
+    
+    return top_candidates, comp_stats
 
 # 🟢 FastAPI 版本的邀请码接口 (已增加 30 天上限逻辑)
 # ================= 辅助函数 (请确保定义在接口上方) =================
@@ -928,92 +954,40 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
     return {"access_token": access_token, "token_type": "bearer", "username": user['username']}
 
 # ✨ 增强版用户信息接口 (返回 R1 使用情况)
-@app.get("/users/me")
-async def read_users_me(current_user: dict = Depends(get_current_user)):
-    status_info = db.get_user_usage_status(current_user['username'])
-    
-    my_titles = current_user.get("available_titles", [])
-    if "社区成员" not in my_titles: my_titles.append("社区成员")
-    
-    try:
-        unread_count = db.get_unread_count_total(current_user['username'])
-    except:
-        unread_count = 0
-
-    # 🔥 [新增] 获取战友名字 (将 invited_by 的 ObjectId 转为 username)
-    partner_name = None
-    if current_user.get("invited_by"):
-        partner = db.users_col.find_one({"_id": current_user["invited_by"]})
-        if partner:
-            partner_name = partner["username"]
-
-    return {
-        "username": current_user['username'],
-        "role": status_info.get("role", "user"),
-        "is_pro": status_info.get("is_pro", False),
-        "expire_at": current_user.get("membership_expire"),
-        "r1_limit": status_info.get("r1_limit", 10),
-        "r1_used": status_info.get("r1_used", 0),
-        "r1_remaining": status_info.get("r1_remaining", 0),
-        "chat_hourly_limit": status_info.get("chat_hourly_limit", 10),
-        "chat_used": status_info.get("chat_used", 0),
-        "available_titles": my_titles,
-        "active_title": current_user.get("active_title", "社区成员"),
-        "unread_msg_count": unread_count,
-        
-        # 🔥 [新增] 返回给前端 InviteCard 使用
-        "invited_by": partner_name, 
-        "invite_change_count": current_user.get("invite_change_count", 0),
-
-        "game_profile": {
-            "gameName": current_user.get("game_name"),
-            "tagLine": current_user.get("tag_line"),
-            "level": current_user.get("level"),
-            "rank": current_user.get("rank"),
-            "lp": current_user.get("lp"),
-            "winRate": current_user.get("win_rate"),
-            "kda": current_user.get("kda"),
-            "profileIconId": current_user.get("profile_icon_id"),
-            "mastery": current_user.get("mastery", []),
-            "matches": current_user.get("matches", [])
-        }
-    }
 
 # 🔥🔥🔥 [修复] 个人档案同步 (使用 db.users_col + 修复时间) 🔥🔥🔥
 @app.post("/users/sync_profile")
 async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(get_current_user)):
-    # 1. [核心修复] 获取数据库中已有的旧战绩
-    existing_matches = current_user.get("matches", [])
-    if not isinstance(existing_matches, list):
-        existing_matches = []
+    # 1. 载入旧战绩
+    user_in_db = db.users_col.find_one({"_id": current_user["_id"]})
+    existing_matches = user_in_db.get("matches", []) if user_in_db else []
+    
+    print(f"🔄 [Sync] 用户 {current_user['username']} 请求同步。库内已有: {len(existing_matches)} 场, LCU传来: {len(data.matches)} 场")
 
-    # 2. 构建去重字典 (以 gameId 为唯一键)
+    # 2. 合并新旧战绩 (去重)
+    # 使用字典去重：key是gameId，value是战绩对象
     matches_map = {}
     
-    # A. 先载入旧数据
+    # A. 先放旧数据
     for m in existing_matches:
-        # 兼容 gameId 或 id 字段
         gid = m.get("gameId") or m.get("id") 
-        if gid:
-            matches_map[str(gid)] = m
+        if gid: matches_map[str(gid)] = m
             
-    # B. 再载入新数据 (如有重复 gameId，新数据会覆盖旧数据)
+    # B. 再放新数据 (新数据会覆盖旧数据)
     for m in data.matches:
         gid = m.get("gameId") or m.get("id")
-        if gid:
-            matches_map[str(gid)] = m
+        if gid: matches_map[str(gid)] = m
             
-    # 3. 转回列表并排序
+    # 3. 转回列表并按时间倒序
     merged_matches = list(matches_map.values())
-    
-    # [核心修复] 按 gameCreation (时间戳) 倒序排列，确保最新的在最上面
     merged_matches.sort(key=lambda x: x.get("gameCreation", 0), reverse=True)
     
-    # 4. [性能保护] 设置存储上限 (保留最近 200 场)，防止数据库无限膨胀
-    MAX_HISTORY = 200
-    if len(merged_matches) > MAX_HISTORY:
-        merged_matches = merged_matches[:MAX_HISTORY]
+    # [性能保护] 只保留最近 50 场
+    merged_matches = merged_matches[:50]
+    
+    print(f"✅ [Sync] 合并完成。最终保存: {len(merged_matches)} 场")
 
+    # 4. 存入数据库
     update_doc = {
         "game_name": data.gameName,
         "tag_line": data.tagLine,
@@ -1024,23 +998,129 @@ async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(
         "kda": data.kda,
         "profile_icon_id": data.profileIconId,
         "mastery": data.mastery,
-        
-        # 🔥🔥🔥 关键修改：使用合并后的 merged_matches，而不是 data.matches 🔥🔥🔥
-        "matches": merged_matches, 
-        
-        # 记录同步时间 (UTC)
+        "matches": merged_matches, # 🔥 存入合并后的数据
         "last_synced_at": datetime.datetime.now(datetime.timezone.utc)
     }
     
-    # 更新数据库
     try:
-        db.users_col.update_one({"username": current_user['username']}, {"$set": update_doc})
+        db.users_col.update_one({"_id": current_user['_id']}, {"$set": update_doc})
     except Exception as e:
         print(f"Sync DB Error: {e}")
         raise HTTPException(status_code=500, detail="数据库更新失败")
             
-    return {"status": "success", "msg": f"同步成功 (已存储 {len(merged_matches)} 场战绩)"}
+    return {"status": "success", "msg": f"同步成功 (库内 {len(merged_matches)} 场)"}
 
+@app.get("/users/me")
+async def read_users_me(current_user: dict = Depends(get_current_user)):
+    status_info = db.get_user_usage_status(current_user['username'])
+    user_doc = db.users_col.find_one({"_id": current_user["_id"]}) # 重新查库保鲜
+    
+    my_titles = user_doc.get("available_titles", [])
+    if "社区成员" not in my_titles: my_titles.append("社区成员")
+    
+    unread_count = db.get_unread_count_total(current_user['username'])
+
+    # 获取战友名字
+    partner_name = None
+    if user_doc.get("invited_by"):
+        partner = db.users_col.find_one({"_id": user_doc["invited_by"]})
+        if partner: partner_name = partner["username"]
+
+    return {
+        "username": user_doc['username'],
+        "role": status_info.get("role", "user"),
+        "is_pro": status_info.get("is_pro", False),
+        "expire_at": user_doc.get("membership_expire"),
+        "r1_limit": status_info.get("r1_limit", 10),
+        "r1_used": status_info.get("r1_used", 0),
+        "r1_remaining": status_info.get("r1_remaining", 0),
+        "chat_hourly_limit": status_info.get("chat_hourly_limit", 10),
+        "chat_used": status_info.get("chat_used", 0),
+        "available_titles": my_titles,
+        "active_title": user_doc.get("active_title", "社区成员"),
+        "unread_msg_count": unread_count,
+        "invited_by": partner_name, 
+        "invite_change_count": user_doc.get("invite_change_count", 0),
+
+        # 🔥 关键：构造标准化的 game_profile 对象供前端 Header/Profile 使用
+        "game_profile": {
+            "gameName": user_doc.get("game_name", "Unknown"),
+            "tagLine": user_doc.get("tag_line", ""),
+            "level": user_doc.get("level", 1),
+            "rank": user_doc.get("rank", "Unranked"),
+            "lp": user_doc.get("lp", 0),
+            "winRate": user_doc.get("win_rate", 0),
+            "kda": user_doc.get("kda", "0.0"),
+            "profileIconId": user_doc.get("profile_icon_id", 29),
+            "mastery": user_doc.get("mastery", []),
+            "matches": user_doc.get("matches", [])
+        }
+    }
+@app.get("/users/profile/{target_input}")
+def get_user_public_profile(target_input: str, current_user: dict = Depends(get_current_user)):
+    target = target_input.strip()
+    if not target: raise HTTPException(status_code=400, detail="请输入用户名")
+
+    # 优先级 1: 登录账号 (Username)
+    user = db.users_col.find_one({"username": target})
+    
+    # 优先级 2: 游戏名#Tag (GameName#TagLine)
+    if not user and "#" in target:
+        try:
+            parts = target.split("#")
+            gn = parts[0].strip()
+            tl = parts[1].strip()
+            user = db.users_col.find_one({
+                "game_name": {"$regex": f"^{re.escape(gn)}$", "$options": "i"},
+                "tag_line": {"$regex": f"^{re.escape(tl)}$", "$options": "i"}
+            })
+        except: pass
+
+    # 优先级 3: 仅游戏名 (GameName)
+    if not user:
+        user = db.users_col.find_one({
+            "game_name": {"$regex": f"^{re.escape(target)}$", "$options": "i"}
+        })
+
+    # 兜底：管理员虚拟账号
+    if not user:
+        if target.lower() in ['admin', 'root']:
+            return {
+                "username": "Admin",
+                "game_profile": {
+                    "gameName": "管理员", "tagLine": "HEX", "rank": "Challenger", 
+                    "level": 999, "profileIconId": 588, "mastery": [], "matches": []
+                },
+                "avatar_url": "https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/588.png",
+                "active_title": "官方/传说\u200C", 
+                "bio": "系统管理员", "is_pro": True
+            }
+        raise HTTPException(status_code=404, detail="未找到该用户")
+    
+    # 构造返回 (与 UserProfile 组件对齐)
+    icon_id = user.get("profile_icon_id", 29)
+    
+    return {
+        "username": user['username'],
+        "role": user.get("role", "user"),
+        "is_pro": user.get("role") in ["pro", "vip", "admin", "root"],
+        "active_title": user.get("active_title", "社区成员"),
+        "bio": user.get("bio", "这个人很懒，什么都没写。"),
+        "avatar_url": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png",
+        
+        # 统一数据结构
+        "game_profile": {
+            "gameName": user.get("game_name", "Unknown"),
+            "tagLine": user.get("tag_line", ""),
+            "rank": user.get("rank", "Unranked"),
+            "lp": user.get("lp", 0),
+            "winRate": user.get("win_rate", 0),
+            "kda": user.get("kda", "0.0"),
+            "level": user.get("level", 1),
+            "mastery": user.get("mastery", []),
+            "matches": user.get("matches", [])
+        }
+    }
 # ==========================
 # 💬 私信 API 接口
 # ==========================
@@ -1192,80 +1272,6 @@ def get_conversations(current_user: dict = Depends(get_current_user)):
         })
         
     return res
-
-@app.get("/users/profile/{target_input}")
-def get_user_public_profile(target_input: str, current_user: dict = Depends(get_current_user)):
-    """
-    智能搜索用户：支持 登录账号、游戏昵称、昵称#Tag
-    返回：用于渲染 UserProfile 的完整公开数据
-    """
-    target = target_input.strip()
-    if not target:
-        raise HTTPException(status_code=400, detail="请输入用户名")
-
-    # 1. 查找逻辑 (保留原有的三级查找)
-    user = db.users_col.find_one({"username": target})
-    
-    if not user and "#" in target:
-        try:
-            parts = target.split("#")
-            gn_query = parts[0].strip()
-            tl_query = parts[1].strip()
-            user = db.users_col.find_one({
-                "game_name": {"$regex": f"^{re.escape(gn_query)}$", "$options": "i"},
-                "tag_line": {"$regex": f"^{re.escape(tl_query)}$", "$options": "i"}
-            })
-        except: pass
-
-    if not user:
-        user = db.users_col.find_one({
-            "game_name": {"$regex": f"^{re.escape(target)}$", "$options": "i"}
-        })
-
-    # 兜底：管理员虚拟账号
-    if not user:
-        if target.lower() in ['admin', 'root']:
-            return {
-                "username": target,
-                "game_profile": {"gameName": "管理员", "tagLine": "HEX", "rank": "Challenger", "level": 999},
-                "avatar_url": "https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/588.png",
-                "active_title": "官方/传说\u200C", # 带标记
-                "bio": "系统管理员",
-                "is_pro": True
-            }
-        raise HTTPException(status_code=404, detail="未找到该用户")
-    
-    # 🔥 构造返回数据 (与 UserProfile 所需格式对齐)
-    real_username = user['username']
-    icon_id, nickname = parse_user_info(user, real_username)
-    
-    # 构造游戏档案
-    game_profile = user.get("game_profile", {})
-    if isinstance(game_profile, str):
-        try: game_profile = json.loads(game_profile)
-        except: game_profile = {}
-        
-    return {
-        "username": real_username,
-        "role": user.get("role", "user"),
-        "is_pro": user.get("role") in ["pro", "vip", "admin", "root"],
-        "active_title": user.get("active_title", "社区成员"),
-        "bio": user.get("bio", "这个人很懒，什么都没写。"),
-        "avatar_url": f"https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/{icon_id}.png",
-        
-        # 游戏数据
-        "game_profile": {
-            "gameName": game_profile.get("gameName") or game_profile.get("game_name"),
-            "tagLine": game_profile.get("tagLine") or game_profile.get("tag_line"),
-            "rank": game_profile.get("rank", "Unranked"),
-            "lp": game_profile.get("lp", 0),
-            "winRate": game_profile.get("winRate") or game_profile.get("win_rate", 0),
-            "kda": game_profile.get("kda", "0.0"),
-            "level": game_profile.get("level", 1),
-            "mastery": game_profile.get("mastery", []),
-            "matches": game_profile.get("matches", [])
-        }
-    }
 
 @app.get("/messages/{contact}")
 def get_chat(contact: str, before: str = None, current_user: dict = Depends(get_current_user)):
@@ -2024,7 +2030,16 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 
     # 6. ⚡⚡⚡ 触发推荐算法 (纯净版) ⚡⚡⚡
     rank_type = "Diamond+" if data.rank in ["Diamond", "Master", "Challenger"] else "Platinum-"
-    algo_recommendations = recommend_heroes_algo(db, user_role_key, rank_type, None)
+    
+    # 🔥 [修改] 传入全套阵容参数
+    algo_recommendations = recommend_heroes_algo(
+        db, 
+        user_role_key, 
+        rank_type, 
+        enemy_hero_name=primary_enemy, # 对位英雄 (可以是 "None")
+        enemy_team_list=data.enemyTeam, # 敌方全队列表
+        my_team_list=data.myTeam        # 我方全队列表 (为未来 Synergy 预留)
+    )
     
     rec_str = ""
     for idx, rec in enumerate(algo_recommendations):
@@ -2107,7 +2122,47 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         tips_text = "<community_knowledge>\n" + "\n".join(safe_tips) + "\n</community_knowledge>"
     else:
         tips_text = "(暂无社区数据)"
+   # =================================================
+    # 🧠 BP 推荐策略：三层分级 Prompt (High / Mid / Low)
+    # =================================================
+    rank_str = str(data.rank).lower()
 
+    # 1. 【顶尖分段】大师、宗师、王者 (Master+)
+    if any(r in rank_str for r in ["master", "grandmaster", "challenger"]):
+        strategy_instruction = (
+            f"**当前为高分段 ({data.rank})**：\n"
+            "- 你的推荐逻辑必须优先考虑 **全局阵容适配性 (Team Synergy)**。\n"
+            "- 如果某个英雄对线微劣但团战能产生巨大化学反应，可以推荐。\n"
+            "- 你可以在分析中明确指出这是基于高分段环境的建议。"
+        )
+
+    # 2. 【进阶分段】翡翠、钻石 (Emerald & Diamond) —— 承上启下的分水岭
+    elif any(r in rank_str for r in ["emerald", "diamond", "翡翠", "钻"]):
+        strategy_instruction = (
+            f"**当前为进阶分段 ({data.rank})**：\n"
+            "- 你的推荐逻辑需要在 **个人强势度** 与 **团队适配性** 之间寻找平衡。\n"
+            "- **权重分配**：请保持 **60% 侧重对线克制**（保证自己不崩），**40% 侧重团队互补**（稍微照顾阵容）。\n"
+            "- **推荐原则**：\n"
+            "  1. 避免推荐纯粹为了凑阵容而导致的“坐牢”对线。\n"
+            "  2. 优先推荐那些“线上有声音，打团也能配合”的万金油英雄（如带控C位、重装战士）。\n"
+            "- 理由包装：强调“既能保证发育，又能补足团队短板”。"
+        )
+
+    # 3. 【普通分段】铂金及以下 (Platinum & Below)
+    else:
+        # 核心是“对线克制”，但严禁 AI 说用户菜
+        strategy_instruction = (
+            f"**当前对局环境策略**：\n"
+            "- 你的推荐逻辑必须优先保证 **对线克制 (Lane Counter)**。\n"
+            "- **严禁**推荐对线会被打爆的英雄，哪怕它跟阵容很搭。\n"
+            "- 核心思路是：只有对线活下来，才有资格谈打团。\n"
+            "⛔ **输出禁忌（严格执行）**：\n"
+            "- **绝对不要**在输出内容中提及“因为是低分段”、“鉴于段位较低”、“新手”等字眼。\n"
+            "- 请将推荐理由包装为“为了最大化对线压制力”或“最稳健的克制选择”。"
+        )
+
+        # 将此指令追加到 tips_text 中 (System Context 会自动包含它)
+        tips_text = f"{tips_text}\n\n=== 👑 决策核心指令 (Strategy Core) ===\n{strategy_instruction}"
     # =========================================================================
     # 8. Prompt 构建 (🔥 终极缓存优化版：Global Prefix + Sandwich Structure)
     # =========================================================================

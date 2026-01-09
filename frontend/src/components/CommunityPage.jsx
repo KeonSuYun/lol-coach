@@ -184,19 +184,33 @@ export default function CommunityPage({
     };
 
     // 🔥 [修复] 优先显示游戏内昵称 (LCU GameName)，如果没有则显示登录用户名
-    const displayGameName = accountInfo?.game_profile?.gameName || currentUser || "Guest";
+    const gameProfile = accountInfo?.game_profile || {};
+  
+  // 1. 显示名称：优先游戏名 (如 "Clearlove #EDG")，其次是登录名
+  const displayGameName = gameProfile.gameName && gameProfile.gameName !== "Unknown" 
+      ? gameProfile.gameName 
+      : currentUser;
+      
+  const displayTag = gameProfile.tagLine ? `#${gameProfile.tagLine}` : "#HEX";
 
-    const userData = {
-        username: displayGameName,
-        tag: accountInfo?.game_profile?.tagLine || accountInfo?.tag || "#HEX",
-        avatarUrl: accountInfo?.game_profile?.profileIconId 
-            ? `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${accountInfo.game_profile.profileIconId}.png`
-            : `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/29.png`,
-        activeTitle: accountInfo?.active_title || "社区成员",
-        rank: accountInfo?.game_profile?.rank || userRank || "Unranked",
-        isPro: accountInfo?.is_pro
-    };
+  // 2. 段位：优先真实段位
+  const rawRank = gameProfile.rank || userRank || "Unranked";
+  const displayRank = (rawRank === "Unranked" || !rawRank) ? "Unranked" : rawRank;
 
+  // 3. 头像：优先真实游戏头像
+  const iconId = gameProfile.profileIconId || 29;
+  const avatarUrl = `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${iconId}.png`;
+
+  // 4. 组装传给 ConsoleHeaderUser 的数据
+  const userData = {
+      username: displayGameName, // 显示游戏名
+      loginId: currentUser,      // 登录名 (用于悬浮或私信ID)
+      tag: displayTag,
+      avatarUrl: avatarUrl,
+      activeTitle: accountInfo?.active_title || "社区成员",
+      rank: displayRank,
+      isPro: isPro
+  };
     return (
         // 🔥 [优化] 背景色调整为 Slate-900 (#0F172A)
         <div className="min-h-screen font-sans text-slate-300 bg-[#0F172A] selection:bg-[#C8AA6E]/30 pb-20">

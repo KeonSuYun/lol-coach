@@ -204,14 +204,69 @@ export const cleanTitle = (title) => {
 
 export const getRankTheme = (rank) => {
     const r = (rank || "").toLowerCase();
-    let theme = { border: "border-slate-700/60", bg: "bg-slate-800/40", text: "text-slate-300", accent: "text-slate-400", shadow: "shadow-lg", glow: "", avatarRing: "border-slate-800", gradientOverlay: "from-slate-900/0 via-slate-900/0 to-slate-900" };
+    
+    // 默认样式 (Unranked 或未知)
+    let theme = { 
+        border: "border-slate-700/60", 
+        bg: "bg-slate-800/40", 
+        text: "text-slate-300", 
+        accent: "text-slate-400", 
+        shadow: "shadow-lg", 
+        glow: "", 
+        avatarRing: "border-slate-800", 
+        gradientOverlay: "from-slate-900/0 via-slate-900/0 to-slate-900" 
+    };
 
-    if (r.includes('challenger') || r.includes('王者')) theme = { border: "border-amber-400/50", bg: "bg-amber-950/20", text: "text-amber-100", accent: "text-amber-400", shadow: "shadow-amber-900/20", glow: "shadow-[0_0_20px_rgba(245,158,11,0.3)]", avatarRing: "border-amber-500", gradientOverlay: "from-amber-500/10 via-transparent to-slate-900" };
-    else if (r.includes('grandmaster') || r.includes('宗师')) theme = { border: "border-rose-500/50", bg: "bg-rose-950/20", text: "text-rose-100", accent: "text-rose-400", shadow: "shadow-rose-900/20", glow: "shadow-[0_0_20px_rgba(244,63,94,0.3)]", avatarRing: "border-rose-500", gradientOverlay: "from-rose-500/10 via-transparent to-slate-900" };
-    else if (r.includes('master') || r.includes('大师')) theme = { border: "border-purple-500/50", bg: "bg-purple-950/20", text: "text-purple-100", accent: "text-purple-400", shadow: "shadow-purple-900/20", glow: "shadow-[0_0_20px_rgba(168,85,247,0.3)]", avatarRing: "border-purple-500", gradientOverlay: "from-purple-500/10 via-transparent to-slate-900" };
-    else if (r.includes('diamond') || r.includes('钻')) theme = { border: "border-cyan-400/50", bg: "bg-cyan-950/20", text: "text-cyan-100", accent: "text-cyan-400", shadow: "shadow-cyan-900/20", glow: "shadow-[0_0_20px_rgba(34,211,238,0.3)]", avatarRing: "border-cyan-400", gradientOverlay: "from-cyan-500/10 via-transparent to-slate-900" };
-    else if (r.includes('platinum') || r.includes('铂金')) theme = { border: "border-teal-400/50", bg: "bg-teal-950/20", text: "text-teal-100", accent: "text-teal-400", shadow: "shadow-teal-900/20", glow: "shadow-[0_0_15px_rgba(45,212,191,0.2)]", avatarRing: "border-teal-400", gradientOverlay: "from-teal-500/10 via-transparent to-slate-900" };
-    else if (r.includes('gold') || r.includes('黄金')) theme = { border: "border-yellow-500/40", bg: "bg-yellow-950/10", text: "text-yellow-100", accent: "text-yellow-400", shadow: "shadow-yellow-900/10", glow: "shadow-[0_0_15px_rgba(234,179,8,0.2)]", avatarRing: "border-yellow-500", gradientOverlay: "from-yellow-500/5 via-transparent to-slate-900" };
+    // 🏆 最强王者 (Challenger) - 金色流光
+    if (r.includes('challenger') || r.includes('王者')) {
+        theme = { border: "border-amber-400/50", bg: "bg-amber-950/20", text: "text-amber-100", accent: "text-amber-400", shadow: "shadow-amber-900/20", glow: "shadow-[0_0_20px_rgba(245,158,11,0.3)]", avatarRing: "border-amber-500", gradientOverlay: "from-amber-500/10 via-transparent to-slate-900" };
+    }
+    // ⚔️ 傲世宗师 (Grandmaster) - 红色暗影
+    else if (r.includes('grandmaster') || r.includes('宗师')) {
+        theme = { border: "border-rose-500/50", bg: "bg-rose-950/20", text: "text-rose-100", accent: "text-rose-400", shadow: "shadow-rose-900/20", glow: "shadow-[0_0_20px_rgba(244,63,94,0.3)]", avatarRing: "border-rose-500", gradientOverlay: "from-rose-500/10 via-transparent to-slate-900" };
+    }
+    // 🔮 超凡大师 (Master) - 紫色虚空
+    else if (r.includes('master') || r.includes('大师')) {
+        theme = { border: "border-purple-500/50", bg: "bg-purple-950/20", text: "text-purple-100", accent: "text-purple-400", shadow: "shadow-purple-900/20", glow: "shadow-[0_0_20px_rgba(168,85,247,0.3)]", avatarRing: "border-purple-500", gradientOverlay: "from-purple-500/10 via-transparent to-slate-900" };
+    }
+    // 💎 璀璨钻石 (Diamond) - 青蓝光辉
+    else if (r.includes('diamond') || r.includes('钻')) {
+        theme = { border: "border-cyan-400/50", bg: "bg-cyan-950/20", text: "text-cyan-100", accent: "text-cyan-400", shadow: "shadow-cyan-900/20", glow: "shadow-[0_0_20px_rgba(34,211,238,0.3)]", avatarRing: "border-cyan-400", gradientOverlay: "from-cyan-500/10 via-transparent to-slate-900" };
+    }
+    // 🌿 流光翡翠 (Emerald) - 🔥【本次修复重点】翠绿生机
+    else if (r.includes('emerald') || r.includes('翡翠') || r.includes('流光')) {
+        theme = { 
+            border: "border-emerald-400/50", 
+            bg: "bg-emerald-950/20", 
+            text: "text-emerald-100", 
+            accent: "text-emerald-400", 
+            shadow: "shadow-emerald-900/20", 
+            glow: "shadow-[0_0_20px_rgba(52,211,153,0.3)]", 
+            avatarRing: "border-emerald-400", 
+            gradientOverlay: "from-emerald-500/10 via-transparent to-slate-900" 
+        };
+    }
+    // 💠 华贵铂金 (Platinum) - 青色
+    else if (r.includes('platinum') || r.includes('铂金')) {
+        theme = { border: "border-teal-400/50", bg: "bg-teal-950/20", text: "text-teal-100", accent: "text-teal-400", shadow: "shadow-teal-900/20", glow: "shadow-[0_0_15px_rgba(45,212,191,0.2)]", avatarRing: "border-teal-400", gradientOverlay: "from-teal-500/10 via-transparent to-slate-900" };
+    }
+    // 🥇 荣耀黄金 (Gold) - 金色
+    else if (r.includes('gold') || r.includes('黄金')) {
+        theme = { border: "border-yellow-500/40", bg: "bg-yellow-950/10", text: "text-yellow-100", accent: "text-yellow-400", shadow: "shadow-yellow-900/10", glow: "shadow-[0_0_15px_rgba(234,179,8,0.2)]", avatarRing: "border-yellow-500", gradientOverlay: "from-yellow-500/5 via-transparent to-slate-900" };
+    }
+    // 🥈 不屈白银 (Silver) - 银灰
+    else if (r.includes('silver') || r.includes('白银')) {
+        theme = { border: "border-slate-300/40", bg: "bg-slate-800/50", text: "text-slate-200", accent: "text-slate-300", shadow: "shadow-slate-500/10", glow: "shadow-[0_0_10px_rgba(203,213,225,0.2)]", avatarRing: "border-slate-300", gradientOverlay: "from-slate-400/5 via-transparent to-slate-900" };
+    }
+    // 🥉 英勇黄铜 (Bronze) - 古铜色
+    else if (r.includes('bronze') || r.includes('黄铜')) {
+        theme = { border: "border-orange-700/40", bg: "bg-orange-950/30", text: "text-orange-200", accent: "text-orange-600", shadow: "shadow-orange-900/10", glow: "", avatarRing: "border-orange-700", gradientOverlay: "from-orange-800/10 via-transparent to-slate-900" };
+    }
+    // ⛓️ 坚韧黑铁 (Iron) - 深灰
+    else if (r.includes('iron') || r.includes('黑铁')) {
+        theme = { border: "border-zinc-600/40", bg: "bg-zinc-900/50", text: "text-zinc-400", accent: "text-zinc-500", shadow: "shadow-zinc-900/10", glow: "", avatarRing: "border-zinc-600", gradientOverlay: "from-zinc-800/10 via-transparent to-slate-900" };
+    }
+    
     return theme;
 };
 

@@ -581,5 +581,36 @@
     "content": "**节奏型打野通则 (Tempo Jungler)**：\n适用英雄：李青、伊莉丝、赵信、嘉文四世\n1. **原则**：你的时间 = 节奏。刷野只是为了回血回蓝，人头才是经验来源。\n2. **路线**：默认【速3 (3 Camp Rush)】。双Buff+蛤蟆/小怪 -> 只有一种情况全刷：三路都没线权且对面是强反野英雄。",
     "type": "GUIDE",
     "priority": 50
+  },
+  {
+  "hero": "Sylas",
+  "enemy": "Taliyah",
+  "type": "WARN",
+  "priority": 999,
+  "content": "被岩雀E完克" 
+},
+{
+    "hero": "Vladimir",
+    "enemy": "Gangplank",
+    "mutual": false,
+    "type": "BAD",
+    "priority": 700,
+    "content": "**发育陷阱**：吸血鬼打船长是典型的“互刷局”，但这通常对船长更有利。船长的全图大招支援能比吸血鬼更快影响边路，且后期船长的连桶爆发比吸血鬼更难规避。"
+  },
+  {
+    "hero": "Gnar",
+    "enemy": "Gangplank",
+    "mutual": false,
+    "type": "GUIDE",
+    "priority": 850,
+    "content": "**优势对位推荐**：纳尔是对抗普朗克的极佳选择。\n1. **Mini形态**：射程优势可以安全点桶（A桶），且Q技能无消耗消耗船长血量。\n2. **思路**：小纳尔风筝，远程点桶，变大时配合打野越塔或强开。"
+  },
+  {
+    "hero": "Draven",
+    "enemy": "general",
+    "mutual": true,
+    "type": "RULE",
+    "priority": 950,
+    "content": "**绝对机制修正**：德莱文（Draven）的大招【冷血追命】**绝对没有**击杀刷新机制！拥有“斩杀刷新大招”机制的是他的哥哥德莱厄斯（诺手）。德莱文的机制是：1. 接斧头刷新【W技能：血性冲刺】；2. 击杀英雄触发被动提款（获得金币）。**严禁**在分析中提及“德莱文刷新大招收割”这种错误说法。"
   }
 ]

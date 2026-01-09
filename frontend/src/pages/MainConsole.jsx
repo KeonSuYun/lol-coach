@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Shield, Users, Zap, Brain, Crosshair, RefreshCcw, ShieldAlert, RotateCcw, Trash2, GripHorizontal, Settings, HelpCircle, RefreshCw, AlertCircle, CheckCircle2, XCircle,Compass, Sparkles, Swords } from 'lucide-react';
 import { Toaster, toast } from 'react-hot-toast';
 
@@ -260,30 +260,36 @@ export default function MainConsole({ state, actions }) {
     };
 
     // 🔥🔥🔥 [新增功能] 进入主控台时，自动同步个人数据 (战绩/段位/头像) 🔥🔥🔥
+    const hasSyncedRef = useRef(false);
+
+    // 🔥 2. 监听 LCU 状态，断开时重置锁
     useEffect(() => {
-        // 只有当“已进入主控台”且“LCU已连接”时才触发
-        if (hasStarted && lcuStatus === 'connected') {
+        if (lcuStatus !== 'connected') {
+            hasSyncedRef.current = false;
+        }
+    }, [lcuStatus]);
+
+    // 🔥 3. 修改自动同步逻辑
+    useEffect(() => {
+        // 增加 !hasSyncedRef.current 判断
+        if (hasStarted && lcuStatus === 'connected' && !hasSyncedRef.current) {
             
-            // 设置一个短延迟，避免页面渲染时的卡顿，并给用户一个视觉反馈的缓冲区
             const timer = setTimeout(() => {
                 if (handleSyncProfile) {
                     console.log("🔄 [AutoSync] LCU已连接，正在自动同步个人数据...");
                     handleSyncProfile();
                     
-                    // 给用户一个轻微的提示 (可选，如果您觉得太打扰可以去掉)
-                    toast.success("已自动同步最新游戏数据", { 
+                    // 标记为已同步，防止重复执行
+                    hasSyncedRef.current = true;
+
+                    toast.success("已自动同步游戏档案", { 
                         icon: '🔄', 
-                        id: 'auto-sync-profile', // 防止重复弹窗
+                        id: 'auto-sync-profile',
                         duration: 3000,
-                        style: {
-                            background: '#091428',
-                            color: '#C8AA6E',
-                            border: '1px solid rgba(200, 170, 110, 0.3)'
-                        }
+                        style: { background: '#091428', color: '#C8AA6E', border: '1px solid rgba(200, 170, 110, 0.3)' }
                     });
                 }
-            }, 1500); // 1.5秒延迟
-
+            }, 1500); 
             return () => clearTimeout(timer);
         }
     }, [hasStarted, lcuStatus, handleSyncProfile]);
@@ -459,10 +465,51 @@ export default function MainConsole({ state, actions }) {
                         <div id="center-analysis-btn" className="mb-4 px-1">
                             <AnalysisButton 
                                 selectedHero={blueTeam[userSlot]} 
-                                onOpenChampSelect={() => { setSelectingSlot(-1); setShowChampSelector(true); }} 
                                 
-                                // 🔥 [核心修复 2] 使用计算好的 
+                                // 普通模式下打开选择器 (空位BP模式下会被内部逻辑拦截改为切分路)
+                                onOpenChampSelect={() => { 
+                                    setSelectingSlot(-1); 
+                                    setShowChampSelector(true); 
+                                }} 
+                                
+                                allowEmpty={effectiveMode === 'bp'} 
+                                
+                                // 🔥 [新增] 传递当前分路和修改方法
+                                currentRole={userRole}
+                                onRoleChange={(newRole) => {
+                                    setUserRole(newRole); // 直接更新全局状态
+                                    
+                                    // 可选：如果希望这不仅仅是改 UI，还要同步到底层数据，可以同步修改 myTeamRoles
+                                    // 但为了简单起见，仅修改 userRole 就足够让 handleAnalyze 获取到正确值了
+                                }}
+                                // 2. 点击处理
                                 onAnalyze={() => {
+                                    // 如果是空位 BP
+                                    if (effectiveMode === 'bp' && !blueTeam[userSlot]) {
+                                        // 弹窗提示，确认分路
+                                        toast((t) => (
+                                            <div className="flex flex-col gap-1 min-w-[200px]">
+                                                <div className="flex items-center gap-2 font-bold text-[#C8AA6E] border-b border-white/10 pb-1 mb-1">
+                                                    <Compass size={16}/> 
+                                                    <span>请求 {userRole} 路推荐</span>
+                                                </div>
+                                                <div className="text-xs text-slate-400 leading-relaxed">
+                                                    AI 正在分析全局阵容...<br/>
+                                                    <span className="opacity-50 text-[10px]">*若分路不准，请先在左侧调整</span>
+                                                </div>
+                                            </div>
+                                        ), { 
+                                            icon: null,
+                                            style: { 
+                                                background: '#091428', 
+                                                border: '1px solid rgba(200, 170, 110, 0.3)',
+                                                color: '#fff',
+                                                boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                                            },
+                                            duration: 3000 
+                                        });
+                                    }
+                                    
                                     handleAnalyze(effectiveMode, true);
                                 }}
                                 

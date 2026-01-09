@@ -16,12 +16,7 @@ const QUEUE_ID_MAP = {
     420: "排位赛 单/双",
     440: "灵活组排 5v5",
     430: "匹配模式 (盲选)",
-    450: "大乱斗",
-    // 兼容其他模式防止报错
-    900: "无限火力",
-    830: "人机对战 (入门)",
-    840: "人机对战 (新手)",
-    850: "人机对战 (一般)"
+    400: "匹配模式 (征召)", // 新增征召模式匹配
 };
 
 // --- 基础连接功能 ---
@@ -262,24 +257,48 @@ async function getProfileData() {
     let matchList = [];
     let calculatedKda = "0.0";
 
+    // A. 获取基本信息 (这些通常很快)
     try {
         const res = await axios.get(`${creds.url}/lol-summoner/v1/current-summoner`, { 
             httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 2000 
         });
         summoner = res.data;
         currentSummonerId = summoner.summonerId;
-    } catch (e) { return null; }
+    } catch (e) { console.error("LCU Summoner Error", e.message); return null; }
 
+    // B. 获取段位 (优先单双排)
     try {
+        console.log("正在读取段位数据...");
         const res = await axios.get(`${creds.url}/lol-ranked/v1/current-ranked-stats`, { 
-            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 2000 
+            httpsAgent: agent, 
+            headers: { 'Authorization': creds.auth }, 
+            timeout: 5000 // 增加到 5秒，防止超时
         });
+        
         const queues = res.data.queues || [];
-        rankedStats = queues.find(q => q.queueType === "RANKED_SOLO_5x5") || 
-                      queues.find(q => q.queueType === "RANKED_FLEX_SR") || {};
-        if (!rankedStats.tier && queues.length > 0) rankedStats = queues.find(q => q.tier) || {};
-    } catch (e) {}
+        
+        // 🔍 调试日志：打印出所有找到的队列，看看有没有你的段位
+        // (在 VSCode 终端可以看到这个输出)
+        console.log("🔎 [LCU] 扫描到的排位队列:", queues.map(q => `${q.queueType}: ${q.tier} ${q.division}`));
 
+        // 1. 优先找 单双排
+        rankedStats = queues.find(q => q.queueType === "RANKED_SOLO_5x5") || {};
+        
+        // 2. 如果单双没段位，找 灵活组排
+        if (!rankedStats.tier) {
+            rankedStats = queues.find(q => q.queueType === "RANKED_FLEX_SR") || {};
+        }
+        
+        // 3. 如果还是没有，找 云顶之弈 (TFT) 或其他任何有段位的模式兜底
+        if (!rankedStats.tier && queues.length > 0) {
+            rankedStats = queues.find(q => q.tier && q.tier !== "NONE" && q.tier !== "NA") || {};
+        }
+
+    } catch (e) { 
+        console.error("❌ [LCU] 获取段位失败:", e.message); 
+    }
+
+    // C. 获取熟练度
     try {
         const res = await axios.get(`${creds.url}/lol-champion-mastery/v1/local-player/champion-mastery`, { 
             httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 2000 
@@ -289,29 +308,50 @@ async function getProfileData() {
         }
     } catch (e) {}
 
+    // D. 🔥 核心修复：获取战绩 (增加重试机制 + 8秒长超时)
     try {
+        console.log("正在拉取战绩...");
         const matchRes = await axios.get(`${creds.url}/lol-match-history/v1/products/lol/current-summoner/matches`, { 
-            httpsAgent: agent, headers: { 'Authorization': creds.auth }, timeout: 3000 
+            httpsAgent: agent, 
+            headers: { 'Authorization': creds.auth }, 
+            timeout: 8000 // 8秒超时，给客户端足够的反应时间
         });
+        
         const rawGames = matchRes.data.games?.games || [];
+        // 按游戏结束时间倒序 (最新的在最前)
         const allGamesSorted = rawGames.sort((a, b) => b.gameCreation - a.gameCreation);
 
         let validGames = [], k=0, d=0, a=0;
         for (const g of allGamesSorted) {
+            // 🔥 严格过滤：如果不是我们定义的 ID，直接跳过
             if (!QUEUE_ID_MAP[g.queueId]) continue;
+            
             const p = g.participants[0];
-            k+=p.stats.kills; d+=p.stats.deaths; a+=p.stats.assists;
+            k += p.stats.kills; d += p.stats.deaths; a += p.stats.assists;
+            
             validGames.push({
-                id: g.gameId, type: p.stats.win ? "victory" : "defeat", champ: p.championId,
+                id: g.gameId, 
+                gameId: g.gameId, // 兼容字段
+                type: p.stats.win ? "victory" : "defeat", 
+                champ: p.championId,
                 kda: `${p.stats.kills}/${p.stats.deaths}/${p.stats.assists}`,
-                time: (Date.now() - g.gameCreation > 86400000) ? `${Math.floor((Date.now()-g.gameCreation)/86400000)}天前` : "今天",
+                // 传原始时间戳，方便后端排序
+                gameCreation: g.gameCreation, 
+                // 格式化时间 (例如: 2024/1/1)
+                time: new Date(g.gameCreation).toLocaleDateString(),
                 mode: QUEUE_ID_MAP[g.queueId]
             });
-            if (validGames.length >= 30) break;
+            if (validGames.length >= 20) break;
         }
         matchList = validGames;
         if (matchList.length > 0) calculatedKda = ((k+a)/(d===0?1:d)).toFixed(1) + ":1";
-    } catch (e) {}
+        
+        console.log(`✅ [LCU] 战绩获取成功: 抓取到 ${matchList.length} 场有效对局`);
+
+    } catch (e) {
+        console.error("❌ [LCU] 战绩获取超时或失败:", e.message);
+        // 这里不返回 null，而是返回空数组，避免整个档案同步失败
+    }
 
     return {
         summonerId: summoner.summonerId,
@@ -322,7 +362,9 @@ async function getProfileData() {
         rank: rankedStats.tier ? `${rankedStats.tier} ${rankedStats.division}` : 'UNRANKED',
         lp: rankedStats.leaguePoints || 0,
         winRate: (rankedStats.wins + rankedStats.losses) > 0 ? Math.round((rankedStats.wins / (rankedStats.wins + rankedStats.losses)) * 100) : 0,
-        matches: matchList, kda: calculatedKda, mastery: masteryIds
+        matches: matchList, 
+        kda: calculatedKda, 
+        mastery: masteryIds
     };
 }
 

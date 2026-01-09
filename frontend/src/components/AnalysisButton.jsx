@@ -1,46 +1,74 @@
 import React from 'react'; 
-import { Search, ChevronRight, Swords, Brain } from 'lucide-react';
+import { Search, ChevronRight, Swords, Brain, Shield, Crosshair, Zap, HelpCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-// API_BASE_URL 引用已不需要，因为不在这里请求了
+
+// 定义分路图标和颜色
+const ROLE_CONFIG = {
+    "TOP": { icon: Shield, color: "text-gray-400", label: "上单" },
+    "JUNGLE": { icon: Swords, color: "text-green-400", label: "打野" },
+    "MID": { icon: Zap, color: "text-red-400", label: "中单" },
+    "ADC": { icon: Crosshair, color: "text-blue-400", label: "下路" },
+    "SUPPORT": { icon: Brain, color: "text-yellow-400", label: "辅助" },
+};
 
 export default function AnalysisButton({ 
     selectedHero, 
     onOpenChampSelect, 
-    // 删除了 onResult, setLoading, currentUser, userRole 等不需要的 props
-    onAnalyze,      // 新增：外部传入的分析函数
+    onAnalyze,
     isAnalyzing,
+    allowEmpty = false,
+    
+    // 🔥 [新增] 接收分路相关 props
+    currentRole = "MID", 
+    onRoleChange 
 }) {
     
-    // 简化的点击处理函数
-    const handleClick = () => {
-        if (!selectedHero) {
+    // 处理点击：如果有英雄则打开选择器；如果是空位BP模式，则切换分路
+    const handleLeftClick = (e) => {
+        if (selectedHero) {
+            onOpenChampSelect();
+        } else if (allowEmpty && onRoleChange) {
+            // 空位 BP 模式：切换分路
+            e.stopPropagation();
+            const roles = Object.keys(ROLE_CONFIG);
+            const currentIndex = roles.indexOf(currentRole);
+            const nextIndex = (currentIndex + 1) % roles.length;
+            onRoleChange(roles[nextIndex]);
+            toast.success(`已切换至：${ROLE_CONFIG[roles[nextIndex]].label}`);
+        } else {
+            // 普通模式：打开选择器
+            onOpenChampSelect();
+        }
+    };
+
+    const handleClickAnalyze = () => {
+        if (!selectedHero && !allowEmpty) {
             toast.error("请先选择一个英雄！");
             onOpenChampSelect();
             return;
         }
-
         if (isAnalyzing) return;
-        
-        // 直接调用父组件传入的函数
-        if (onAnalyze) {
-            onAnalyze();
-        }
+        if (onAnalyze) onAnalyze();
     };
+
+    const RoleIcon = ROLE_CONFIG[currentRole]?.icon || HelpCircle;
+    const roleLabel = ROLE_CONFIG[currentRole]?.label || "未知";
+    const roleColor = ROLE_CONFIG[currentRole]?.color || "text-slate-400";
 
     return (
         <div className="w-full max-w-xl mx-auto relative group z-20 mb-6">
-            
-            {/* 背景光晕 */}
             <div className={`absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000 ${isAnalyzing ? 'animate-pulse opacity-50' : ''}`}></div>
             
             <div className="relative flex h-14 md:h-16 bg-[#091428] border border-[#C8AA6E]/30 rounded-xl overflow-hidden shadow-2xl">
                 
-                {/* === 左侧：英雄选择区 === */}
+                {/* === 左侧：动态选择区 === */}
                 <button 
-                    onClick={onOpenChampSelect}
+                    onClick={handleLeftClick}
                     className="w-[35%] h-full flex items-center justify-center gap-2 md:gap-3 bg-[#010A13]/80 border-r border-[#C8AA6E]/20 hover:bg-[#1a2332] transition-all relative overflow-hidden group/select"
+                    title={!selectedHero && allowEmpty ? "点击切换推荐分路" : "点击更换英雄"}
                 >
                     {selectedHero ? (
+                        /* 场景 A: 已选英雄 (保持原样) */
                         <>
                             <div className="relative w-8 h-8 md:w-10 md:h-10 rounded border border-[#C8AA6E]/50 shadow-lg overflow-hidden shrink-0 group-hover/select:scale-110 transition-transform">
                                 <img src={selectedHero.image_url} alt={selectedHero.name} className="w-full h-full object-cover" />
@@ -52,7 +80,21 @@ export default function AnalysisButton({
                                 </span>
                             </div>
                         </>
+                    ) : allowEmpty ? (
+                        /* 场景 B: 空位 BP 模式 -> 显示分路选择器 */
+                        <>
+                            <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full border-2 border-dashed border-slate-600 flex items-center justify-center ${roleColor} bg-white/5`}>
+                                <RoleIcon size={20} />
+                            </div>
+                            <div className="flex flex-col items-start min-w-0">
+                                <span className="text-[10px] text-slate-500 scale-90 origin-left uppercase tracking-wider">Target Role</span>
+                                <span className={`text-sm font-bold ${roleColor} flex items-center gap-1`}>
+                                    {roleLabel} <span className="text-[10px] opacity-50">▼</span>
+                                </span>
+                            </div>
+                        </>
                     ) : (
+                        /* 场景 C: 普通空位 -> 显示搜索图标 */
                         <>
                             <div className="w-8 h-8 md:w-10 md:h-10 rounded border border-dashed border-slate-600 flex items-center justify-center text-slate-500">
                                 <Search size={16} />
@@ -60,15 +102,14 @@ export default function AnalysisButton({
                             <span className="text-xs font-bold text-slate-400">选择英雄</span>
                         </>
                     )}
-                    {!selectedHero && <div className="absolute inset-0 bg-white/5 animate-pulse pointer-events-none"></div>}
                 </button>
 
                 {/* === 右侧：分析按钮 === */}
                 <button 
-                    onClick={handleClick}
-                    disabled={isAnalyzing || !selectedHero}
+                    onClick={handleClickAnalyze}
+                    disabled={isAnalyzing || (!selectedHero && !allowEmpty)}
                     className={`flex-1 h-full flex items-center justify-center gap-2 md:gap-3 transition-all relative overflow-hidden
-                        ${!selectedHero 
+                        ${(!selectedHero && !allowEmpty)
                             ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
                             : isAnalyzing
                                 ? 'bg-blue-900/50 text-blue-300 cursor-wait'
@@ -83,32 +124,32 @@ export default function AnalysisButton({
                         </>
                     ) : (
                         <>
-                            <div className={`p-1.5 rounded-full ${selectedHero ? 'bg-white/20' : 'bg-black/20'}`}>
-                                <Brain size={18} className={selectedHero ? 'text-white' : 'text-slate-500'} />
+                            <div className={`p-1.5 rounded-full ${selectedHero || allowEmpty ? 'bg-white/20' : 'bg-black/20'}`}>
+                                <Brain size={18} className={selectedHero || allowEmpty ? 'text-white' : 'text-slate-500'} />
                             </div>
                             <div className="flex flex-col items-start">
-                                <span className={`text-sm md:text-base font-black tracking-wider leading-none ${!selectedHero ? 'opacity-50' : ''}`}>
-                                    {selectedHero ? "开始分析" : "准备就绪"}
+                                <span className={`text-sm md:text-base font-black tracking-wider leading-none ${!selectedHero && !allowEmpty ? 'opacity-50' : ''}`}>
+                                    {selectedHero ? "开始分析" : (allowEmpty ? `获取 ${roleLabel} 推荐` : "准备就绪")}
                                 </span>
-                                {selectedHero && (
+                                {(selectedHero || allowEmpty) && (
                                     <span className="text-[10px] font-mono opacity-80 scale-90 origin-left">
-                                        START ENGINE
+                                        {selectedHero ? "START ENGINE" : "AUTO SUGGEST"}
                                     </span>
                                 )}
                             </div>
-                            {selectedHero && (
+                            {(selectedHero || allowEmpty) && (
                                 <ChevronRight size={18} className="absolute right-4 opacity-50 animate-in slide-in-from-left-2 repeat-infinite duration-1000" />
                             )}
                         </>
                     )}
-                    {selectedHero && !isAnalyzing && (
+                    {(selectedHero || allowEmpty) && !isAnalyzing && (
                         <div className="absolute top-0 -left-[100%] w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 animate-[shimmer_2s_infinite]"></div>
                     )}
                 </button>
             </div>
             
-            {/* 底部小字提示 */}
-            {!selectedHero && (
+            {/* 底部提示 */}
+            {!selectedHero && !allowEmpty && (
                 <div className="absolute -bottom-8 left-0 w-full text-center z-10">
                     <span className="text-[10px] text-red-500 font-bold tracking-wider flex items-center justify-center gap-1 animate-bounce drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
                         <Swords size={12}/> 请先选择双方阵容的英雄

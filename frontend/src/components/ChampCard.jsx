@@ -84,12 +84,27 @@ const ChampCard = ({ champ, idx, isEnemy, userSlot, onSelectMe, role }) => {
         </>
       ) : (
         // 空状态
-        <div className="flex items-center gap-3 w-full opacity-30 group-hover:opacity-60 transition-opacity cursor-pointer">
-             <div className={`w-10 h-10 rounded-sm border border-dashed flex items-center justify-center shrink-0 ${isEnemy ? 'border-red-800' : 'border-slate-600'}`}>
+        <div className="flex items-center gap-3 w-full opacity-50 group-hover:opacity-100 transition-opacity cursor-pointer relative">
+             
+             {/* 选中指示条 */}
+             {isMe && <div className="absolute -left-4 w-1 h-full bg-[#C8AA6E] shadow-[0_0_10px_#C8AA6E]"></div>}
+             
+             <div className={`w-10 h-10 rounded-sm border border-dashed flex items-center justify-center shrink-0 ${isEnemy ? 'border-red-800' : (isMe ? 'border-[#C8AA6E] text-[#C8AA6E]' : 'border-slate-600')}`}>
                 <HelpCircle size={16} />
             </div>
-            {/* 📱 优化：字号 text-xs (12px) */}
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-widest">Select Champion</span>
+            
+            <div className="flex flex-col items-start">
+                <span className={`text-xs font-bold uppercase tracking-widest transition-colors ${isMe ? 'text-[#F0E6D2]' : 'text-slate-500'}`}>
+                    Select Champion
+                </span>
+                
+                {/* 选中文字提示 */}
+                {isMe && (
+                    <span className="text-[9px] font-black text-[#C8AA6E] animate-pulse tracking-widest flex items-center gap-1">
+                        CURRENT TARGET
+                    </span>
+                )}
+            </div>
         </div>
       )}
     </div>

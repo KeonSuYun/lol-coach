@@ -75,11 +75,16 @@ function startWebSocketServer() {
                     const rawMsg = message.toString();
                     const parsed = JSON.parse(rawMsg);
 
-                    if (parsed.type === 'REQUEST_SYNC') broadcast(rawMsg); 
-                    else if (parsed.type === 'SYNC_AI_RESULT' && parsed.data) {
-                        lastAiResult = parsed.data; 
-                        if (overlayWindow && !overlayWindow.isDestroyed()) {
-                            overlayWindow.webContents.send('sync-analysis', parsed.data);
+                    if (parsed.type === 'REQUEST_SYNC') broadcast(rawMsg);
+                    
+                    // 🔥🔥🔥 [新增] 这一段就是缺失的拼图！让后台能听懂前端的 WebSocket 请求
+                    else if (parsed.type === 'REQ_LCU_PROFILE') {
+                        console.log("📩 [WS] 收到前端战绩请求，正在获取...");
+                        const profileData = await getProfileData(); // 调用 lcu.js 获取数据
+                        if (profileData) {
+                            // 通过 WebSocket 发回给前端
+                            ws.send(JSON.stringify({ type: 'LCU_PROFILE_UPDATE', data: profileData }));
+                            console.log("✅ [WS] 战绩已通过 WebSocket 发回");
                         }
                     }
                     else if (parsed.type === 'SYNC_LANE_ASSIGNMENTS' || parsed.type === 'SYNC_TEAM_DATA') {
@@ -286,6 +291,23 @@ function createTray() {
         tray = new Tray(iconPath); 
         const contextMenu = Menu.buildFromTemplate([
             { label: 'HexLite 运行中', enabled: false },
+            { type: 'separator' },
+            
+            // 🔥🔥🔥 [新增] 一键打开开发者工具 (调试神器)
+            { 
+                label: '🛠️ 打开开发者工具 (Debug)', 
+                click: () => {
+                    // 打开主控台的控制台 (Main Console)
+                    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+                        dashboardWindow.webContents.openDevTools({ mode: 'detach' });
+                    }
+                    // 打开悬浮窗的控制台 (Overlay)
+                    if (overlayWindow && !overlayWindow.isDestroyed()) {
+                        overlayWindow.webContents.openDevTools({ mode: 'detach' });
+                    }
+                } 
+            },
+            
             { type: 'separator' },
             { label: '显示/隐藏 Overlay (Home)', click: () => toggleOverlay() },
             { 
