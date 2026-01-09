@@ -1,0 +1,5 @@
+# pnpm workspace 配置
+# 定义 Monorepo 中的子项目
+packages:
+  - 'frontend'
+  - 'HexLite'

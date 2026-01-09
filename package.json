@@ -1,11 +1,27 @@
 {
-  "dependencies": {
-    "@fingerprintjs/fingerprintjs": "^5.0.1",
-    "find-process": "^2.0.0",
-    "react-hot-toast": "^2.6.0",
-    "ws": "^8.18.3"
+  "name": "lol-coach",
+  "version": "2.0.0",
+  "description": "HexCoach - 英雄联盟 AI 战术副驾系统",
+  "private": true,
+  "author": "HexCoach Team",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "pnpm --filter frontend dev",
+    "dev:client": "pnpm --filter HexLite start",
+    "build": "pnpm --parallel --filter \"frontend\" --filter \"HexLite\" build",
+    "build:frontend": "pnpm --filter frontend build",
+    "build:client": "pnpm --filter HexLite build",
+    "lint": "pnpm --parallel --filter \"frontend\" --filter \"HexLite\" lint",
+    "lint:frontend": "pnpm --filter frontend lint",
+    "install:all": "pnpm install",
+    "clean": "pnpm --parallel --filter \"frontend\" --filter \"HexLite\" exec rm -rf node_modules dist release && rm -rf node_modules"
   },
   "devDependencies": {
-    "electron": "^39.2.7"
-  }
+    "@changesets/cli": "^2.27.1"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.4"
 }
