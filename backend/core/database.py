@@ -643,13 +643,11 @@ class KnowledgeBase:
         pipeline = [
             {"$group": {
                 "_id": "$salesperson", 
-                # 只统计 status != 'paid' 的作为待结算佣金
                 "pending_commission": {
                     "$sum": {
                         "$cond": [{"$ne": ["$status", "paid"]}, "$commission", 0]
                     }
                 },
-                # 统计已结算总额
                 "paid_commission": {
                     "$sum": {
                         "$cond": [{"$eq": ["$status", "paid"]}, "$commission", 0]
@@ -659,7 +657,7 @@ class KnowledgeBase:
                 "order_count": {"$sum": 1},
                 "last_order_date": {"$max": "$created_at"}
             }},
-            {"$sort": {"pending_commission": -1}} # 按待结算金额倒序
+            {"$sort": {"pending_commission": -1}}
         ]
         
         try: 
@@ -672,17 +670,30 @@ class KnowledgeBase:
         for r in results:
             username = r["_id"]
             user = self.users_col.find_one({"username": username})
+            
             contact = user.get("email", "未绑定邮箱") if user else "未知用户"
             game_name = "未同步"
-            if user and user.get("game_profile"):
-                if isinstance(user["game_profile"], dict): game_name = user["game_profile"].get("gameName", "未同步")
+
+            # 🔥🔥🔥 [修复核心] 优先读取根目录的新字段 (game_name)
+            if user:
+                if user.get("game_name") and user.get("game_name") != "Unknown":
+                    tag = user.get("tag_line") or user.get("tagLine") or ""
+                    game_name = f"{user['game_name']} #{tag}" if tag else user['game_name']
+                
+                # 🍂 兜底：兼容旧数据 (从 game_profile 读取)
+                elif user.get("game_profile"):
+                    if isinstance(user["game_profile"], dict): 
+                        gn = user["game_profile"].get("gameName")
+                        tl = user["game_profile"].get("tagLine")
+                        if gn:
+                             game_name = f"{gn} #{tl}" if tl else gn
             
             final_list.append({
                 "username": username, 
                 "game_name": game_name, 
                 "contact": contact,
-                "pending_commission": round(r["pending_commission"], 2), # 待结算
-                "paid_commission": round(r["paid_commission"], 2),       # 已结算
+                "pending_commission": round(r["pending_commission"], 2),
+                "paid_commission": round(r["paid_commission"], 2),
                 "total_sales": round(r["total_sales"], 2),
                 "order_count": r["order_count"],
                 "last_active": r["last_order_date"].strftime("%Y-%m-%d") if r["last_order_date"] else "-"

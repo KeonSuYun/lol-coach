@@ -333,17 +333,42 @@ const AdminDashboard = ({ token, onClose, username }) => {
     const { revenue, commissions, apiCost, profit, margin } = calculateFinancials();
 
     const getDisplayName = (user) => {
-        if (user.game_name) return `${user.game_name} #${user.tag_line || 'HEX'}`;
-        if (user.gameName) return `${user.gameName} #${user.tagLine || 'HEX'}`;
-        try {
-            if (user.game_profile) {
-                const p = typeof user.game_profile === 'string' ? JSON.parse(user.game_profile) : user.game_profile;
-                const name = p.gameName || p.game_name;
-                const tag = p.tagLine || p.tag_line || 'HEX';
-                if (name) return `${name} #${tag}`;
+        if (!user) return null;
+
+        // 1. 🔍 优先：尝试读取 Python 后端存入根目录的标准字段 (snake_case)
+        if (user.game_name && user.game_name !== "Unknown") {
+            // 处理 tag_line 可能为空的情况
+            const tag = user.tag_line || user.tagLine || "HEX";
+            return `${user.game_name} #${tag}`;
+        }
+
+        // 2. 🔍 次选：尝试读取前端可能使用的驼峰字段 (camelCase)
+        if (user.gameName && user.gameName !== "Unknown") {
+            const tag = user.tagLine || user.tag_line || "HEX";
+            return `${user.gameName} #${tag}`;
+        }
+
+        // 3. 🔍 兜底：尝试从 game_profile 嵌套对象中挖掘 (旧数据兼容)
+        if (user.game_profile) {
+            let p = user.game_profile;
+            
+            // 防御：如果是 JSON 字符串，尝试解析
+            if (typeof p === 'string') {
+                try { p = JSON.parse(p); } catch (e) {}
             }
-        } catch(e){}
-        return null;
+
+            if (typeof p === 'object' && p) {
+                // 暴力查找所有可能的 key
+                const name = p.gameName || p.game_name || p.summonerName || p.name;
+                const tag = p.tagLine || p.tag_line || p.tag || 'HEX';
+                if (name && name !== "Unknown") {
+                    return `${name} #${tag}`;
+                }
+            }
+        }
+
+        // 4. 🔥 终极兜底：如果完全没有 LCU 数据，显示 "未同步"
+        return null; 
     };
 
     // 获取用户使用次数

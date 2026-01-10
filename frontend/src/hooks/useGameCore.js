@@ -111,7 +111,6 @@ export function useGameCore() {
     const blueTeamRef = useRef(blueTeam);
     const redTeamRef = useRef(redTeam);
     const lcuStatusRef = useRef(lcuStatus);
-
     useEffect(() => { aiResultsRef.current = aiResults; }, [aiResults]);
     useEffect(() => { analyzeTypeRef.current = analyzeType; }, [analyzeType]);
     useEffect(() => { myLaneAssignmentsRef.current = myLaneAssignments; }, [myLaneAssignments]);
@@ -142,7 +141,10 @@ export function useGameCore() {
     
     // 🔥 [核心] 同步锁：防止 LCU 反复抢夺视角 (修复跳回一楼问题)
     const hasSyncedUserSlot = useRef(false); 
-    
+    const hasAutoTeamAnalysisTriggered = useRef(
+        (blueTeam.length === 5 && blueTeam.every(h => h && h.key)) && 
+        (redTeam.length === 5 && redTeam.every(h => h && h.key))
+    );
     const broadcastState = (type, payload) => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type, data: payload }));
@@ -546,7 +548,7 @@ export function useGameCore() {
     useEffect(() => { localStorage.setItem('userRank', userRank);}, [userRank]);
     useEffect(() => { localStorage.setItem('mapSide', mapSide); }, [mapSide]);
     useEffect(() => { localStorage.setItem('userSlot', JSON.stringify(userSlot)); }, [userSlot]);
-
+    
     useEffect(() => {
         axios.get(`${API_BASE_URL}/champions/roles`).then(res => setRoleMapping(res.data)).catch(e => console.error(e));
         const storedToken = localStorage.getItem("access_token");
@@ -583,9 +585,54 @@ export function useGameCore() {
         if (!token) return;
         try { const res = await authAxios.get('/users/me'); setAccountInfo(res.data); } catch (e) {}
     };
-    useEffect(() => { if (token) fetchUserInfo(); else setAccountInfo(null); }, [token]);
+    useEffect(() => { if (token) fetchUserInfo(); else setAccountInfo(null); }, [token]);    
     useEffect(() => { if (rawLcuData && championList.length > 0) handleLcuUpdate(rawLcuData); }, [rawLcuData, championList]);
+        // ============================================================
+    // 🔥🔥🔥 [新增核心功能] 阵容齐全后自动触发团队分析 🔥🔥🔥
+    // ============================================================
+    useEffect(() => {
+        // 1. 如果本局已经自动分析过，直接跳过
+        if (hasAutoTeamAnalysisTriggered.current) return;
 
+        // 2. 检查双方阵容是否"满员" (5个位置都有英雄 Key)
+        // 注意：初始化时是 Array(5).fill(null)，所以要检查非空且有 key
+        const isBlueFull = blueTeam.length === 5 && blueTeam.every(h => h && h.key);
+        const isRedFull = redTeam.length === 5 && redTeam.every(h => h && h.key);
+
+        // 3. 触发条件：双方满员 + 已登录 + 没在分析中
+        if (isBlueFull && isRedFull && token && !analyzingStatus['team']) {
+            
+            console.log("⏳ [AutoAnalyze] 阵容集结完毕，准备触发团队分析...");
+
+            // 4. 防抖倒计时 (3秒)
+            // 作用：防止最后几秒有人疯狂换英雄导致频繁请求，确保分析的是"最终阵容"
+            const timer = setTimeout(() => {
+                // 执行分析 (调用 team 模式)
+                handleAnalyze('team');
+                
+                // 标记为已触发
+                hasAutoTeamAnalysisTriggered.current = true;
+                
+                // 给用户一个反馈
+                toast.success("双方阵容已确定，AI 正在生成团队策略...", { 
+                    icon: '🧠',
+                    duration: 4000,
+                    style: { background: '#091428', color: '#C8AA6E', border: '1px solid #0AC8B9' }
+                });
+            }, 3000);
+
+            // 清理函数：如果 3秒内阵容又变了（导致依赖项变化重新渲染），清除旧定时器
+            return () => clearTimeout(timer);
+        }
+    }, [blueTeam, redTeam, token, analyzingStatus]); // 依赖项：阵容变动即重新检测
+
+    // 🔥 [新增] 监听重置信号：当阵容清空时（新的一局），重置自动分析锁
+    useEffect(() => {
+        const isBlueEmpty = blueTeam.every(h => h === null);
+        if (isBlueEmpty) {
+            hasAutoTeamAnalysisTriggered.current = false;
+        }
+    }, [blueTeam]);
     const handleLcuUpdate = (session) => {
         if (!session || championList.length === 0) return;
         if (session.mapSide && session.mapSide !== "unknown") setMapSide(session.mapSide);
@@ -643,7 +690,7 @@ export function useGameCore() {
             }
         }
     };
-
+    
     const handleLogin = async () => {
         try {
             const formData = new FormData(); formData.append("username", authForm.username); formData.append("password", authForm.password);
@@ -693,7 +740,6 @@ export function useGameCore() {
     };
     useEffect(() => { if (tipTarget) fetchTips(); }, [tipTarget]);
     useEffect(() => { setTipTarget(null); fetchTips(); }, [blueTeam[userSlot], enemyLaneAssignments, userRole, redTeam]);
-
     const handlePostTip = async (modalTarget, modalCategory) => {
         if (!currentUser) return setShowLoginModal(true);
         if (!inputContent.trim()) return;
@@ -763,6 +809,7 @@ export function useGameCore() {
 
     const handleClearSession = () => {
         hasSyncedUserSlot.current = false; // 🔥 [新增] 重置同步锁
+        hasAutoTeamAnalysisTriggered.current = false;
         if(!confirm("确定要清空当前对局记录吗？")) return;
         setBlueTeam(Array(5).fill(null)); setRedTeam(Array(5).fill(null));
         setMyTeamRoles(Array(5).fill(""));
@@ -780,7 +827,10 @@ export function useGameCore() {
         // 1. 登录与状态检查
         if (!token) { setAuthMode('login'); setShowLoginModal(true); return; }
         if (analyzingStatus[mode] && !forceRestart) return;
-        
+        if (mode !== analyzeType) {
+            setAnalyzeType(mode); // 1. 切换到新模块 (如 'team')
+            setActiveTab(0);      // 2. 🔥 [新增] 强制重置到第一页 (战术总览/仪表盘)
+        }
         if (abortControllersRef.current[mode]) abortControllersRef.current[mode].abort();
         const newController = new AbortController(); abortControllersRef.current[mode] = newController;
 

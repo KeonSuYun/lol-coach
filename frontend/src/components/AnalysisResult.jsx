@@ -784,7 +784,7 @@ const AnalysisResult = ({
                         <div className="flex justify-between items-center mb-1">
                             <div className="flex items-center gap-2 md:gap-3">
                                 <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-2 truncate">{concise.title || (isAnalyzing ? "正在进行战术推演..." : "等待分析结果")}</h2>
-                                {!isAnalyzing && concise.content && (
+                                {concise.content && (
                                     <div className="flex items-center bg-white/5 rounded-full border border-white/10 p-0.5 relative z-50 no-drag">
                                         <button onClick={toggleVoice} className={`px-2 py-1 rounded-full text-[9px] font-bold flex items-center gap-1 transition-all ${selectedVoice === 'guide' ? 'bg-pink-500/20 text-pink-300 hover:bg-pink-500/30' : selectedVoice === 'commander' ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' : 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30'}`} title="点击切换语音人格">
                                             <Headphones size={10} /><span>{selectedVoice === 'guide' ? '温婉' : selectedVoice === 'commander' ? '严肃' : '热血'}</span>
@@ -858,7 +858,7 @@ const AnalysisResult = ({
                         )) : (
                             <div className="px-5 py-3 text-xs text-slate-500 italic flex items-center gap-2">{isAnalyzing ? <RefreshCw size={12} className="animate-spin"/> : <BookOpen size={12}/>}{isAnalyzing ? "生成中..." : "等待数据..."}</div>
                         )}
-                        {!isAnalyzing && activeTabsData.length > 0 && (
+                        {activeTabsData.length > 0 && (
                             <button onClick={() => togglePlay(`tab-${webActiveTab}`)} className={`ml-2 p-1.5 rounded-full border transition-all ${playingContext === `tab-${webActiveTab}` ? 'bg-amber-500/20 border-amber-500 text-amber-400' : 'bg-white/5 border-white/10 hover:bg-[#0AC8B9]/10 hover:text-[#0AC8B9]'}`} title={playingContext === `tab-${webActiveTab}` ? (isPaused ? "继续播放" : "暂停播放") : "播放当前页"}>
                                 {isFetchingAudio && playingContext === `tab-${webActiveTab}` ? <Loader2 size={12} className="animate-spin"/> : (playingContext === `tab-${webActiveTab}` && !isPaused ? <Pause size={12}/> : <Play size={12} fill="currentColor"/>)}
                             </button>
