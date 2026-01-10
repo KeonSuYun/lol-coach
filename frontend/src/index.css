@@ -15,14 +15,37 @@ body {
     radial-gradient(circle at 50% 0%, #1E293B 0%, transparent 80%),
     /* 底部光晕：深邃的午夜蓝，增加底部色彩丰富度 */
     radial-gradient(circle at 50% 100%, #172554 0%, transparent 60%);
-    
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+.drag-region {
+    -webkit-app-region: drag;
+}
+
+.no-drag {
+    -webkit-app-region: no-drag;
+}
+
+/* 隐藏滚动条 */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+  /* 🔥 [新增] 优化文字渲染层级 */
+  text-rendering: optimizeLegibility;
   background-attachment: fixed;
   color: #A09B8C;
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
   overflow-y: scroll; /* 总是显示滚动条防止抖动 */
 }
-
+body.transparent-mode {
+    /* 增加全局文字阴影，保证在亮色游戏背景下也能看清 */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 0 5px rgba(0, 0, 0, 0.5);
+}
 /* 下拉框文字居中 */
 select {
   text-align-last: center;

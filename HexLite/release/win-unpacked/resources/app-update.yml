@@ -1,0 +1,3 @@
+provider: generic
+url: https://hexlite-1323189183.cos.ap-nanjing.myqcloud.com/updates/
+updaterCacheDirName: hex-lite-client-updater

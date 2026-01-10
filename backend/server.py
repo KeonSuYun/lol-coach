@@ -298,7 +298,32 @@ class ResolveFeedbackRequest(BaseModel):
     adopt: bool = False
     reward: int = 1
     reward_type: str = "r1"
+class ConnectionManager:
+    def __init__(self):
+        # 存储所有活跃的 WebSocket 连接
+        self.active_connections: List[WebSocket] = []
 
+    async def connect(self, websocket: WebSocket):
+        # 接受连接
+        await websocket.accept()
+        # 加入列表
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        # 从列表中移除
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        # 向所有连接广播消息
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                pass
+
+# 实例化全局 manager 变量
+manager = ConnectionManager()
 class BlockRequest(BaseModel):
     target_username: str
 
@@ -958,7 +983,7 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
 
 # 🔥🔥🔥 [修复] 个人档案同步 (使用 db.users_col + 修复时间) 🔥🔥🔥
 @app.post("/users/sync_profile")
-async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(get_current_user)):
+def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(get_current_user)):
     # 1. 载入旧战绩
     user_in_db = db.users_col.find_one({"_id": current_user["_id"]})
     existing_matches = user_in_db.get("matches", []) if user_in_db else []
@@ -1012,7 +1037,7 @@ async def sync_user_profile(data: UserProfileSync, current_user: dict = Depends(
     return {"status": "success", "msg": f"同步成功 (库内 {len(merged_matches)} 场)"}
 
 @app.get("/users/me")
-async def read_users_me(current_user: dict = Depends(get_current_user)):
+def read_users_me(current_user: dict = Depends(get_current_user)):
     status_info = db.get_user_usage_status(current_user['username'])
     user_doc = db.users_col.find_one({"_id": current_user["_id"]}) # 重新查库保鲜
     
@@ -1318,7 +1343,7 @@ async def tts_proxy(req: TTSRequest):
     target_voice = VOICE_CONFIG.get(req.voice_id, VOICE_CONFIG["guide"])
 
     # 简单清洗文本
-    clean_text = re.sub(r'\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】', '', req.text)
+    clean_text = re.sub(r'\([^)]*\)|（[^）]*）|\[[^\]]*\]', '', req.text)
     
     # 2. 替换冒号为句号 (增加停顿)
     clean_text = clean_text.replace(':', '。').replace('：', '。')

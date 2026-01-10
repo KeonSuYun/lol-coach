@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { API_BASE_URL, BRIDGE_WS_URL, DDRAGON_BASE } from '../config/constants';
+
 import { fetchMatchTips } from '../api/GlobalAPI';
 const loadState = (key, defaultVal) => {
     try {
@@ -93,9 +94,7 @@ export function useGameCore() {
 
     const [useThinkingModel, setUseThinkingModel] = useState(() => loadState('useThinkingModel', false));
     const [aiResults, setAiResults] = useState(() => loadState('aiResults', { bp: null, personal: null, team: null }));
-    const aiResultsRef = useRef(aiResults);
-    useEffect(() => { aiResultsRef.current = aiResults; }, [aiResults]);
-
+    
     const [analyzingStatus, setAnalyzingStatus] = useState({});
     const abortControllersRef = useRef({ bp: null, personal: null, team: null });
     const isModeAnalyzing = (mode) => !!analyzingStatus[mode];
@@ -103,8 +102,24 @@ export function useGameCore() {
     const [analyzeType, setAnalyzeType] = useState(() => loadState('analyzeType', 'personal'));
     const [viewMode, setViewMode] = useState('detailed');
     const [activeTab, setActiveTab] = useState(0); 
+    
+    // 🔥 [新增] Refs 用于在 WebSocket 闭包中获取最新状态 (防止死循环的关键)
+    const aiResultsRef = useRef(aiResults);
     const analyzeTypeRef = useRef(analyzeType);
+    const myLaneAssignmentsRef = useRef(myLaneAssignments);
+    const enemyLaneAssignmentsRef = useRef(enemyLaneAssignments);
+    const blueTeamRef = useRef(blueTeam);
+    const redTeamRef = useRef(redTeam);
+    const lcuStatusRef = useRef(lcuStatus);
+
+    useEffect(() => { aiResultsRef.current = aiResults; }, [aiResults]);
     useEffect(() => { analyzeTypeRef.current = analyzeType; }, [analyzeType]);
+    useEffect(() => { myLaneAssignmentsRef.current = myLaneAssignments; }, [myLaneAssignments]);
+    useEffect(() => { enemyLaneAssignmentsRef.current = enemyLaneAssignments; }, [enemyLaneAssignments]);
+    useEffect(() => { blueTeamRef.current = blueTeam; }, [blueTeam]);
+    useEffect(() => { redTeamRef.current = redTeam; }, [redTeam]);
+    useEffect(() => { lcuStatusRef.current = lcuStatus; }, [lcuStatus]);
+
 
     const [tipTarget, setTipTarget] = useState(null);
     const [tips, setTips] = useState({ general: [], matchup: [] });
@@ -121,13 +136,13 @@ export function useGameCore() {
     const [authMode, setAuthMode] = useState("login");
     const [authForm, setAuthForm] = useState({ username: "", password: "" });
     const [rawLcuData, setRawLcuData] = useState(null);
-
+    
     const wsRef = useRef(null);
     const isRemoteUpdate = useRef(false);
     
     // 🔥 [核心] 同步锁：防止 LCU 反复抢夺视角 (修复跳回一楼问题)
     const hasSyncedUserSlot = useRef(false); 
-
+    
     const broadcastState = (type, payload) => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type, data: payload }));
@@ -245,80 +260,96 @@ export function useGameCore() {
         }
     }, [redTeam, roleMapping]);
 
+    // WebSocket Logic (🔥🔥🔥 修复版 🔥🔥🔥)
+    // src/hooks/useGameCore.js
+
+    // 🔥🔥🔥 [核心修复] WebSocket 连接逻辑优化 (完全替换整个 useEffect)
     useEffect(() => {
+        let ws = null;
+        let timer = null;
+        let isMounted = true; // <--- 新增了这个变量，必须全替换才能生效
 
-
-        
-        let ws; 
-        let timer;
-        
         const connect = () => {
-            // 创建连接
+            if (!isMounted) return;
+            
+            // 防止重复连接
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+
             ws = new WebSocket(BRIDGE_WS_URL);
             wsRef.current = ws;
 
             ws.onopen = () => {
                 console.log("✅ [Frontend] WebSocket 连接成功");
-                setLcuStatus("connected");
-                // 连接成功后，立即请求一次数据
+                if (isMounted) setLcuStatus("connected");
                 ws.send(JSON.stringify({ type: 'REQUEST_SYNC' }));
             };
 
-            ws.onclose = () => { 
-                console.log("⚠️ [Frontend] WebSocket 断开，3秒后重连...");
-                setLcuStatus("disconnected"); 
-                setLcuRealRole(""); 
-                timer = setTimeout(connect, 3000); 
+            ws.onclose = () => {
+                if (isMounted) {
+                    console.log("⚠️ [Frontend] WebSocket 断开，3秒后重连...");
+                    setLcuStatus("disconnected");
+                    // 3秒后尝试重连
+                    timer = setTimeout(connect, 3000); 
+                }
             };
 
-            ws.onerror = (err) => {
-                // 捕获错误防止红字刷屏，但要记录日志
-                // console.warn("WS连接错误:", err); 
-                if(ws) ws.close();
-            };
+            ws.onerror = () => { if (ws) ws.close(); };
 
             ws.onmessage = (event) => {
+                if (!isMounted) return;
                 try {
                     const msg = JSON.parse(event.data);
                     
-                    // 🔥🔥 核心修复：同步后刷新全站数据 🔥🔥
                     if (msg.type === 'LCU_PROFILE_UPDATE') {
-                        console.log("📦 [WS] 收到战绩数据:", msg.data);
-                        // 先临时展示本地数据，让用户感觉“快”
                         setLcuProfile(msg.data);
-                        
                         if (token) {
                             axios.post(`${API_BASE_URL}/users/sync_profile`, msg.data, { 
                                 headers: { Authorization: `Bearer ${token}` } 
-                            })
-                            .then(async (res) => {
-                                console.log("✅ 同步至云端成功");
-                                
-                                // 1. 立即从后端拉取最新的完整数据 (包含合并后的8场战绩 + 新段位)
-                                if (fetchUserInfo) {
-                                    await fetchUserInfo(); 
-                                }
-                        
+                            }).then(() => {
+                                if (typeof fetchUserInfo === 'function') fetchUserInfo();
                                 setLcuProfile(null); 
-                                
-                                if (typeof toast !== 'undefined') toast.success("档案已同步，数据已合并");
-                            })
-                            .catch(e => console.error("同步云端失败", e));
+                            }).catch(e => console.error(e));
                         }
                     }
 
-                    // === 处理其他状态 ===
-                    if (msg.type === 'CHAMP_SELECT') setRawLcuData(msg.data);
+                    if (msg.type === 'CHAMP_SELECT') {
+                        isRemoteUpdate.current = true;
+                        setRawLcuData(msg.data);
+                    }
                     
                     if (msg.type === 'STATUS') {
                         if(msg.data === 'connected') setLcuStatus("connected");
                         else if(msg.data === 'disconnected') { setLcuStatus("disconnected"); setLcuRealRole(""); }
                     }
+
+                    if (msg.type === 'REQUEST_SYNC') {
+                        // 响应同步请求
+                        const currentBlue = blueTeamRef.current;
+                        const isDefault = JSON.stringify(currentBlue) === JSON.stringify(DEFAULT_BLUE);
+                        const isLCU = lcuStatusRef.current === 'connected';
+
+                        if (!isDefault || isLCU || aiResultsRef.current?.personal) {
+                            if (aiResultsRef.current) {
+                                ws.send(JSON.stringify({ 
+                                    type: 'SYNC_AI_RESULT', 
+                                    data: { results: aiResultsRef.current, currentMode: analyzeTypeRef.current } 
+                                }));
+                            }
+                            ws.send(JSON.stringify({ 
+                                type: 'SYNC_LANE_ASSIGNMENTS', 
+                                data: { my: myLaneAssignmentsRef.current, enemy: enemyLaneAssignmentsRef.current } 
+                            }));
+                            ws.send(JSON.stringify({ 
+                                type: 'SYNC_TEAM_DATA', 
+                                data: { blueTeam: blueTeamRef.current, redTeam: redTeamRef.current } 
+                            }));
+                        }
+                    }
                     
                     if (msg.type === 'SYNC_LANE_ASSIGNMENTS') {
                         isRemoteUpdate.current = true;
-                        if (JSON.stringify(myLaneAssignments) !== JSON.stringify(msg.data.my)) setMyLaneAssignments(msg.data.my);
-                        if (JSON.stringify(enemyLaneAssignments) !== JSON.stringify(msg.data.enemy)) setEnemyLaneAssignments(msg.data.enemy);
+                        setMyLaneAssignments(msg.data.my);
+                        setEnemyLaneAssignments(msg.data.enemy);
                     }
                     
                     if (msg.type === 'SYNC_TEAM_DATA') {
@@ -337,14 +368,18 @@ export function useGameCore() {
             };
         };
 
-        // 延迟 1 秒启动，给本地服务一点准备时间
-        timer = setTimeout(connect, 1000); 
-        
-        return () => { 
-            if(ws) ws.close(); 
-            clearTimeout(timer); 
+        connect();
+
+        return () => {
+            isMounted = false; // <--- 这里用到了上面的变量
+            if (timer) clearTimeout(timer);
+            if (ws) {
+                ws.onclose = null;
+                ws.close();
+            }
         };
-    }, [token, myLaneAssignments, enemyLaneAssignments, blueTeam, redTeam]);
+    }, []); // 🔥 依赖项必须为空数组
+
     useEffect(() => {
         if (window.require) {
             try {
@@ -573,6 +608,12 @@ export function useGameCore() {
             const enemyArr = session.theirTeam || session.enemyTeam || []; 
             const newRed = mapTeam(enemyArr);
             
+            // 🔥 [核心修复] 深度对比，如果数据没变，直接 return，不触发任何状态更新和广播
+            if (JSON.stringify(newBlue) === JSON.stringify(blueTeam) && 
+                JSON.stringify(newRed) === JSON.stringify(redTeam)) {
+                return;
+            }
+
             if (newBlue.some(c => c !== null) || newRed.some(c => c !== null)) { 
                 setBlueTeam(newBlue); setRedTeam(newRed); 
             }
@@ -588,11 +629,10 @@ export function useGameCore() {
 
             if (session.localPlayerCellId !== undefined && session.localPlayerCellId !== -1) {
                 const localPlayer = session.myTeam.find(p => p.cellId === session.localPlayerCellId);
-                // 🔥 [修改] 使用 hasSyncedUserSlot 锁，防止 LCU 反复抢夺视角
+                // 使用 Ref 检查锁状态
                 if (localPlayer && !hasSyncedUserSlot.current) {
                     setUserSlot(localPlayer.cellId % 5);
-                    hasSyncedUserSlot.current = true; // 🔒 锁定，不再自动跳
-
+                    hasSyncedUserSlot.current = true;
                     const assigned = localPlayer.assignedPosition?.toUpperCase();
                     if (assigned && lcuRoleMap[assigned]) {
                         const standardRole = lcuRoleMap[assigned];
@@ -624,32 +664,28 @@ export function useGameCore() {
 
     const fetchTips = async (targetOverride = null) => {
         const myHeroName = blueTeam[userSlot]?.name;
-        // 如果自己没选英雄，直接不请求
         if (!myHeroName) return;
         
         let target = targetOverride || tipTarget;
         
-        // 如果没有指定目标，尝试自动寻找对位
+        // 自动寻找对位逻辑 (保持不变)
         if (!target) {
-            // 1. 优先找当前分路的对手 (例如我是上单，找对面已知的上单)
             if (userRole && enemyLaneAssignments[userRole]) {
                 target = enemyLaneAssignments[userRole];
-            } 
-            // 2. 如果我是打野，且分路表里没找到，尝试去对面阵容里找带 "Jungle" 标签的英雄
-            else if (userRole === 'JUNGLE') {
+            } else if (userRole === 'JUNGLE') {
                 const enemyJg = Object.values(enemyLaneAssignments).find(h => 
                     redTeam.find(c => c?.name === h)?.tags?.includes("Jungle")
                 ) || redTeam.find(c => c && c.tags && c.tags.includes("Jungle"))?.name;
                 target = enemyJg;
             }
-            // 3. 实在找不到，兜底找对面第一个有名字的英雄 (防止报错)
             if (!target) target = redTeam.find(c => c)?.name;
         }
 
-        // ✅ 使用带缓存的新 API (这就解决了刷屏问题)
+        // 🔥🔥🔥 核心修改：使用 fetchMatchTips 代替 axios.get 🔥🔥🔥
+        // 这会先查内存缓存，如果查到了，就不会向服务器发请求
         const data = await fetchMatchTips(myHeroName, target);
         
-        // 🔒 只有当数据真的变了才更新 State，彻底杜绝死循环
+        // 🔒 双重保险：只有当数据真的变了才更新 State，防止 React 死循环
         setTips(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
             return data;

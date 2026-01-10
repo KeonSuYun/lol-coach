@@ -1,16 +1,26 @@
 {
   "name": "hex-lite-client",
-  "version": "1.0.0",
+  "version": "1.1.13",
   "description": "HexCoach Light Client",
   "main": "main.js",
   "author": "HexCoach",
   "license": "ISC",
   "scripts": {
+    "clean": "rimraf release",
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "npm run clean && electron-builder",
+    "upload": "node scripts/upload.js",
+    "bump": "npm version patch --no-git-tag-version",
+    "bump:minor": "npm version minor --no-git-tag-version",
+    "bump:major": "npm version major --no-git-tag-version",
+    "release": "npm run bump && npm run build && npm run upload",
+    "release:minor": "npm run bump:minor && npm run build && npm run upload",
+    "release:major": "npm run bump:major && npm run build && npm run upload"
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "electron-log": "^5.1.0",
+    "electron-updater": "^6.7.3",
     "find-process": "^1.4.7",
     "koffi": "^2.14.1",
     "lucide-react": "^0.562.0",
@@ -18,8 +28,12 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "cos-nodejs-sdk-v5": "^2.12.6",
+    "dotenv": "^16.3.1",
     "electron": "^28.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "glob": "^10.3.10",
+    "rimraf": "^6.1.2"
   },
   "build": {
     "appId": "com.hexcoach.lite",
@@ -29,12 +43,19 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://hexlite-1323189183.cos.ap-nanjing.myqcloud.com/updates/"
+      }
+    ],
     "files": [
       "main.js",
       "lcu.js",
       "package.json",
       "resources/**/*"
     ],
+    "artifactName": "HexLite-Setup-${version}.${ext}",
     "win": {
       "icon": "resources/icon.ico",
       "target": "nsis",

@@ -18,7 +18,7 @@ export default function AnalysisButton({
     isAnalyzing,
     allowEmpty = false,
     
-    // 🔥 [新增] 接收分路相关 props
+    // 🔥 [核心] 接收分路相关 props，支持外部控制
     currentRole = "MID", 
     onRoleChange 
 }) {
@@ -32,9 +32,13 @@ export default function AnalysisButton({
             e.stopPropagation();
             const roles = Object.keys(ROLE_CONFIG);
             const currentIndex = roles.indexOf(currentRole);
+            
+            // 循环切换到下一个位置
             const nextIndex = (currentIndex + 1) % roles.length;
-            onRoleChange(roles[nextIndex]);
-            toast.success(`已切换至：${ROLE_CONFIG[roles[nextIndex]].label}`);
+            const nextRole = roles[nextIndex];
+            
+            onRoleChange(nextRole);
+            toast.success(`已切换至：${ROLE_CONFIG[nextRole].label}`);
         } else {
             // 普通模式：打开选择器
             onOpenChampSelect();
@@ -68,7 +72,7 @@ export default function AnalysisButton({
                     title={!selectedHero && allowEmpty ? "点击切换推荐分路" : "点击更换英雄"}
                 >
                     {selectedHero ? (
-                        /* 场景 A: 已选英雄 (保持原样) */
+                        /* 场景 A: 已选英雄 */
                         <>
                             <div className="relative w-8 h-8 md:w-10 md:h-10 rounded border border-[#C8AA6E]/50 shadow-lg overflow-hidden shrink-0 group-hover/select:scale-110 transition-transform">
                                 <img src={selectedHero.image_url} alt={selectedHero.name} className="w-full h-full object-cover" />

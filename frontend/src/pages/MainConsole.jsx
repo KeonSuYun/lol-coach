@@ -129,6 +129,10 @@ const HERO_FARMING_CONFIG = {
     "Aatrox":   { tier: 3, farming_stars: 3, standard_stars: 4, reason_farming: "野核模式：吸血续航，野区单挑强", reason_standard: "标准模式：多段击飞，团战天神下凡" }
 };
 
+// 🔥 [核心修复] 使用模块级变量防止重复同步
+// 即使组件重渲染，这个变量也不会重置，直到页面刷新或 LCU 断开
+let hasGlobalSynced = false;
+
 export default function MainConsole({ state, actions }) {
     const { 
         version, lcuStatus, userRole, currentUser, useThinkingModel, accountInfo, userRank,
@@ -156,6 +160,16 @@ export default function MainConsole({ state, actions }) {
 
     const [showGuide, setShowGuide] = useState(false);
     const [isFarmingMode, setIsFarmingMode] = useState(false);
+    
+    // 🔥 [新增] 手动锁定标志 (Ref 不会触发重渲染)
+    const isManualOverride = useRef(false);
+
+    // 🔥 [新增] 智能重置锁：只有当 LCU 的分路数据发生"实质性"变化时，才重置锁
+    useEffect(() => {
+        // console.log("🔄 [AutoSync] LCU 分路数据已更新，重置手动锁");
+        isManualOverride.current = false;
+    }, [JSON.stringify(myTeamRoles), userSlot]);
+
     const effectiveMode = useMemo(() => {
         if (analyzeType === 'personal' && userRole === 'JUNGLE' && isFarmingMode) {
             return 'role_jungle_farming';
@@ -163,13 +177,16 @@ export default function MainConsole({ state, actions }) {
         return analyzeType;
     }, [analyzeType, userRole, isFarmingMode]);
     
+    // 自动同步 UserRole 逻辑
     useEffect(() => {
+        // 🔥 [新增] 如果处于手动锁定状态，直接拦截自动同步
+        if (isManualOverride.current) return;
+
         const currentHero = blueTeam[userSlot];
         
         // 1. 如果当前格子有英雄
         if (currentHero && currentHero.name) {
             // 反查分路表：找找看 myLaneAssignments 里，哪个位置填的是这个英雄的名字
-            // 例如：myLaneAssignments['JUNGLE'] === '法外狂徒'
             const assignedRole = Object.keys(myLaneAssignments).find(
                 role => myLaneAssignments[role] === currentHero.name
             );
@@ -177,7 +194,6 @@ export default function MainConsole({ state, actions }) {
             // 如果在分路表里找到了位置，强制同步 userRole
             if (assignedRole) {
                 if (userRole !== assignedRole) {
-                    // console.log(`🔄 强同步：从分路表检测到 ${currentHero.name} 是 ${assignedRole}`);
                     setUserRole(assignedRole);
                 }
                 return; // 找到了就结束，以此为准
@@ -192,7 +208,8 @@ export default function MainConsole({ state, actions }) {
             }
         }
     }, [userSlot, blueTeam, myLaneAssignments, myTeamRoles, userRole]);
-    // 🔥 [优化] 智能自动开关逻辑
+
+    // 智能自动开关野核模式逻辑
     useEffect(() => {
         const hero = blueTeam[userSlot];
         if (hero && userRole === 'JUNGLE') {
@@ -259,20 +276,17 @@ export default function MainConsole({ state, actions }) {
         actions.setShowCommunity(true);
     };
 
-    // 🔥🔥🔥 [新增功能] 进入主控台时，自动同步个人数据 (战绩/段位/头像) 🔥🔥🔥
-    const hasSyncedRef = useRef(false);
-
-    // 🔥 2. 监听 LCU 状态，断开时重置锁
+    // 🔥🔥🔥 [核心修复] 防止个人数据重复同步 🔥🔥🔥
+    // 1. 如果 LCU 断开，重置全局锁，允许下次重连时再次同步
     useEffect(() => {
         if (lcuStatus !== 'connected') {
-            hasSyncedRef.current = false;
+            hasGlobalSynced = false;
         }
     }, [lcuStatus]);
 
-    // 🔥 3. 修改自动同步逻辑
+    // 2. 自动同步逻辑 (使用全局变量控制)
     useEffect(() => {
-        // 增加 !hasSyncedRef.current 判断
-        if (hasStarted && lcuStatus === 'connected' && !hasSyncedRef.current) {
+        if (hasStarted && lcuStatus === 'connected' && !hasGlobalSynced) {
             
             const timer = setTimeout(() => {
                 if (handleSyncProfile) {
@@ -280,7 +294,7 @@ export default function MainConsole({ state, actions }) {
                     handleSyncProfile();
                     
                     // 标记为已同步，防止重复执行
-                    hasSyncedRef.current = true;
+                    hasGlobalSynced = true;
 
                     toast.success("已自动同步游戏档案", { 
                         icon: '🔄', 
@@ -477,10 +491,11 @@ export default function MainConsole({ state, actions }) {
                                 // 🔥 [新增] 传递当前分路和修改方法
                                 currentRole={userRole}
                                 onRoleChange={(newRole) => {
-                                    setUserRole(newRole); // 直接更新全局状态
+                                    // 1. 上锁：告诉 useEffect "别动，这是我手动改的"
+                                    isManualOverride.current = true;
                                     
-                                    // 可选：如果希望这不仅仅是改 UI，还要同步到底层数据，可以同步修改 myTeamRoles
-                                    // 但为了简单起见，仅修改 userRole 就足够让 handleAnalyze 获取到正确值了
+                                    // 2. 执行修改
+                                    setUserRole(newRole); 
                                 }}
                                 // 2. 点击处理
                                 onAnalyze={() => {
@@ -518,7 +533,6 @@ export default function MainConsole({ state, actions }) {
                         </div>
                         
                         {/* 🔥 选项卡面板 + 野核开关集成 */}
-                        {/* 🟢 [修复] 移除 overflow-hidden 以解决 Tooltip 遮挡问题 */}
                         <div id="analysis-tabs" className="bg-[#010A13] border border-[#C8AA6E]/30 rounded-t-lg relative z-30 shadow-2xl">
                             {/* Tabs Grid */}
                             <div className="grid grid-cols-3 gap-0">
@@ -542,7 +556,6 @@ export default function MainConsole({ state, actions }) {
                             </div>
 
                             {/* 🔥 野核模式开关区域 (优化后样式) */}
-                            {/* 🔥 战术风格选择器 (方案一：分段控制 + 方案二：智能推荐) */}
                             {userRole === 'JUNGLE' && analyzeType === 'personal' && (
                                 <div className="mt-0 pt-3 pb-3 px-4 border-t border-white/5 animate-in fade-in slide-in-from-top-1 bg-[#091428]">
                                     <div className="flex items-center justify-between">

@@ -183,48 +183,86 @@ async function processGameStartData(gameData, creds, callback) {
     const teamOne = gameData.gameData.teamOne || [];
     const teamTwo = gameData.gameData.teamTwo || [];
 
-    // 确保有 summonerId
+    // 确保有 summonerId (如果没有，尝试重新获取一次)
     if (!currentSummonerId) {
         const profile = await getProfileData();
         if (profile) currentSummonerId = profile.summonerId;
     }
 
-    // 强类型比对
-    let amInTeamOne = teamOne.some(p => String(p.summonerId) === String(currentSummonerId));
-    let amInTeamTwo = teamTwo.some(p => String(p.summonerId) === String(currentSummonerId));
+    // 🕵️ 核心判定逻辑升级
+    // 优先匹配 SummonerID，如果匹配不到（匿名模式），尝试匹配 puuid 或 accountId（如果API有返回）
+    // 这里我们使用一种更通用的兜底策略
+    let amInTeamOne = false;
+    let foundMyself = false;
 
-    // 智能兜底：人机模式下 ID 可能变异，靠人数判断
-    if (!amInTeamOne && !amInTeamTwo) {
+    // 1. 尝试在 TeamOne 找自己
+    for (const p of teamOne) {
+        if (String(p.summonerId) === String(currentSummonerId)) {
+            amInTeamOne = true;
+            foundMyself = true;
+            break;
+        }
+    }
+
+    // 2. 如果 TeamOne 没找到，尝试 TeamTwo
+    if (!foundMyself) {
+        for (const p of teamTwo) {
+            if (String(p.summonerId) === String(currentSummonerId)) {
+                amInTeamOne = false; // 我在队2
+                foundMyself = true;
+                break;
+            }
+        }
+    }
+
+    // 3. 🔥 [匿名模式兜底] 如果 ID 完全匹配不到 (比如全是 0)
+    // LCU 的 teamOne 通常是蓝方，teamTwo 是红方。
+    // 在加载界面 API 中，playerChampionSelections 数组通常包含当前客户端玩家的选择。
+    // 如果无法通过 ID 确认，我们只能做最坏的打算：假设 TeamOne 是我方 (通常本地玩家在数据结构前列)
+    if (!foundMyself) {
+        console.log("⚠️ [LCU] 无法通过 ID 识别阵营 (可能为匿名模式)，启用兜底逻辑");
+        // 如果 TeamOne 有数据而 TeamTwo 没有，那我肯定在 TeamOne
         if (teamOne.length > 0 && teamTwo.length === 0) amInTeamOne = true;
+        // 反之亦然
         else if (teamOne.length === 0 && teamTwo.length > 0) amInTeamOne = false;
-        else amInTeamOne = true; // 默认蓝方
+        // 都有数据时，默认 TeamOne (这是 LCU 本地 API 的常见行为，但也可能是错的，但在匿名下无解)
+        else amInTeamOne = true; 
     }
 
     const myRawTeam = amInTeamOne ? teamOne : teamTwo;
     const enemyRawTeam = amInTeamOne ? teamTwo : teamOne;
     const mapSide = amInTeamOne ? 'blue' : 'red';
 
-    // 手动计算 CellId (0-4 vs 5-9)
+    // 计算座位号 (CellId)
+    // 修复：如果 ID 匹配不到，这里 localPlayerCellId 可能会错，但这只影响“我”的高亮，不影响获取英雄
     let localPlayerCellId = 0;
-    const myIndex = myRawTeam.findIndex(p => String(p.summonerId) === String(currentSummonerId));
-    if (myIndex !== -1) {
-        localPlayerCellId = (amInTeamOne ? 0 : 5) + myIndex;
+    if (foundMyself) {
+        const myIndex = myRawTeam.findIndex(p => String(p.summonerId) === String(currentSummonerId));
+        if (myIndex !== -1) {
+            localPlayerCellId = (amInTeamOne ? 0 : 5) + myIndex;
+        }
+    } else {
+        // 匿名兜底：默认我是 1 楼
+        localPlayerCellId = amInTeamOne ? 0 : 5;
     }
 
     const parseGameTeam = async (rawArr, offset) => {
         if (!Array.isArray(rawArr)) return [];
         return await Promise.all(rawArr.map(async (p, index) => {
             let key = null;
+            // 🔥 关键修复：即使 championId 有效，也要确保能获取到详情
+            // 匿名模式下 championId 依然是准确的
             if (p.championId && p.championId !== 0) {
-                // 加载界面只读基础信息，不读技能，防卡顿
                 const detail = await fetchChampionDetail(creds, p.championId, false);
                 if (detail) key = detail.alias || detail.id;
             }
+            
             return {
-                cellId: offset + index, // 🔥 强制座位号
+                cellId: offset + index,
                 championId: p.championId || 0,
-                championKey: key,
-                summonerName: p.summonerName,
+                championKey: key, // 用于前端显示图片
+                // 匿名模式下 summonerName 可能为空或 "Summoner 1"，前端要做展示兼容
+                summonerName: p.summonerName || "匿名玩家", 
                 assignedPosition: p.selectedPosition || "" 
             };
         }));
@@ -241,7 +279,7 @@ async function processGameStartData(gameData, creds, callback) {
         enemyTeam,
         mapSide,
         localPlayerCellId,
-        extraMechanics: {} 
+        extraMechanics: {} // 加载界面暂不读取详细技能，节省资源
     });
 }
 
@@ -430,15 +468,39 @@ async function connectToLCU(callback, onWarning) {
             if (uri === '/lol-gameflow/v1/gameflow-phase') {
                 callback({ gamePhase: payload });
                 
-                // 🔥 加载界面重读逻辑
+                // 🔥🔥🔥 [核心修复] InProgress 阶段增加重试机制
                 if (payload === 'InProgress') {
-                    console.log('🔄 [LCU] 进入加载界面，尝试 Gameflow 数据...');
-                    setTimeout(async () => {
+                    console.log('🔄 [LCU] 游戏开始，启动数据抓取 (5次重试)...');
+                    
+                    let attempts = 0;
+                    const maxAttempts = 5;
+                    
+                    const tryFetchGameflow = async () => {
+                        attempts++;
                         try {
                             const gameData = await fetchGameflowSession(creds);
-                            if (gameData) await processGameStartData(gameData, creds, callback);
-                        } catch (e) { console.error('Error fetching gameflow:', e); }
-                    }, 2000); 
+                            // 检查数据有效性：必须包含队伍信息
+                            if (gameData && gameData.gameData && 
+                               (gameData.gameData.teamOne.length > 0 || gameData.gameData.teamTwo.length > 0)) {
+                                
+                                console.log(`✅ [LCU] 第 ${attempts} 次抓取成功`);
+                                await processGameStartData(gameData, creds, callback);
+                                return; // 成功则退出
+                            } else {
+                                throw new Error("数据为空");
+                            }
+                        } catch (e) {
+                            if (attempts < maxAttempts) {
+                                console.log(`⏳ [LCU] 第 ${attempts} 次抓取未就绪，2秒后重试...`);
+                                setTimeout(tryFetchGameflow, 2000);
+                            } else {
+                                console.error('❌ [LCU] 放弃抓取，请手动刷新');
+                            }
+                        }
+                    };
+                    
+                    // 立即开始第一次尝试
+                    setTimeout(tryFetchGameflow, 1000);
                 }
             }
         } catch (e) {}

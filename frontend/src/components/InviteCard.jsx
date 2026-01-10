@@ -65,8 +65,7 @@ const InviteCard = ({ token, username, onUpdateSuccess, accountInfo }) => {
                 {/* 动态光效背景 */}
                 <div className="absolute top-0 right-0 w-48 h-48 bg-[#0AC8B9]/10 rounded-full blur-[60px] animate-pulse pointer-events-none mix-blend-screen"></div>
                 <div className="absolute bottom-0 left-0 w-40 h-40 bg-[#0AC8B9]/5 rounded-full blur-[50px] pointer-events-none"></div>
-                <div className="absolute inset-0 bg-[url('https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/hextech-pattern.png')] opacity-10 bg-repeat pointer-events-none"></div>
-
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-900/10 to-purple-900/10 opacity-20 pointer-events-none" />
                 {/* 1. 顶部 Header: 标题 + 复制我的代码 */}
                 <div className="flex justify-between items-center mb-5 relative z-10">
                     <div className="flex items-center gap-2">

@@ -87,7 +87,7 @@ class KnowledgeBase:
             self.users_col.create_index("username", unique=True)
             self.users_col.create_index("device_id")
             self.users_col.create_index("ip")
-            
+            self.users_col.create_index([("last_active", -1)])
             # 系统配置
             self.prompt_templates_col.create_index("mode", unique=True)
             self.otps_col.create_index("expire_at", expireAfterSeconds=0)
@@ -477,28 +477,27 @@ class KnowledgeBase:
         }
 
     def check_and_update_usage(self, username, mode, model_type="chat"):
-        # 1. 获取用户身份与基础信息
+        # 1. 获取用户
         current_role = self.check_membership_status(username)
         user = self.users_col.find_one({"username": username})
         if not user: return False, "用户不存在", 0
         
         is_pro = current_role in ["vip", "svip", "admin", "pro"]
         
-        # 深度思考余额硬性检查
+        # 余额检查
         if model_type == "reasoner":
-                explicit_balance = user.get("r1_remaining")
-                if explicit_balance is not None and explicit_balance <= 0:
-                    return False, "深度思考次数不足 (余额已耗尽)", -1
+            explicit_balance = user.get("r1_remaining")
+            if explicit_balance is not None and explicit_balance <= 0:
+                return False, "深度思考次数不足 (余额已耗尽)", -1
         
         now = datetime.datetime.now(datetime.timezone.utc)
         today_str = now.strftime("%Y-%m-%d")
         
-        # 2. 初始化或重置每日统计 (🔥 修改：需要保留 bonus_chat)
+        # 2. 每日重置逻辑 (保留 Bonus)
         usage_data = user.get("usage_stats", {})
         if usage_data.get("last_reset_date") != today_str:
             current_bonus_r1 = usage_data.get("bonus_r1", 0)
-            current_bonus_chat = usage_data.get("bonus_chat", 0) # 🔥 继承快速模型奖励
-            
+            current_bonus_chat = usage_data.get("bonus_chat", 0)
             usage_data = {
                 "last_reset_date": today_str, 
                 "counts_chat": {}, 
@@ -507,11 +506,10 @@ class KnowledgeBase:
                 "hourly_start": now.isoformat(), 
                 "hourly_count": 0,
                 "bonus_r1": current_bonus_r1,
-                "bonus_chat": current_bonus_chat # 🔥 写入新一天的记录
+                "bonus_chat": current_bonus_chat
             }
         
-        # 3. 小时频控 (防刷)
-        # 🔥 修改：应用 bonus_chat 提升快速模型上限
+        # 3. 频控 (Hour Limit)
         bonus_chat = usage_data.get("bonus_chat", 0)
         base_hourly = 30 if is_pro else 10
         HOURLY_LIMIT = base_hourly + bonus_chat
@@ -526,7 +524,7 @@ class KnowledgeBase:
         if usage_data.get("hourly_count", 0) >= HOURLY_LIMIT:
             return False, f"操作过于频繁 ({60 - int((now - hourly_start).total_seconds() / 60)}m)", 0
 
-        # 4. 冷却时间 (Cooldown)
+        # 4. 冷却 (Cooldown)
         COOLDOWN = 5 if is_pro else 15
         last_time_str = usage_data.get("last_access", {}).get(mode)
         if last_time_str:
@@ -537,17 +535,15 @@ class KnowledgeBase:
                     return False, "AI思考中", int(COOLDOWN - (now - last_time).total_seconds())
             except: pass
 
-        # 5. 🔥 修改 2：深度思考 (R1) 次数限制检查 (10 -> 3)
+        # 5. R1 次数检查
         if not is_pro and model_type == "reasoner":
             bonus = usage_data.get("bonus_r1", 0)
-            daily_r1_limit = 3 + bonus  # 🔥 这里改为 3
-            
+            daily_r1_limit = 3 + bonus 
             used_today = sum(usage_data.get("counts_reasoner", {}).values())
-            
             if used_today >= daily_r1_limit: 
                 return False, f"深度思考限额已满 ({used_today}/{daily_r1_limit})", -1
         
-        # 6. 更新计数
+        # 6. 更新统计
         if model_type == "reasoner": 
             usage_data["counts_reasoner"][mode] = usage_data["counts_reasoner"].get(mode, 0) + 1
         else: 
@@ -557,7 +553,19 @@ class KnowledgeBase:
         usage_data["hourly_count"] = usage_data.get("hourly_count", 0) + 1
         usage_data["hourly_start"] = hourly_start.isoformat()
         
-        self.users_col.update_one({"username": username}, {"$set": {"usage_stats": usage_data}})
+        # 🔥🔥🔥 核心修改：写入 last_active 和 total_usage (永久累加)
+        self.users_col.update_one(
+            {"username": username}, 
+            {
+                "$set": {
+                    "usage_stats": usage_data,
+                    "last_active": now  # 🟢 记录最后活跃时间戳 (方便排序)
+                },
+                "$inc": {
+                    "total_usage": 1    # 🟢 永久累加器 (不再每日清零)
+                }
+            }
+        )
         return True, "OK", 0
     # ==========================
     # 🔥 管理员 & 统计功能
@@ -567,17 +575,16 @@ class KnowledgeBase:
     def create_user(self, username, password, role="user", email="", device_id="unknown", ip="unknown", sales_ref=None):
         if self.get_user(username): return "USERNAME_TAKEN"
         if self.users_col.find_one({"email": email}): return "EMAIL_TAKEN"
-        # 简单频控
-        if device_id and device_id not in ["unknown", "unknown_client_error"] and self.users_col.count_documents({"device_id": device_id}) >= 3: 
-            return "DEVICE_LIMIT"
-            
+        if device_id and device_id not in ["unknown", "unknown_client_error"] and self.users_col.count_documents({"device_id": device_id}) >= 3: return "DEVICE_LIMIT"
         if ip and self.users_col.count_documents({"ip": ip, "created_at": {"$gte": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)}}) >= 5: return "IP_LIMIT"
         
         self.users_col.insert_one({
             "username": username, "password": password, "role": role,
             "email": email, "device_id": device_id, "ip": ip, 
             "created_at": datetime.datetime.now(datetime.timezone.utc),
-            "sales_ref": sales_ref
+            "sales_ref": sales_ref,
+            "total_usage": 0, # 🟢 初始化
+            "last_active": datetime.datetime.now(datetime.timezone.utc) # 🟢 初始化
         })
         return True
 
@@ -723,28 +730,45 @@ class KnowledgeBase:
         commission_agg = list(self.sales_records_col.aggregate([{"$group": {"_id": None, "total": {"$sum": "$commission"}}}]))
         total_commissions = commission_agg[0]['total'] if commission_agg else 0.0
 
+        # 🔥 修复：API 调用量直接求和 total_usage 字段，不再使用 hourly_count 估算
         try:
-            pipeline = [
-                {"$project": {"chat_count": {"$ifNull": ["$usage_stats.hourly_count", 0]}}},
-                {"$group": {"_id": None, "total": {"$sum": "$chat_count"}}}
-            ]
+            # 聚合所有用户的 total_usage 字段
+            pipeline = [{"$group": {"_id": None, "total": {"$sum": "$total_usage"}}}]
             usage_res = list(self.users_col.aggregate(pipeline))
-            total_calls = usage_res[0]['total'] * 10 if usage_res else 0
+            total_calls = usage_res[0]['total'] if usage_res else 0
         except: total_calls = 0
 
         recent_users = []
-        cursor = self.users_col.find({}, {"username": 1, "role": 1, "usage_stats": 1}).sort("usage_stats.last_access", -1).limit(50)
+        # 🔥 修复：使用 last_active 字段进行精准排序
+        cursor = self.users_col.find({}, {"username": 1, "role": 1, "usage_stats": 1, "last_active": 1, "total_usage": 1}).sort("last_active", -1).limit(50)
+        
         for u in cursor:
+            # 计算该用户当天的使用量 (作为辅助参考，可选)
             usage = u.get("usage_stats", {})
             r1_count = sum(usage.get("counts_reasoner", {}).values())
             chat_count = sum(usage.get("counts_chat", {}).values())
+            today_total = r1_count + chat_count
+            
+            # 优先使用 total_usage，如果没有（旧数据），暂用今日数据替代
+            total_historical = u.get("total_usage", today_total)
+
             last_access = "Long ago"
-            if usage.get("last_access"):
+            # 优先使用 last_active 字段
+            if u.get("last_active"):
+                 if isinstance(u["last_active"], datetime.datetime):
+                     last_access = u["last_active"].strftime("%Y-%m-%d %H:%M")
+                 else:
+                     last_access = str(u["last_active"])[:16]
+            # 兼容旧数据逻辑
+            elif usage.get("last_access"):
                 times = [v for k,v in usage["last_access"].items() if isinstance(v, str)]
                 if times: last_access = max(times).replace("T", " ")[:16]
+
             recent_users.append({
-                "username": u["username"], "role": u.get("role", "user"),
-                "r1_used": r1_count + chat_count, "last_active": last_access
+                "username": u["username"], 
+                "role": u.get("role", "user"),
+                "r1_used": total_historical, # 前端显示为总调用
+                "last_active": last_access
             })
 
         return {

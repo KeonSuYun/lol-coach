@@ -5,12 +5,16 @@ appId: com.hexcoach.lite
 productName: HexCoach Lite
 compression: maximum
 asar: true
+publish:
+  - provider: generic
+    url: https://hexlite-1323189183.cos.ap-nanjing.myqcloud.com/updates/
 files:
   - filter:
       - main.js
       - lcu.js
       - package.json
       - resources/**/*
+artifactName: HexLite-Setup-${version}.${ext}
 win:
   icon: resources/icon.ico
   target: nsis

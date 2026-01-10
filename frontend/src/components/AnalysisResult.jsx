@@ -12,46 +12,31 @@ import axios from 'axios';
 import { API_BASE_URL } from '../config/constants';
 
 // =================================================================
-// 🛠️ 智能解析器 V3.2
+// 🛠️ 智能解析器
 // =================================================================
 const parseHybridContent = (rawString) => {
     if (!rawString || typeof rawString !== 'string') return { mode: 'loading', data: null, thought: "" };
     
-    // 1. 提取思考过程 (R1 模型特性)
     let thought = "";
     const thoughtMatch = rawString.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
     if (thoughtMatch) {
         thought = thoughtMatch[1].trim();
     }
 
-    // 2. 清理标签和 Markdown 代码块标记
     let cleanStr = rawString.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, ""); 
     cleanStr = cleanStr.replace(/```json/g, "").replace(/```/g, "").trim();
 
-    // 3. 尝试解析 JSON
     try {
         const parsed = JSON.parse(cleanStr);
-        
-        // 🔥🔥🔥 [核心修复] 兼容性映射 🔥🔥🔥
-        // 如果 AI 返回了 { "analysis": "..." } 但没返回 "concise"，手动修正结构
         if (parsed.analysis && !parsed.concise) {
-            parsed.concise = {
-                title: "战术分析结果",
-                content: parsed.analysis
-            };
+            parsed.concise = { title: "战术分析结果", content: parsed.analysis };
         }
-        
-        // 确保数组存在，防止 .map 报错
         if (!parsed.simple_tabs) parsed.simple_tabs = [];
         if (!parsed.detailed_tabs) parsed.detailed_tabs = [];
-        
         return { mode: 'json', data: parsed, thought };
-    } catch (e) { 
-        // JSON 解析失败，进入后续的流式容错处理
-    }
+    } catch (e) {}
 
     const hasJsonStructure = cleanStr.includes('"concise"') || cleanStr.startsWith('{');
-
     if (hasJsonStructure) {
         let conciseObj = { title: "正在分析...", content: "" };
         const conciseStart = cleanStr.indexOf('"concise"');
@@ -80,7 +65,6 @@ const parseHybridContent = (rawString) => {
                 }
             }
         }
-
         const extractTabs = (keyName) => {
             const tabs = [];
             const startIdx = cleanStr.indexOf(`"${keyName}"`);
@@ -112,12 +96,14 @@ const parseHybridContent = (rawString) => {
                         }
                     }
                     const content = endQuoteIdx !== -1 ? sectionStr.substring(contentStartIdx, endQuoteIdx) : sectionStr.substring(contentStartIdx);
-                    tabs.push({ title: title.replace(/\\"/g, '"').replace(/\\n/g, '\n'), content: content.replace(/\\"/g, '"').replace(/\\n/g, '\n') });
+                    tabs.push({ 
+                        title: title.replace(/\\"/g, '"').replace(/\\n/g, '\n'), 
+                        content: content.replace(/\\"/g, '"').replace(/\\n/g, '\n') 
+                    });
                 }
             }
             return tabs;
         };
-
         return { mode: 'json', data: { concise: conciseObj, simple_tabs: extractTabs('simple_tabs'), detailed_tabs: extractTabs('detailed_tabs') }, thought };
     }
     if (cleanStr.length > 0) return { mode: 'markdown', data: cleanStr, thought };
@@ -157,8 +143,11 @@ const getCardStyle = (title) => {
     return { type: "gold", label: "节奏重心", icon: <Zap size={14} fill="currentColor" />, borderColor: "border-[#C8AA6E]", textColor: "text-[#C8AA6E]", bgGradient: "from-[#C8AA6E]/10 to-transparent", barColor: "bg-[#C8AA6E]" };
 };
 
-const ConciseVisualCard = ({ title, content }) => {
+// 🔥 [优化] 卡片内边距控制
+const ConciseVisualCard = ({ title, content, isCompact }) => {
     const style = getCardStyle(title);
+    const paddingClass = isCompact ? 'p-1.5' : 'p-3.5';
+    
     return (
         <div className="flex bg-[#13151b] border border-white/5 rounded-lg overflow-hidden relative group hover:border-white/10 transition-all mb-3 shadow-lg">
             <div className="w-10 flex-shrink-0 flex flex-col items-center py-3 relative bg-[#0b0d12]">
@@ -166,7 +155,8 @@ const ConciseVisualCard = ({ title, content }) => {
                 <div className={`mb-2 ${style.textColor} animate-pulse`}>{style.icon}</div>
                 <div className={`text-[10px] font-bold tracking-widest ${style.textColor} opacity-80`} style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{style.label}</div>
             </div>
-            <div className={`flex-1 p-3.5 relative`}>
+            {/* 🔥 修复：卡片内的文字也强制移除 text-shadow，防止重影 */}
+            <div className={`flex-1 ${paddingClass} relative [text-shadow:none]`}>
                 <div className={`absolute inset-0 bg-gradient-to-r ${style.bgGradient} opacity-20 pointer-events-none`}></div>
                 <div className="flex items-center gap-2 mb-2"><span className={`text-sm font-bold text-white`}>{title}</span></div>
                 <div className="text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
@@ -177,59 +167,161 @@ const ConciseVisualCard = ({ title, content }) => {
     );
 };
 
-const HexMarkdownComponents = {
-    h3: ({node, ...props}) => <h3 className="text-[#C8AA6E] font-bold text-sm md:text-base mt-5 mb-3 flex items-center gap-2 border-l-4 border-[#C8AA6E] pl-3 bg-gradient-to-r from-[#C8AA6E]/10 to-transparent py-1.5 rounded-r select-none" {...props} />,
-    h4: ({node, ...props}) => <h4 className="text-slate-200 font-bold text-xs md:text-sm mt-3 mb-2 flex items-center before:content-['◈'] before:text-[#C8AA6E] before:mr-2 before:text-[10px]" {...props} />,
-    ul: ({node, ...props}) => <ul className="list-disc list-outside ml-5 mb-4 space-y-2 marker:text-[#C8AA6E]" {...props} />,
-    ol: ({node, ...props}) => <ol className="list-decimal list-outside ml-5 mb-4 space-y-2 marker:text-[#C8AA6E] marker:font-mono" {...props} />,
-    li: ({node, ...props}) => <li className="text-slate-300 text-xs md:text-sm leading-relaxed pl-1" {...props} />,
-    strong: ({node, ...props}) => <strong className="text-[#FFE0A3] font-bold mx-0.5 border-b border-[#C8AA6E]/40 pb-0.5 tracking-wide" {...props} />,
-    p: ({node, ...props}) => <p className="mb-3 leading-7 text-slate-300 text-xs md:text-sm font-sans text-justify" {...props} />,
-    table: ({node, ...props}) => <div className="overflow-x-auto my-4 rounded-lg border border-[#C8AA6E]/20 shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-[#000000]/20 scrollbar-thin scrollbar-thumb-[#C8AA6E]/30 scrollbar-track-transparent pb-1"><table className="w-full text-left border-collapse min-w-[450px]" {...props} /></div>,
+// =================================================================
+// 🔥 [样式优化] 动态样式生成器 V2.4 (修复版)
+// =================================================================
+const getMarkdownComponents = (isCompact) => ({
+    // H3: 
+    // - 游戏内(isCompact): 左对齐 (pl-0)，适当的上边距 (mt-4)，左侧金条装饰
+    // - 网页/游戏外: 宽松 (mt-8)，下划线分割
+    h3: ({node, ...props}) => (
+        <h3 className={`
+            font-bold flex items-center gap-2 select-none
+            ${isCompact 
+                ? 'text-[#C8AA6E] text-sm mt-3 mb-1 pl-0 [text-shadow:none]' // 游戏内：完全顶格，去除背景条，无阴影
+                : 'text-[#F0E6D2] text-lg mt-8 mb-4 pb-2 border-b border-[#C8AA6E]/30'
+            }
+        `} {...props}>
+            {!isCompact && <span className="text-[#C8AA6E] mr-1">❖</span>}
+            {props.children}
+        </h3>
+    ),
+    
+    // H4
+    h4: ({node, ...props}) => (
+        <h4 className={`
+            font-bold text-slate-200 flex items-center
+            ${isCompact 
+                ? 'text-xs mt-2 mb-1 pl-0 before:content-["◈"] before:text-[#C8AA6E] before:mr-2 before:text-[10px] [text-shadow:none]' // 游戏内：顶格
+                : 'text-base mt-6 mb-3 pl-2 border-l-2 border-[#0AC8B9]'
+            }
+        `} {...props} />
+    ),
+    
+    // 🔥🔥🔥 [核心修复] 列表缩进
+    // 游戏内：pl-3.5 (刚好放下点), ml-0 (去掉外边距)，让点紧贴左边
+    ul: ({node, ...props}) => (
+        <ul className={`
+            list-disc list-outside marker:text-[#C8AA6E]
+            ${isCompact ? 'pl-3.5 ml-0 mb-1 space-y-0.5' : 'ml-6 mb-4 space-y-2'}
+        `} {...props} />
+    ),
+    ol: ({node, ...props}) => (
+        <ol className={`
+            list-decimal list-outside marker:text-[#C8AA6E] marker:font-mono
+            ${isCompact ? 'pl-3.5 ml-0 mb-1 space-y-0.5' : 'ml-6 mb-4 space-y-2'}
+        `} {...props} />
+    ),
+    
+    // List Items: 游戏内行高增加到 leading-6，阅读更舒适，且无阴影
+    li: ({node, ...props}) => (
+        <li className={`
+            text-slate-300 pl-0
+            ${isCompact ? 'text-xs leading-5 [text-shadow:none]' : 'text-[15px] leading-7 tracking-wide pl-1'}
+        `} {...props} />
+    ),
+
+    // 🔥🔥🔥 [核心修复] Strong (加粗文字)
+    // 强制 [text-shadow:none] 修复黑字发糊/重影问题
+    strong: ({node, ...props}) => (
+        <strong className={`
+            font-bold mx-0.5 rounded px-0.5
+            ${isCompact 
+                ? 'text-[#FFE0A3] border-b border-[#C8AA6E]/40 pb-0.5 [text-shadow:none]' 
+                : 'text-[#091428] bg-[#C8AA6E] shadow-[0_0_10px_rgba(200,170,110,0.3)] [text-shadow:none]'
+            }
+        `} {...props} />
+    ),
+
+    // Paragraphs
+    p: ({node, ...props}) => (
+        <p className={`
+            text-slate-300 font-sans
+            ${isCompact 
+                ? 'mb-2 text-xs leading-5 text-justify [text-shadow:none]' 
+                : 'mb-5 text-[15px] leading-8 tracking-wide text-slate-300/90'
+            }
+        `} {...props} />
+    ),
+    
+    table: ({node, ...props}) => (
+        <div className={`
+            overflow-x-auto rounded-lg border border-[#C8AA6E]/20 shadow-lg bg-[#000000]/20
+            ${isCompact ? 'my-2 pb-0' : 'my-6 pb-2'}
+        `}>
+            <table className="w-full text-left border-collapse min-w-[400px]" {...props} />
+        </div>
+    ),
+    
     thead: ({node, ...props}) => <thead className="bg-[#C8AA6E]/10 border-b border-[#C8AA6E]/20" {...props} />,
     tbody: ({node, ...props}) => <tbody className="divide-y divide-white/5" {...props} />,
     tr: ({node, ...props}) => <tr className="hover:bg-white/5 transition-colors group" {...props} />,
-    th: ({node, ...props}) => <th className="px-4 py-3 text-xs font-bold text-[#C8AA6E] uppercase tracking-wider whitespace-nowrap bg-black/20" {...props} />,
-    td: ({node, ...props}) => <td className="px-4 py-3 text-xs text-slate-300 align-top leading-6 min-w-[120px] group-hover:text-slate-100 transition-colors" {...props} />,
-    blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-amber-500/60 bg-gradient-to-r from-amber-500/10 to-transparent py-2 px-4 rounded-r text-slate-400 text-xs my-4 italic relative" {...props} />,
-    code: ({node, inline, className, children, ...props}) => inline ? <code className="bg-white/10 text-amber-200 px-1.5 py-0.5 rounded text-[10px] font-mono border border-white/5" {...props}>{children}</code> : <pre className="bg-black/50 p-3 rounded-lg overflow-x-auto border border-white/10 my-3"><code className="text-xs font-mono text-slate-300" {...props}>{children}</code></pre>,
-    hr: ({node, ...props}) => <hr className="border-t border-white/10 my-6" {...props} />,
-};
+    th: ({node, ...props}) => <th className={`font-bold text-[#C8AA6E] uppercase tracking-wider whitespace-nowrap bg-black/20 ${isCompact ? 'px-2 py-1 text-[10px] [text-shadow:none]' : 'px-4 py-3 text-xs'}`} {...props} />,
+    td: ({node, ...props}) => <td className={`text-slate-300 align-top group-hover:text-slate-100 transition-colors ${isCompact ? 'px-2 py-1 text-[10px] [text-shadow:none]' : 'px-4 py-3 text-sm leading-6'}`} {...props} />,
+    
+    // Blockquote
+    blockquote: ({node, ...props}) => (
+        <blockquote className={`
+            relative rounded-r border-l-4 
+            ${isCompact 
+                ? 'border-amber-500/60 bg-amber-500/10 py-1 px-2 my-2 text-xs italic text-slate-400 [text-shadow:none]' 
+                : 'border-[#0AC8B9] bg-[#0AC8B9]/5 py-3 px-5 my-6 text-sm text-slate-300 shadow-inner'
+            }
+        `} {...props} />
+    ),
+    
+    // Code
+    code: ({node, inline, className, children, ...props}) => inline 
+        ? <code className="bg-white/10 text-amber-200 px-1.5 py-0.5 rounded text-[12px] font-mono border border-white/5 mx-1 [text-shadow:none]" {...props}>{children}</code> 
+        : <pre className={`bg-[#050505] rounded-lg overflow-x-auto border border-white/10 shadow-inner [text-shadow:none] ${isCompact ? 'p-2 my-2' : 'p-4 my-5'}`}><code className="text-xs font-mono text-emerald-400" {...props}>{children}</code></pre>,
+    
+    hr: ({node, ...props}) => <hr className="border-t border-white/10 my-8" {...props} />,
+});
 
 // =================================================================
 // 🚀 主组件
 // =================================================================
-const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedbackContent, sendChatTrigger, forceTab, onClear, setActiveTab, viewMode, setViewMode, audioTrigger }) => {
+const AnalysisResult = ({ 
+    aiResult, isAnalyzing, setShowFeedbackModal, setFeedbackContent, sendChatTrigger, forceTab, 
+    onClear, setActiveTab, viewMode, setViewMode, audioTrigger, 
+    globalVolume = 1.0, 
+    globalScale = 1.0,
+    isInGame = false, // 游戏进行中状态
+    isOverlay = false // 是否为悬浮窗
+}) => {
     const [webActiveTab, setWebActiveTab] = useState(0);
     const [showDebug, setShowDebug] = useState(false);
     const [showThought, setShowThought] = useState(false); 
     const [teamCopied, setTeamCopied] = useState(false);
+    const [pageCopied, setPageCopied] = useState(false);
     const [selectionMenu, setSelectionMenu] = useState(null); 
     
-    // 🔥 [状态重构] TTS
     const [isFetchingAudio, setIsFetchingAudio] = useState(false);
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
-    
-    // 标识：当前正在播放（或暂停中）的是哪个区域
-    // 'concise' | 'tab-0' | 'tab-1' ...
     const [playingContext, setPlayingContext] = useState(null);
 
     const isAudioBusy = isFetchingAudio || isPlayingAudio;
-
     const [selectedVoice, setSelectedVoice] = useState(localStorage.getItem('hex_tts_voice') || 'guide');
     
     const audioRef = useRef(null);
     const scrollRef = useRef(null);
 
-    // 初始化音频对象
+    // 🔥 核心修改：判定是否使用紧凑模式
+    // 逻辑：只有当【真正进入游戏 (isInGame)】时，才开启紧凑模式。
+    // 游戏外悬浮窗 (isOverlay=true, isInGame=false) 将使用宽敞的 Web 样式。
+    const useCompact = isInGame;
+
+    // 🔥 动态获取组件样式
+    const MarkdownComponents = useMemo(() => getMarkdownComponents(useCompact), [useCompact]);
+    const WebMarkdownComponents = useMemo(() => getMarkdownComponents(false), []);
+
     useEffect(() => {
         audioRef.current = new Audio();
-        // 绑定结束事件
         audioRef.current.onended = () => {
             setIsPlayingAudio(false);
             setIsPaused(false);
-            setPlayingContext(null); // 播放结束，重置上下文
+            setPlayingContext(null); 
             toast("播报完毕", { icon: '✅', duration: 1000 });
         };
         audioRef.current.onerror = () => {
@@ -247,6 +339,12 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         };
     }, []);
 
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.volume = globalVolume;
+        }
+    }, [globalVolume]);
+
     const { mode, data, thought } = useMemo(() => parseHybridContent(aiResult), [aiResult]);
     const concise = data?.concise || {};
     const conciseCards = useMemo(() => parseConciseContent(concise.content), [concise.content]);
@@ -254,8 +352,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
     const simpleData = data?.simple_tabs || [];
     const detailedData = data?.detailed_tabs || [];
     
-    // 🔥 [修复] 智能回退逻辑：如果当前视图数据为空，自动尝试显示另一组数据
-    // 解决 BP 推荐等模式下，可能只有 simple_tabs 而导致详细模式为空白的问题
     const activeTabsData = useMemo(() => {
         if (viewMode === 'simple') {
             return simpleData.length > 0 ? simpleData : detailedData;
@@ -263,7 +359,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         return detailedData.length > 0 ? detailedData : simpleData;
     }, [viewMode, simpleData, detailedData]);
 
-    // 每次结果更新，停止播放
     useEffect(() => {
         stopAudio();
     }, [aiResult, viewMode]);
@@ -312,7 +407,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         toast.success(`已切换：${labels[nextVoice]}`, { icon: '🎧' });
     };
 
-    // 完全停止
     const stopAudio = () => {
         if (audioRef.current) {
             audioRef.current.pause();
@@ -324,7 +418,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         setPlayingContext(null);
     };
 
-    // 获取当前页面（或指定上下文）的文本
     const getContextText = (ctx) => {
         if (ctx === 'concise') {
             return (concise.title || "战术总览") + "。\n" + (concise.content || "");
@@ -336,35 +429,27 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         return "";
     };
 
-    // 获取当前可见页面的 Context ID
     const getCurrentVisibleContext = () => {
         if (forceTab !== undefined) {
-            // Overlay 模式
             if (forceTab === 0) return 'concise';
             return `tab-${forceTab - 1}`;
         } else {
-            // Web 模式：默认不自动触发，返回空或当前Tab
             return `tab-${webActiveTab}`;
         }
     };
 
-    // 🔥 核心控制逻辑：切换播放/暂停，或者切歌
     const togglePlay = async (targetContext, targetText = null) => {
         if (!targetContext) return;
 
-        // 1. 如果点击的是当前正在播放的内容 -> 执行 暂停/继续 切换
         if (playingContext === targetContext) {
-            if (isFetchingAudio) return; // 正在加载，忽略
+            if (isFetchingAudio) return;
 
             if (isPlayingAudio && !isPaused) {
-                // 正在播 -> 暂停
                 audioRef.current.pause();
                 setIsPaused(true);
-                // setIsPlayingAudio(false); // 保持 true，表示占用中
                 toast("已暂停", { icon: '⏸️', duration: 1000 });
                 playFeedbackSound('stop');
             } else if (isPaused) {
-                // 暂停中 -> 继续
                 audioRef.current.play();
                 setIsPaused(false);
                 setIsPlayingAudio(true);
@@ -373,7 +458,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
             return;
         }
 
-        // 2. 如果点击的是新内容 -> 停止旧的，播新的
         stopAudio();
         
         const textToRead = targetText || getContextText(targetContext);
@@ -382,7 +466,6 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
             return;
         }
 
-        // 智能截取 (仅指挥官模式)
         let finalStr = textToRead;
         if (selectedVoice === 'commander') {
             finalStr = textToRead.substring(0, 250); 
@@ -418,7 +501,7 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
 
             const audioUrl = URL.createObjectURL(response.data);
             audioRef.current.src = audioUrl;
-            audioRef.current.volume = 1.0;
+            audioRef.current.volume = globalVolume; 
             
             await audioRef.current.play();
             setIsPlayingAudio(true);
@@ -437,34 +520,63 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         }
     };
 
-    // 🔥 快捷键触发器 (Overlay)
     useEffect(() => {
         if (audioTrigger > 0) {
-            // 如果正在播放（无论是否暂停），检查是否匹配当前页
             const visibleContext = getCurrentVisibleContext();
-            
             if (playingContext) {
-                if (playingContext === visibleContext) {
-                    // 匹配 -> 切换暂停/播放
-                    togglePlay(visibleContext);
-                } else {
-                    // 不匹配 -> 切歌到当前页
-                    togglePlay(visibleContext);
-                }
+                if (playingContext === visibleContext) togglePlay(visibleContext);
+                else togglePlay(visibleContext);
             } else {
-                // 没在播放 -> 播放当前页
                 togglePlay(visibleContext);
             }
         }
     }, [audioTrigger]);
 
-    // ... (Hooks for hints, scroll, nav, copy - unchanged) ...
+    const cleanAndCopy = (content, callback) => {
+        if (!content) return;
+        const cleanText = content
+            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, '')
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/【(.*?)】/g, '$1')
+            .replace(/#{1,6}\s/g, '')
+            .replace(/\n{2,}/g, '\n')
+            .replace(/[ \t]+/g, ' ')
+            .trim();
+        const finalMsg = `${cleanText} (来自:海克斯教练)`;
+
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('copy-and-lock', finalMsg);
+            callback(true);
+            toast.success("已复制并锁定 (游戏内直接粘贴)");
+            setTimeout(() => callback(false), 2000);
+        } else {
+            navigator.clipboard.writeText(finalMsg).then(() => {
+                callback(true);
+                toast.success("已复制 (游戏内直接粘贴)");
+                setTimeout(() => callback(false), 2000);
+            }).catch(() => toast.error("复制失败"));
+        }
+    };
+
+    const handleCopyToTeam = () => {
+        cleanAndCopy(concise?.content, setTeamCopied);
+    };
+
+    const handleCopyCurrentPage = () => {
+        const currentTab = activeTabsData[webActiveTab];
+        if (!currentTab || !currentTab.content) {
+            toast.error("当前页面无内容");
+            return;
+        }
+        cleanAndCopy(currentTab.content, setPageCopied);
+    };
+
     useEffect(() => {
         const hasSeenHint = localStorage.getItem('has_seen_mode_switch_hint');
         if (!hasSeenHint && !isAnalyzing && activeTabsData.length > 0) {
             toast("💡 小提示：点击右下角按钮，可在【口令版】与【详细版】之间切换！", {
-                duration: 5000,
-                position: 'bottom-center',
+                duration: 5000, position: 'bottom-center',
                 style: { background: '#091428', color: '#C8AA6E', border: '1px solid #C8AA6E' }
             });
             localStorage.setItem('has_seen_mode_switch_hint', 'true');
@@ -474,23 +586,15 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
     useEffect(() => {
         const handleOverlayScroll = (e) => {
             const direction = e.detail; 
-            if (scrollRef.current) {
-                const amount = 50;
-                scrollRef.current.scrollTop += (direction === 'down' ? amount : -amount);
-            }
+            if (scrollRef.current) scrollRef.current.scrollTop += (direction === 'down' ? 50 : -50);
         };
         const handleOverlayNav = (e) => {
             const command = e.detail; 
             if (forceTab !== undefined && setActiveTab) {
                 const maxTab = activeTabsData.length; 
                 let nextTab = forceTab;
-                if (command === 'nav_next') {
-                    nextTab = forceTab + 1;
-                    if (nextTab > maxTab) nextTab = 0; 
-                } else if (command === 'nav_prev') {
-                    nextTab = forceTab - 1;
-                    if (nextTab < 0) nextTab = maxTab; 
-                }
+                if (command === 'nav_next') nextTab = forceTab + 1 > maxTab ? 0 : forceTab + 1;
+                else if (command === 'nav_prev') nextTab = forceTab - 1 < 0 ? maxTab : forceTab - 1;
                 setActiveTab(nextTab);
                 toast(nextTab === 0 ? "战术总览" : `战术详情 ${nextTab}`, { icon: '📄', duration: 800 });
             }
@@ -504,24 +608,12 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
     }, [forceTab, setActiveTab, activeTabsData.length]);
 
     useEffect(() => {
-        if (isAnalyzing && scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
+        if (isAnalyzing && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }, [aiResult, isAnalyzing, forceTab, webActiveTab, viewMode]);
 
     useEffect(() => {
-        if (sendChatTrigger > 0) {
-            const content = concise?.content || "";
-            if (!content) return;
-            const cleanText = content.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/【(.*?)】/g, '$1').replace(/#{1,6}\s/g, '').replace(/\n{2,}/g, '\n').replace(/[ \t]+/g, ' ').trim();
-            const finalMsg = `${cleanText} (来自:海克斯教练)`;
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('copy-and-lock', finalMsg); 
-                if(typeof toast !== 'undefined') toast.success("已复制到剪贴板");
-            }
-        }
-    }, [sendChatTrigger, concise]);
+        if (sendChatTrigger > 0) handleCopyToTeam();
+    }, [sendChatTrigger]);
 
     useEffect(() => {
         const handleSelection = () => {
@@ -532,9 +624,7 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
             if (!text) return;
             const range = selection.getRangeAt(0);
             const rect = range.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                setSelectionMenu({ x: rect.left + rect.width / 2, y: rect.top - 10, text: text });
-            }
+            if (rect.width > 0 && rect.height > 0) setSelectionMenu({ x: rect.left + rect.width / 2, y: rect.top - 10, text: text });
         };
         const handleClickOutside = (e) => {
             if (e.target.closest('#selection-toolbar')) return;
@@ -552,14 +642,7 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
     const handleJustCopy = (e) => {
         e.preventDefault(); e.stopPropagation();
         if (selectionMenu && selectionMenu.text) {
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('copy-and-lock', selectionMenu.text);
-                if(typeof toast !== 'undefined') toast.success("已复制！请按 Ctrl+V");
-            } else {
-                navigator.clipboard.writeText(selectionMenu.text);
-                if(typeof toast !== 'undefined') toast.success("已复制");
-            }
+            cleanAndCopy(selectionMenu.text, () => {});
             setSelectionMenu(null); window.getSelection().removeAllRanges(); 
         }
     };
@@ -574,28 +657,8 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         }
     };
 
-    const handleCopyToTeam = () => {
-        const content = concise?.content || "";
-        if (!content) return;
-        const cleanText = content.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/【(.*?)】/g, '$1').replace(/#{1,6}\s/g, '').replace(/\n{2,}/g, '\n').replace(/[ \t]+/g, ' ').trim();
-        const finalMsg = `${cleanText} (来自:海克斯教练)`;
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('copy-and-lock', finalMsg);
-            setTeamCopied(true); if(typeof toast !== 'undefined') toast.success("已复制！请直接在游戏中按 Ctrl+V");
-            setTimeout(() => setTeamCopied(false), 2000);
-        } else {
-            navigator.clipboard.writeText(finalMsg).then(() => {
-                setTeamCopied(true); if(typeof toast !== 'undefined') toast.success("已复制！请直接在游戏中按 Ctrl+V");
-                setTimeout(() => setTeamCopied(false), 2000);
-            }).catch(() => alert("复制失败，请手动复制"));
-        }
-    };
-
     const handleClear = () => {
-        if (confirm("确定要清空当前的分析结果吗？")) {
-            if (onClear) onClear();
-        }
+        if (confirm("确定要清空当前的分析结果吗？")) if (onClear) onClear();
     };
 
     const SelectionFloatingButton = () => {
@@ -625,59 +688,41 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         );
     }
 
+    // 🔥 Overlay Mode 渲染逻辑
     if (forceTab !== undefined) {
+        // 🔥 修复：如果 useCompact (游戏内)，去掉额外的 padding
+        const overlayPaddingClass = useCompact ? 'p-0' : 'p-3';
+        
+        // 🔥🔥🔥 核心修复：背景色控制
+        // 如果 useCompact (游戏内)，bg-transparent，移除边框阴影 (让文字直接浮在透明窗口上)
+        // 如果是游戏外悬浮窗，保留深色卡片背景
+        const cardStyleClass = useCompact 
+            ? 'bg-transparent border-none shadow-none' 
+            : 'bg-[#232329]/95 backdrop-blur border border-amber-500/30 shadow-lg';
+
         if (forceTab === 0) {
             const isMePlaying = playingContext === 'concise';
-            
             return (
                 <div ref={scrollRef} className="flex flex-col h-full gap-2 overflow-y-auto custom-scrollbar p-1">
-                    <div className="bg-[#232329]/95 backdrop-blur rounded-xl p-3 border border-amber-500/30 shadow-lg shrink-0 min-h-full relative">
+                    <div 
+                        className={`rounded-xl ${overlayPaddingClass} ${cardStyleClass} shrink-0 min-h-full relative`}
+                        style={{ zoom: globalScale }} 
+                    >
                         {isMePlaying && (
                             <div className="absolute top-3 right-3 z-50 flex items-center gap-2 bg-black/60 backdrop-blur px-3 py-1 rounded-full border border-amber-500/50 animate-pulse pointer-events-none">
-                                {isFetchingAudio ? (
-                                    <RefreshCw size={10} className="text-amber-100 animate-spin"/>
-                                ) : (
-                                    isPaused ? <Pause size={10} className="text-amber-100"/> : 
-                                    <div className="flex gap-0.5 items-end h-3">
-                                        <div className="w-1 bg-amber-400 h-2 animate-[bounce_1s_infinite]"></div>
-                                        <div className="w-1 bg-amber-400 h-3 animate-[bounce_1.2s_infinite]"></div>
-                                        <div className="w-1 bg-amber-400 h-1.5 animate-[bounce_0.8s_infinite]"></div>
-                                    </div>
-                                )}
-                                <span className="text-[10px] font-bold text-amber-100">
-                                    {isFetchingAudio ? "准备中..." : (isPaused ? "已暂停" : "播报中...")}
-                                </span>
+                                <span className="text-[10px] font-bold text-amber-100">播报中...</span>
                             </div>
                         )}
-
-                        <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-1">
-                            <h2 className="text-xs font-bold text-slate-100 flex items-center gap-2">
-                                <Target size={12} className="text-[#C8AA6E]"/> {concise.title || "战术总览"}
-                            </h2>
-                            {thought && (
-                                <button onClick={() => setShowThought(!showThought)} className={`text-amber-500 hover:text-amber-400 transition ${showThought ? 'opacity-100' : 'opacity-50'}`}>
-                                    <Lightbulb size={12}/>
-                                </button>
-                            )}
+                        <div className={`flex justify-between items-center mb-2 ${!useCompact ? 'border-b border-white/5 pb-1' : ''}`}>
+                            <h2 className="text-xs font-bold text-slate-100 flex items-center gap-2"><Target size={12} className="text-[#C8AA6E]"/> {concise.title || "战术总览"}</h2>
+                            {thought && <button onClick={() => setShowThought(!showThought)} className={`text-amber-500 hover:text-amber-400 transition ${showThought ? 'opacity-100' : 'opacity-50'}`}><Lightbulb size={12}/></button>}
                         </div>
                         {conciseCards.length > 0 ? (
-                            <div className="space-y-2">
-                                {conciseCards.map((card, idx) => (
-                                    <ConciseVisualCard key={idx} title={card.title} content={card.content} />
-                                ))}
-                            </div>
+                            <div className="space-y-2">{conciseCards.map((card, idx) => <ConciseVisualCard key={idx} title={card.title} content={card.content} isCompact={useCompact} />)}</div>
                         ) : (
-                            <div className="prose prose-invert prose-xs max-w-none">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={HexMarkdownComponents}>
-                                    {enhanceMarkdown(concise.content)}
-                                </ReactMarkdown>
-                            </div>
+                            <div className="prose prose-invert prose-xs max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{enhanceMarkdown(concise.content)}</ReactMarkdown></div>
                         )}
-                        {showThought && thought && (
-                            <div className="mt-2 p-2 bg-black/40 rounded text-[10px] text-slate-500 font-mono italic border-l-2 border-amber-500/30">
-                                {thought}
-                            </div>
-                        )}
+                        {showThought && thought && <div className="mt-2 p-2 bg-black/40 rounded text-[10px] text-slate-500 font-mono italic border-l-2 border-amber-500/30">{thought}</div>}
                     </div>
                 </div>
             );
@@ -690,59 +735,41 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
         if (currentTab) {
             return (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-                    <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider bg-white/5 px-2 py-1 rounded w-fit flex items-center gap-2 border border-white/5 shrink-0 relative">
+                    <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider bg-white/5 px-2 py-1 rounded w-fit flex items-center gap-2 border border-white/5 shrink-0 relative ml-1">
                         <span className="text-amber-500 font-mono mr-2">#{forceTab}</span> {currentTab.title}
-                        
                         {isMePlaying && (
                             <div className="absolute right-[-100px] top-0 flex items-center gap-2 px-2 py-0.5 rounded-full border border-amber-500/30 animate-pulse bg-black/40">
-                                {isPaused ? <Pause size={8} className="text-amber-100"/> : (
-                                    <div className="flex gap-0.5 items-end h-2">
-                                        <div className="w-0.5 bg-amber-400 h-1.5 animate-[bounce_1s_infinite]"></div>
-                                        <div className="w-0.5 bg-amber-400 h-2 animate-[bounce_1.2s_infinite]"></div>
-                                        <div className="w-0.5 bg-amber-400 h-1 animate-[bounce_0.8s_infinite]"></div>
-                                    </div>
-                                )}
-                                <span className="text-[8px] font-bold text-amber-100">{isPaused ? "已暂停" : "播报中"}</span>
+                                <span className="text-[8px] font-bold text-amber-100">播报中</span>
                             </div>
                         )}
                     </div>
-                    <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar bg-[#232329]/90 p-3 rounded-lg border border-white/5 shadow-inner">
-                        <div className="prose prose-invert prose-xs max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={HexMarkdownComponents}>
-                                {enhanceMarkdown(currentTab.content)}
-                            </ReactMarkdown>
-                        </div>
-                        <SelectionFloatingButton />
+                    <div 
+                        ref={scrollRef} 
+                        className={`flex-1 overflow-y-auto custom-scrollbar ${overlayPaddingClass} ${cardStyleClass}`}
+                        style={{ zoom: globalScale }}
+                    >
+                        <div className="prose prose-invert prose-xs max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{enhanceMarkdown(currentTab.content)}</ReactMarkdown></div>
                     </div>
                 </div>
             );
         }
-
-        return (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-2">
-                <FileText size={24} className="opacity-20"/>
-                <span>暂无此页数据</span>
-            </div>
-        );
+        return <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-2"><FileText size={24} className="opacity-20"/><span>暂无此页数据</span></div>;
     }
 
+    // Web Mode
     if (mode === 'markdown') {
         return (
             <div className="flex flex-col h-full bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-white/5 shadow-2xl overflow-hidden relative">
-                {/* ... existing markdown view ... */}
-                {/* 忽略 Web 模式的 markdown 视图修改 */}
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative selection:bg-amber-500/30 selection:text-white">
                     <div className="prose prose-invert prose-sm max-w-3xl mx-auto">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={HexMarkdownComponents}>
-                            {enhanceMarkdown(data)}
-                        </ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={WebMarkdownComponents}>{enhanceMarkdown(data)}</ReactMarkdown>
                     </div>
                 </div>
             </div>
         );
     }
 
-    // Web 模式下的 AnalysisResult 容器
+    // Web Mode (使用 WebMarkdownComponents)
     return (
         <div className="flex flex-col h-full bg-[#232329]/80 backdrop-blur-sm rounded-xl border border-[#C8AA6E]/30 shadow-2xl overflow-hidden relative group/container transition-all">
             
@@ -750,49 +777,48 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                 <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Target size={60} /></div>
                 
                 <div className="flex items-start gap-3 md:gap-4 relative z-10">
-                    <div 
-                        onClick={() => thought && setShowThought(!showThought)}
-                        className={`relative p-2 md:p-3 rounded-lg border shrink-0 transition-all duration-300 mt-1 ${thought ? 'cursor-pointer border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20' : 'opacity-40 border-transparent cursor-not-allowed bg-black/20'}`}
-                    >
+                    <div onClick={() => thought && setShowThought(!showThought)} className={`relative p-2 md:p-3 rounded-lg border shrink-0 transition-all duration-300 mt-1 ${thought ? 'cursor-pointer border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20' : 'opacity-40 border-transparent cursor-not-allowed bg-black/20'}`}>
                         <Lightbulb size={20} className={`md:w-6 md:h-6 transition-colors duration-300 ${thought ? 'text-amber-400' : 'text-slate-600'}`} />
                     </div>
-                    
                     <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex justify-between items-center mb-1">
                             <div className="flex items-center gap-2 md:gap-3">
-                                <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-2 truncate">
-                                    {concise.title || (isAnalyzing ? "正在进行战术推演..." : "等待分析结果")}
-                                </h2>
-                                
-                                {/* 🔥 Web 端 Concise 播放控件 */}
+                                <h2 className="text-base md:text-lg font-bold text-slate-100 leading-tight tracking-wide pr-2 truncate">{concise.title || (isAnalyzing ? "正在进行战术推演..." : "等待分析结果")}</h2>
                                 {!isAnalyzing && concise.content && (
-                                    <div className="flex items-center bg-white/5 rounded-full border border-white/10 p-0.5">
-                                        <button
-                                            onClick={toggleVoice}
-                                            className={`
-                                                px-2 py-1 rounded-full text-[9px] font-bold flex items-center gap-1 transition-all
-                                                ${selectedVoice === 'guide' ? 'bg-pink-500/20 text-pink-300 hover:bg-pink-500/30' : selectedVoice === 'commander' ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' : 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30'}
-                                            `}
-                                            title="点击切换语音人格"
-                                        >
-                                            <Headphones size={10} />
-                                            <span>{selectedVoice === 'guide' ? '温婉' : selectedVoice === 'commander' ? '严肃' : '热血'}</span>
+                                    <div className="flex items-center bg-white/5 rounded-full border border-white/10 p-0.5 relative z-50 no-drag">
+                                        <button onClick={toggleVoice} className={`px-2 py-1 rounded-full text-[9px] font-bold flex items-center gap-1 transition-all ${selectedVoice === 'guide' ? 'bg-pink-500/20 text-pink-300 hover:bg-pink-500/30' : selectedVoice === 'commander' ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' : 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30'}`} title="点击切换语音人格">
+                                            <Headphones size={10} /><span>{selectedVoice === 'guide' ? '温婉' : selectedVoice === 'commander' ? '严肃' : '热血'}</span>
                                         </button>
-
                                         <div className="w-[1px] h-3 bg-white/10 mx-1"></div>
-
                                         <button 
-                                            onClick={() => togglePlay('concise')}
-                                            disabled={isAudioBusy && playingContext !== 'concise'}
+                                            onClick={(e) => {
+                                                // 🔥 强制阻止事件冒泡，防止触发底层的拖拽
+                                                e.stopPropagation();
+                                                togglePlay('concise');
+                                            }}
+                                            disabled={isAudioBusy && playingContext !== 'concise'} 
+                                            // 🔥 确保有 cursor-pointer 和 hover:text-[#0AC8B9]
+                                            style={{ 
+                                                WebkitAppRegion: 'no-drag', 
+                                                position: 'relative', 
+                                                zIndex: 100 
+                                            }}
+                                            
                                             className={`
-                                                flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold transition-all
-                                                ${playingContext === 'concise' ? 'text-amber-400 bg-amber-500/10' : 'text-slate-400 hover:text-[#0AC8B9]'}
+                                                flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold transition-all cursor-pointer select-none
+                                                ${playingContext === 'concise' 
+                                                    ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20' 
+                                                    : 'text-slate-400 hover:text-[#0AC8B9] hover:bg-[#0AC8B9]/10'}
                                             `}
                                             title="播放/暂停"
                                         >
-                                            {isFetchingAudio && playingContext === 'concise' ? <Loader2 size={12} className="animate-spin"/> : (
-                                                playingContext === 'concise' && !isPaused ? <Pause size={12}/> : <Volume2 size={12}/>
-                                            )}
+                                            {isFetchingAudio && playingContext === 'concise' ? (
+                                                <Loader2 size={12} className="animate-spin"/>
+                                            ) : (playingContext === 'concise' && !isPaused ? (
+                                                <Pause size={12}/>
+                                            ) : (
+                                                <Volume2 size={12}/>
+                                            ))}
                                             <span className="hidden sm:inline">
                                                 {isFetchingAudio && playingContext === 'concise' ? "准备中" : (playingContext === 'concise' ? (isPaused ? "继续" : "暂停") : "播报")}
                                             </span>
@@ -801,41 +827,19 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
                                 )}
                             </div>
                         </div>
-                        
-                        {showThought && thought && (
-                            <div className="mb-3 max-h-[300px] overflow-y-auto bg-black/40 border-l-2 border-amber-500/50 p-3 rounded-r-lg text-[10px] md:text-[11px] font-mono text-slate-400 leading-relaxed custom-scrollbar animate-in slide-in-from-top-2 fade-in">
-                                <div className="whitespace-pre-wrap break-words">{thought}</div>
-                            </div>
-                        )}
-
+                        {showThought && thought && <div className="mb-3 max-h-[300px] overflow-y-auto bg-black/40 border-l-2 border-amber-500/50 p-3 rounded-r-lg text-[10px] md:text-[11px] font-mono text-slate-400 leading-relaxed custom-scrollbar animate-in slide-in-from-top-2 fade-in"><div className="whitespace-pre-wrap break-words">{thought}</div></div>}
                         <div className="mb-2 max-w-[800px] overflow-y-auto max-h-[40vh] custom-scrollbar pr-2">
                             {conciseCards.length > 0 ? (
-                                <div className="space-y-1">
-                                    {conciseCards.map((card, idx) => (
-                                        <ConciseVisualCard key={idx} title={card.title} content={card.content} />
-                                    ))}
-                                </div>
+                                <div className="space-y-1">{conciseCards.map((card, idx) => <ConciseVisualCard key={idx} title={card.title} content={card.content} isCompact={useCompact} />)}</div>
                             ) : (
-                                concise.content ? (
-                                    <div className="prose prose-invert prose-sm max-w-none">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={HexMarkdownComponents}>
-                                            {enhanceMarkdown(concise.content)}
-                                        </ReactMarkdown>
-                                    </div>
-                                ) : (
-                                    isAnalyzing && <div className="text-xs text-slate-500 animate-pulse">正在生成摘要...</div>
-                                )
+                                <div className="prose prose-invert prose-sm max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]} components={WebMarkdownComponents}>{enhanceMarkdown(concise.content)}</ReactMarkdown></div>
                             )}
                         </div>
-
-                        {/* ... footer ... */}
                         <div className="flex justify-end items-center gap-2 mt-2 pt-2 border-t border-white/5">
                             <div className="flex-1"></div>
-                            <button onClick={handleClear} className="text-slate-600 hover:text-red-500 transition-colors p-1.5 rounded hover:bg-red-500/10 mr-1" title="清空当前分析结果">
-                                <Trash2 size={16}/>
-                            </button>
-                            <button onClick={handleCopyToTeam} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer select-none ${teamCopied ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:border-amber-500 hover:bg-amber-500/10'}`}>
-                                {teamCopied ? <Check size={12}/> : <Copy size={12}/>}<span>{teamCopied ? '已复制' : '复制'}</span>
+                            <button onClick={handleClear} className="text-slate-600 hover:text-red-500 transition-colors p-1.5 rounded hover:bg-red-500/10 mr-1" title="清空当前分析结果"><Trash2 size={16}/></button>
+                            <button onClick={handleCopyToTeam} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer select-none ${teamCopied ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:border-amber-500 hover:bg-amber-500/10'}`} title="复制摘要内容给队友 (已自动清洗格式)">
+                                {teamCopied ? <Check size={12}/> : <Copy size={12}/>}<span>{teamCopied ? '已复制 (请按Ctrl+V)' : '一键复制发给队友'}</span>
                             </button>
                             <button onClick={() => setShowDebug(!showDebug)} className="text-slate-600 hover:text-amber-500 transition-colors p-1.5">{showDebug ? <EyeOff size={14}/> : <Eye size={14}/>}</button>
                         </div>
@@ -846,92 +850,53 @@ const AnalysisResult = ({ aiResult, isAnalyzing, setShowFeedbackModal, setFeedba
             <div className="flex-1 flex flex-col min-h-0 relative z-10 bg-transparent">
                 <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/5 bg-[#2c2c33]/95 backdrop-blur-md pr-2 shadow-sm">
                     <div className="flex overflow-x-auto scrollbar-hide flex-1 items-center">
-                        <div className="flex items-center px-3 border-r border-white/5 text-slate-500 shrink-0">
-                            <Layout size={14} />
-                        </div>
+                        <div className="flex items-center px-3 border-r border-white/5 text-slate-500 shrink-0"><Layout size={14} /></div>
                         {activeTabsData.length > 0 ? activeTabsData.map((tab, idx) => (
-                            <button key={idx} onClick={() => setWebActiveTab(idx)}
-                                className={`px-4 py-2.5 md:px-5 md:py-3 text-xs md:text-sm font-bold border-b-2 transition-all whitespace-nowrap flex items-center gap-2
-                                    ${webActiveTab === idx 
-                                        ? 'border-amber-500 text-amber-400 bg-amber-500/5' 
-                                        : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'
-                                    }`}>
+                            <button key={idx} onClick={() => setWebActiveTab(idx)} className={`px-4 py-2.5 md:px-5 md:py-3 text-xs md:text-sm font-bold border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${webActiveTab === idx ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}>
                                 {idx + 1}. {tab.title}
                             </button>
                         )) : (
-                            <div className="px-5 py-3 text-xs text-slate-500 italic flex items-center gap-2">
-                                {isAnalyzing ? <RefreshCw size={12} className="animate-spin"/> : <BookOpen size={12}/>}
-                                {isAnalyzing ? "生成中..." : "等待数据..."}
-                            </div>
+                            <div className="px-5 py-3 text-xs text-slate-500 italic flex items-center gap-2">{isAnalyzing ? <RefreshCw size={12} className="animate-spin"/> : <BookOpen size={12}/>}{isAnalyzing ? "生成中..." : "等待数据..."}</div>
                         )}
-                        
-                        {/* 🔥 Web 端 Tab 播放控件 */}
                         {!isAnalyzing && activeTabsData.length > 0 && (
-                            <button 
-                                onClick={() => togglePlay(`tab-${webActiveTab}`)}
-                                className={`ml-2 p-1.5 rounded-full border transition-all ${playingContext === `tab-${webActiveTab}` ? 'bg-amber-500/20 border-amber-500 text-amber-400' : 'bg-white/5 border-white/10 hover:bg-[#0AC8B9]/10 hover:text-[#0AC8B9]'}`}
-                                title={playingContext === `tab-${webActiveTab}` ? (isPaused ? "继续播放" : "暂停播放") : "播放当前页"}
-                            >
-                                {isFetchingAudio && playingContext === `tab-${webActiveTab}` ? <Loader2 size={12} className="animate-spin"/> : (
-                                    playingContext === `tab-${webActiveTab}` && !isPaused ? <Pause size={12}/> : <Play size={12} fill="currentColor"/>
-                                )}
+                            <button onClick={() => togglePlay(`tab-${webActiveTab}`)} className={`ml-2 p-1.5 rounded-full border transition-all ${playingContext === `tab-${webActiveTab}` ? 'bg-amber-500/20 border-amber-500 text-amber-400' : 'bg-white/5 border-white/10 hover:bg-[#0AC8B9]/10 hover:text-[#0AC8B9]'}`} title={playingContext === `tab-${webActiveTab}` ? (isPaused ? "继续播放" : "暂停播放") : "播放当前页"}>
+                                {isFetchingAudio && playingContext === `tab-${webActiveTab}` ? <Loader2 size={12} className="animate-spin"/> : (playingContext === `tab-${webActiveTab}` && !isPaused ? <Pause size={12}/> : <Play size={12} fill="currentColor"/>)}
                             </button>
                         )}
                     </div>
-
                     <div className="flex items-center gap-1 bg-black/20 p-1 rounded-lg border border-white/5 m-1 shrink-0 ml-2">
-                        <button 
-                            onClick={() => setViewMode && setViewMode('simple')}
-                            className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500
-                                ${viewMode === 'simple' 
-                                    ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(245,158,11,0.5)] border border-amber-400 border-opacity-100 scale-105 z-10' 
-                                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
-                                }`}
-                            title="切换至：口令模式 (简明指令)"
-                        >
-                            <Zap size={10} fill={viewMode === 'simple' ? "currentColor" : "none"}/> 简略
-                        </button>
-                        <button 
-                            onClick={() => setViewMode && setViewMode('detailed')}
-                            className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500
-                                ${viewMode === 'detailed' 
-                                    ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] border border-blue-400 border-opacity-100 scale-105 z-10' 
-                                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
-                                }`}
-                            title="切换至：详细模式 (深度分析)"
-                        >
-                            <FileText size={10}/> 详细
-                        </button>
+                        <button onClick={() => setViewMode && setViewMode('simple')} className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500 ${viewMode === 'simple' ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(245,158,11,0.5)] border border-amber-400 border-opacity-100 scale-105 z-10' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'}`} title="切换至：口令模式 (简明指令)"><Zap size={10} fill={viewMode === 'simple' ? "currentColor" : "none"}/> 简略</button>
+                        <button onClick={() => setViewMode && setViewMode('detailed')} className={`px-3 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1.5 duration-500 ${viewMode === 'detailed' ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] border border-blue-400 border-opacity-100 scale-105 z-10' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'}`} title="切换至：详细模式 (深度分析)"><FileText size={10}/> 详细</button>
                     </div>
                 </div>
                 
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-transparent relative selection:bg-amber-500/30 selection:text-white scroll-smooth">
                     {activeTabsData[webActiveTab] ? (
                         <div className="prose prose-invert prose-sm max-w-[800px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={HexMarkdownComponents}>
-                                {enhanceMarkdown(activeTabsData[webActiveTab].content)}
-                            </ReactMarkdown>
+                            {/* 🔥 使用 WebMarkdownComponents */}
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={WebMarkdownComponents}>{enhanceMarkdown(activeTabsData[webActiveTab].content)}</ReactMarkdown>
                         </div>
                     ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-600 text-sm gap-2 opacity-50 min-h-[200px]">
-                           {!isAnalyzing && "暂无此模式数据，请尝试切换视图"}
-                        </div>
+                        <div className="h-full flex flex-col items-center justify-center text-slate-600 text-sm gap-2 opacity-50 min-h-[200px]">{!isAnalyzing && "暂无此模式数据，请尝试切换视图"}</div>
                     )}
                     <SelectionFloatingButton />
                 </div>
                 
-                <div className="p-2 border-t border-white/5 flex justify-end bg-[#2c2c33]/40 rounded-b-xl shrink-0">
-                <div className="hidden md:flex items-center gap-2 text-[10px] text-slate-500 pl-2 opacity-60 hover:opacity-100 transition-opacity select-none cursor-help" title="每一条认真反馈，都在让 Hex Coach 更接近“真正的教练”。">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#0AC8B9]"></div>
-                        <span>发现 AI 判断有问题？提交反馈可获奖励。</span>
+                <div className="p-2 border-t border-white/5 flex justify-end items-center bg-[#2c2c33]/40 rounded-b-xl shrink-0">
+                    <div className="hidden md:flex items-center gap-2 text-[10px] text-slate-500 pl-2 opacity-60 hover:opacity-100 transition-opacity select-none cursor-help" title="每一条认真反馈，都在让 Hex Coach 更接近“真正的教练”。">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#0AC8B9]"></div><span>发现 AI 判断有问题？提交反馈可获奖励。</span>
                     </div>
-                    <button onClick={() => setShowFeedbackModal(true)} className="flex items-center gap-2 text-xs transition-all group">
-                        <span className="text-slate-500 group-hover:text-slate-400 flex items-center gap-1"><AlertTriangle size={12} /> 内容有误？</span>
-                        <div className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full group-hover:bg-amber-500/20 group-hover:border-amber-500/40 group-hover:scale-105 transition-all duration-300">
-                            <Gift size={12} className="animate-bounce" />
-                            <span className="font-bold tracking-wide scale-90 sm:scale-100">纠错采纳送额度</span>
-                        </div>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleCopyCurrentPage} className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border border-slate-700 bg-slate-800 text-slate-400 hover:text-white hover:border-[#0AC8B9] hover:bg-[#0AC8B9]/10 active:scale-95" title="清洗并复制当前页内容 (适合发给队友)">
+                            {pageCopied ? <Check size={12} className="text-green-400"/> : <Copy size={12}/>}<span>{pageCopied ? '已复制 (请按Ctrl+V)' : '一键复制发给队友'}</span>
+                        </button>
+                        <button onClick={() => setShowFeedbackModal(true)} className="flex items-center gap-2 text-xs transition-all group">
+                            <span className="text-slate-500 group-hover:text-slate-400 flex items-center gap-1"><AlertTriangle size={12} /> 内容有误？</span>
+                            <div className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full group-hover:bg-amber-500/20 group-hover:border-amber-500/40 group-hover:scale-105 transition-all duration-300">
+                                <Gift size={12} className="animate-bounce" /><span className="font-bold tracking-wide scale-90 sm:scale-100">纠错采纳送额度</span>
+                            </div>
+                        </button>
+                    </div>
                 </div>
             </div>
 
