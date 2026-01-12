@@ -7,6 +7,7 @@
     "priority": 560,
     "content": "【S16 野核极速循环：时间轴校准】\n\n**背景**：S16 野怪 1:05 刷新，河蟹 3:30 刷新。你的时间表必须前移：\n\n1) **【首轮冲刺（1:05 - 3:25）】**\n   - 路径：单开Buff(1:05) -> 蛤蟆/石甲虫(1:17) -> 三狼/F6 -> 双Buff速3 -> 全刷。\n   - 目标：必须在 **3:25** 前处理完6组野怪，准时落位河道。\n\n2) **【河蟹真空期（3:25 - 3:30）】**\n   - 如果你刷得够快，你会比河蟹早到几秒。利用这段时间**排查河道精灵视野**。\n\n3) **【河蟹博弈（3:30）】**\n   - 河蟹现在 3:30 刷新。这是第一波节奏点。拿到后立即去处理第二轮野怪或Gank。\n\n4) **【决策点（5:00）】**\n   - 小龙依然是 5:00 刷新。此处判定：【控龙】还是【去GANK】。\n- 任务系统需要击杀35组大型野怪进化，**机会不好不要强行Gank牺牲第二轮野怪**。"
   },
+  
   {
     "hero": "role_jungle_farming",
     "enemy": "general",
@@ -104,14 +105,81 @@
     "content": "【8分钟巢虫：先布阵、可停手、可接团】\n\n【核心结论】\n巢虫多数情况下该打，但必须是“有退路的资源”，不是赌命资源。\n\n【允许打的门票】\n1) 我方经济/等级不劣。\n2) 小规模团战至少不明显下风。\n\n【标准执行（刷新前20-30秒开始）】\n1) 刷完一组野怪后转巢虫侧，先深眼/排眼（入口、坑口、绕后）。\n2) 至少保证中路能动；若中路被压死无法先到，默认巢虫高风险。\n3) 先打一只，不硬打两只：先拿第一只，再做接团/撤退判定。\n4) 血量控制在随时能停手区间，避免在坑里被动挨开。\n5) 敌方先到位且强开角度明确 → 立刻停手转为拉扯/集火/撤退。\n\n【纪律】\n巢虫争夺关键是中路先动+信息先落位；不满足就置换或等信息，不许赌命。"
   },
  
-
   {
-    "hero": "Malphite",
+    "hero": "role_jungle_ganking",
     "enemy": "general",
-    "mutual": true,
-    "content": "**绝对机制修正**：墨菲特的大招【势不可挡】拥有游戏最高判定优先级。在飞行过程中，**没有任何控制技能**（含压制、击飞、魅惑、波比W）能将其打断。该机制对敌我双方均生效：除了死亡，无法停止。",
-    "type": "RULE"
+    "mutual": false,
+    "type": "RULE",
+    "priority": 980,
+    "content": "【证据强度校准 (Evidence Calibration)】\n\n**判定标准**：\n- **Strong (强证据)**：必须满足“至少2条硬信息”（如：一级团结果/明确视野侦察/线权已定/关键技能CD）。\n- **Medium (推断)**：仅基于阵容静态分析（如“杰斯大概率红开”），无实时视野佐证。\n- **Weak (猜测)**：信息不足。\n\n**约束**：若强度为 Medium/Weak，`enemy_jungle` 必须允许 `UNKNOWN`，且 Timeline 中的 trigger 必须使用条件句（“若...则...”），禁止使用必然语气的结论。"
   },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 975,
+    "content": "【熔断机制适用范围 (Meltdown Scope)】\n\n**生效条件（AND逻辑）**：\n1. 敌方打野必须是【FAST_GANK / 硬控突进型】（如：JarvanIV, XinZhao, Elise, LeeSin, Nidalee, RekSai）。\n2. 我方核心路存在【无位移/必推线/闪现CD】的高危特征。\n\n**修正指令**：\n- **满足条件时**：执行“跳过野怪、双Buff速3、2:50到位”的硬性熔断。\n- **不满足时**（如敌方是刷子/弱势打野）：**禁止**建议跳过野怪。此时熔断事件降级为“预警窗口”（Action：发信号/插眼/正常反蹲，但不牺牲刷野路线）。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 970,
+    "content": "【速推体系强制评估 (Fast Push Mandate)】\n\n**触发**：我方存在“长手拆塔/线权磨塔”核心（如：Caitlyn, Draven, Lucian + 软辅/法辅）。\n\n**Dashboard 约束**：\n必须在 `master_plan` 中显式评估 **FAST_PUSH (速推流)** 的可行性。\n- **Primary/Secondary Plan** 必须包含一条路径：A)“下路推塔→转线控资源” 或 B)“先锋撞中→解放中路转下”。\n- 若最终放弃速推主轴，必须在 `lose_condition` 或 `dont_do` 中写明放弃理由（如：敌方硬开团太强/我方无前排/辅助游走了），否则视为战术缺失。\n- **执行细节**：2:55 河蟹决策必须优先服务于“护住线权”，而不是无脑抢蟹。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 965,
+    "content": "【三路定性一致性 (Role Clarity)】\n\n**定义修正**：\n- **tempo_point (节奏点)** = 能配合你做事的点（有控/能先动/伤害前置）。\n- **carry_point (大核)** = 胜负手/持续输出保障。\n\n**逻辑约束**：\n默认情况下，`tempo_point` 和 `carry_point` **不得重合**。除非在 `win_condition` 中明确论证“本局是单核体系，赢输全看一路”。若两路都强，Tempo 优先给中上野辅，Carry 优先给下路或后期大核。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 960,
+    "content": "【危险等级数值锚定 (Danger Calibration)】\n\n**数值约束 (0-100)**：\n- **Level >= 40**：当 Timeline/Watch 中出现“四包二”、“被抓崩”、“无视野必死”、“高危反蹲”等字眼时，数值必须 >= 40。\n- **Level < 30**：仅当敌方前期弱势（如死歌/木木）且我方三路平稳/有线权/有视野时，才允许低于 30。\n- **自检**：禁止出现“文字描述极度危险，但数值显示 10”的矛盾情况。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 860,
+    "content": "【仪表盘卡片写法硬约束（防止把详解塞进 dashboard）】\n1) 每张卡必须含：type, priority, title, trigger, do, watch, fallback。\n2) do 必须是 2-5 条步骤数组；watch 必须是 1-3 条风险数组；fallback 必须是一句止损。\n3) title/trigger/do 必须引用本局具体英雄名/技能/对位（禁止泛泛而谈）。\n4) 激进动作（入侵/越塔/硬抢河蟹）必须在 trigger 写明【线权】或【视野】证据，否则 fallback 必须改为保守（让资源/撤退/换边）。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "GUIDE",
+    "priority": 930,
+    "content": "【Plan A / Plan B 主轴判定（二选一原则）】\n\n**Plan A：抓边滚雪球**\n- 触发：某路具备高成功率窗口（敌方无位移/敌方压线深/我方稳定控制），且能在 3:00-7:00 把优势兑现成镀层/一塔。\n\n**Plan B：线权控资源流**\n- 触发：我方有稳定线权（不限于中路，含下路强推），能把线权转化为河道视野→资源→塔皮。\n\n**判定维度**：必须显式考虑 MidPrio (中路线权)、SideGank (边路机会)、ObjectiveFight (资源团战力)。\n**约束**：`primary_plan` 必须是“赢法主轴”，而不是简单的“抓人/刷野”描述。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "GUIDE",
+    "priority": 900,
+    "content": "【转化闭环：反‘抓完就逛街’补丁】\n\n**强制要求**：\n每次在仪表盘里出现“成功Gank/逼闪/打赢小团”，必须立刻跟一个【转化动作】（三选一）：\nA) 推塔拿镀层/逼一塔\nB) 控河道视野→拿资源（龙/先锋/巢虫）\nC) 入侵吃野区并插深眼（同时写清撤退线）\n\n**禁忌**：只写‘回城’或‘继续找机会’而不写转化路径。"
+  },
+  {
+    "hero": "role_jungle_ganking",
+    "enemy": "general",
+    "mutual": false,
+    "type": "GUIDE",
+    "priority": 100,
+    "content": "【速3路径学 (Pathing 101)】\n**核心逻辑**：终点决定起点。若要去抓下路，必须从上半区开。若要去抓上路，必须从下半区开。"
+  },
+  
+  
+
   {
     "hero": "role_jungle",
     "enemy": "general",
@@ -126,42 +194,133 @@
     "mutual": false,
     "content": "**多维战力评估法则 **：\n不要只看自己强不强，要看【组合强不强】。\n1. **拒绝盲目反蹲**：反蹲的前提是 **N+1 vs N+1 打得过**。如果我方线上是劣势组合（如金克丝+璐璐 vs 德莱文+泰坦），**严禁**去该路进行均势反蹲，这通常会导致送双杀/三杀。\n2. **寻找不对称优势**：当【大团】(3v3/2v2) 打不过时，必须利用你的个人优势寻找【小团】(1v1) 或换路寻找优势。\n   - *场景*：下路3v3打不过 -> **严禁去下** -> 改为入侵野区找敌方打野单挑(1v1)，或抓中路(2v2)。\n3. **唯一例外**：只有在敌方越塔失误、技能全交（窗口期）时，才能去劣势路收割。",
     "type": "GUIDE",
-    "priority": 200
+    "priority": 600
   },
-  {
-    "hero": "role_jungle",
-    "enemy": "general",
-    "mutual": false,
-    "type": "RULE",
-    "priority": 600,
-    "content": "【S16 视野博弈：精灵视野 】\n\n**核心警告**：S16 新增【精灵视野】，敌方辅助/打野可能在河道入口开启了“超级守卫”。\n\n**战术修正**：\n1. **拒绝盲赌**：默认河道有眼。前期的 Gank 必须建立在【对方压线到我方塔下】或【反蹲】的基础上，不要尝试“绕视野”（因为视野范围太大了，绕不开）。\n2. **阳谋**：利用“扫描”排掉精灵视野本身就是一种威慑。或者我方有线权，直接明牌进野区找人打架（因为大家都能看到对方）。"
-  },
-  {
-    "hero": "role_jungle_ganking",
-    "enemy": "general",
-    "mutual": false,
-    "type": "GUIDE",
-    "priority": 550,
-    "content": "【刺客打野新核心：堡垒破坏者 】\n\n适用英雄：**卡兹克、泰隆、劫、雷恩加尔、魔腾**。\n\n**战术循环**：\n1. **出装**：第二/三件必出【堡垒破坏者】。\n2. **触发**：参与击杀英雄（拿头或助攻）。\n3. **执行**：获得【蓄意破坏】Buff后，**立即**转线去推塔或打龙。一刀能打塔 2000+ 真实伤害。\n**口诀**：杀完人别回家，去摸一下塔再走！"
-  },
-  {
-    "hero": "role_jungle_farming",
-    "enemy": "general",
-    "mutual": false,
-    "type": "RULE",
-    "priority": 400,
-    "content": "【分路任务协作纪律】\n\nS16 队友有分路任务，打野需注意：\n1. **上路**：帮上路推塔收益极高（助他升20级成神）。\n2. **下路**：**严禁脏兵**。ADC 需要大量补刀来解锁第7个装备栏。你脏一波兵可能导致他晚5分钟做完任务。\n3. **中路**：中单有免费三级鞋，游走速度很快，前期多呼叫中单支援野区。"
-  },
-  {
-    "hero": "role_jungle",
-    "enemy": "general",
-    "mutual": false,
-    "type": "GUIDE",
-    "priority": 350,
-    "content": "【一血一塔：野区经济学】\n\n**抢占先机已移除**，游戏回归朴实的一血(+100g)和一塔(+300g)。\n\n**决策逻辑**：\n- 8分钟巢虫现在的战略价值现在很高，为了【一塔赏金】，请围绕“谁能最快拆塔”来规划Gank路线。"
-  },
-   
 
+
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 985,
+    "content": "【Plan B 逻辑连续性与止损原则（强制）】\n\n1. **体系惯性（禁止跳档）**：Plan B 的 action 必须继承 Plan A 的体系属性。\n   - 若 Plan A 是进攻体系（SIEGE/ENGAGE/PICK），Plan B **严禁** 变为“拖后期/保发育/防守”（SCALE/STALL）。\n   - ✅ 正确降级：Plan A 推塔受阻 → Plan B 改为“入侵野区/抓单/镜像换塔”（仍是进攻性质，手段改变）。\n   - ❌ 错误跳档：Plan A 推塔受阻 → Plan B 改为“全员龟缩/保上单发育”（性质改变）。\n\n2. **拒绝沉没成本（主轴锚定）**：\n   - Plan B 的 condition 只能监测 **主胜算点（Win Condition）** 的风险（如：女警推不动/关键大招空了）。\n   - **禁止** 因为“非核心边路（Weak Side）崩盘”而触发 Plan B。\n   - 若上单（非核心）被爆：Plan B 应该是“放弃上路，打野死蹲下路提速”（以攻代守），绝不能是“转去帮上路”。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 984,
+    "content": "【Plan B 格式约束】master_plan.plan_b 必须包含 condition (触发条件) 和 action (应对打法)。condition 必须是具体的“战场信号”（如：主C被压出经验区），严禁写“基地已破”等结束性结果。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "GUIDE",
+    "priority": 995,
+    "content": "【STEP 1｜体系标签判定与收敛（System Tags · 强制）】\n\n1. **定义标准（必须基于此判定）：**\n   - ENGAGE：正面强开（需 2+ 主动硬控，如奥恩/洛，目的是直接打团）。\n   - POKE：安全距离消耗（需 2+ 远程长手，目的是打残逼退）。\n   - PICK：抓单/掉点（强锁头或瞬间爆发，目的是多打少）。\n   - SPLIT：分带牵制（需 T1 单带英雄 + TP，目的是兵线压力）。\n   - SIEGE：速推/压塔（目的是拆塔拿图，不接团）。\n   - FRONT_TO_BACK：标准阵地（前排抗-后排打，保护体系归于此）。\n\n2. **强制收敛规则（做减法）：**\n   - master_plan.tags.my_system 与 enemy_system **严禁超过 2 个**。\n   - 若同时满足 3 个以上特征（例如既能强开又能分带还能消耗），必须执行“二选一”逻辑，**只保留最核心、最不可替代** 的 2 个主轴，直接删除次要标签。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 992,
+    "content": "【强制约束：开团角色合法性】key_roles.engage 字段 **严禁** 填入反手/保护型英雄。\n- **合法 ENGAGE**：必须具备“主动位移 + 强硬控”能力（如：Malphite, Ornn, Nautilus, Leona, Rakan, Sejuani, Vi）。\n- **非法 ENGAGE**：Braum(布隆), Taric(塔里克), TahmKench(塔姆), Lulu(露露), Janna(风女) 等必须归类为 PEEL/PROTECT 或 DISENGAGE，无论其是否在前方抗伤。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 990,
+    "content": "【强制约束：拒绝幻觉与空话】\n1. **拒绝幻觉词**：禁止编造 s16_context 中不存在的“版本机制名”。不确定时强制改用通用术语（如“河道控区”）。\n2. **短句拒绝空话**：team_top_left_cards 与 concise 的关键句，**必须** 包含至少 1 个具体的“英雄名”或“独特战术动作”（如：女警速推、诺手分带）。**严禁** 使用“打好运营”、“控制资源”这种废话。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 988,
+    "content": "【STEP 2｜验证信号可视化（Validation Cues · 强制）】\nmaster_plan.validation_cues 必须是 **“玩家看一眼小地图/屏幕就能确认”** 的画面状态。\n- ✅ 合法：塔被推掉、辅助游走到中路、上单TP亮起、C位被逼闪、龙坑视野全黑。\n- ❌ 禁止：使用“经济领先2k”、“等级优势”、“X分钟前”等抽象数值或时间阈值。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 985,
+    "content": "【Plan B 结构与逻辑（强制）】\n1. **结构**：master_plan.plan_b 必须包含 condition (触发条件) 和 action (应对打法)。\n2. **逻辑**：condition **必须是早期风险信号**，禁止设置为“基地已破/二塔已掉”等不可挽回的结果。正确范例：“当诺手在边线无人能管且持续进塔时”（这是风险，不是结果）。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 980,
+    "content": "【证据分级（Evidence Strength）】dashboard.meta.evidence_strength 必须准确：\n- **Draft-Strong**：仅靠阵容结构即可高度确定（如：明确的 4保1 体系、无位移双C遇到石头人）。\n- **Strong**：有可观察信息支撑（线权到位、视野控制）。\n- **Weak**：若判定为 Weak，**禁止** 建议强开/越塔/Rush大龙，必须给保守 fallback。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 970,
+    "content": "【激进行为合法性（强制）】任何 强开/越塔/Rush大龙/强打远古 等激进行为，trigger 必须写明证据：线权/视野/人数/关键技能（至少满足其一）；否则视为不合法，必须改为保守 fallback（清线/换线/抓单/逼视野）。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 965,
+    "content": "【点名英雄与职责（强制）】每张行动卡的 do 至少 2 条必须出现具体英雄名；watch 至少 1 条必须点名敌方威胁英雄（来自 tags.key_roles）。禁止输出泛化句。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 955,
+    "content": "【POKE / SIEGE 体系团队打法（强制）】当 my_system 包含 POKE 或 SIEGE 时，核心流程必须是：控两翼视野 → 中路压线 → 持续消耗逼回城 → 再启动资源。**禁止** 在龙坑/狭窄地形主动接正面 5v5；若无法完成消耗，fallback 必须是换线/清线，而不是硬接团。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 950,
+    "content": "【SPLIT 分带打法必须落地（强制）】当 my_system 包含 SPLIT 时：split_rule 必须说明 ①谁分带 ②带哪条路 ③何时集合。plan_a 必须体现“兵线压力→逼TP回防→转拿资源”的运营链条。**禁止** 让单带英雄无脑参团。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 940,
+    "content": "【大龙/远古前置条件（强制）】任何 BARON_CTRL 或 ELDER_PLAN 行动前，WAVE_REQ 必须检查：① 至少两路兵线可先动；② 龙坑视野不劣。若兵线被压或视野全黑，**禁止 Rush**，必须改为清线/抓单。"
+  },
+  {
+    "hero": "mode_team",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 935,
+    "content": "【特殊体系｜PROTECT（4 保 1）强制规则】当阵容为“大核ADC + 2名以上保护型辅助/坦克”时，必须判定为 PROTECT。\n- must_protect 必须包含且仅包含该 ADC。\n- fight_rule 必须以“拆火/反手”为第一优先，**禁止** 描述为进场切后。\n- validation_cues 必须包含与 ADC 生存空间相关的信号。"
+  },
+
+
+
+  
+  {
+    "hero": "Malphite",
+    "enemy": "general",
+    "mutual": true,
+    "content": "**绝对机制修正**：墨菲特的大招【势不可挡】拥有游戏最高判定优先级。在飞行过程中，**没有任何控制技能**（含压制、击飞、魅惑、波比W）能将其打断。该机制对敌我双方均生效：除了死亡，无法停止。",
+    "type": "RULE"
+  },
 {
     "hero": "Ekko",
     "enemy": "general",
@@ -211,14 +370,6 @@
     "priority": 200
   },
   {
-    "hero": "role_jungle_ganking",
-    "enemy": "general",
-    "mutual": false,
-    "content": "**节奏型打野：速3路径学 **\n1. **核心逻辑**：终点决定起点。若要去抓下路，必须从上半区开。\n2. **跨图速3**：为了极速赶路，**严禁F6起手**，必须【双Buff+蛤蟆】速3直奔目标路。\n3. **适用英雄**：李青、赵信、嘉文四世、伊莉丝。",
-    "type": "GUIDE",
-    "priority": 100
-  },
-  {
     "hero": "Ambessa",
     "enemy": "general",
     "mutual": false,
@@ -233,11 +384,6 @@
     "content": "**机制修正**：佛耶戈的【君命已决】变身仅持续10秒。**严禁**建议“捡魂后去单带/推塔”，因为变身时间极短。捡魂的主要目的是：1. 刷新大招(R)进行斩杀/位移；2. 利用敌方小技能打出控制或爆发；3. 回复生命值以在团战中存活。",
     "type": "RULE",
     "priority": 200
-  },
-  {
-    "hero": "role_jungle_ganking",
-    "content": "**节奏型打野铁律**：你的时间=节奏。人头才是经验和经济的主要来源。严禁闷头刷野。",
-    "type": "GUIDE"
   },
   {
     "hero": "Sylas",
@@ -612,5 +758,13 @@
     "type": "RULE",
     "priority": 950,
     "content": "**绝对机制修正**：德莱文（Draven）的大招【冷血追命】**绝对没有**击杀刷新机制！拥有“斩杀刷新大招”机制的是他的哥哥德莱厄斯（诺手）。德莱文的机制是：1. 接斧头刷新【W技能：血性冲刺】；2. 击杀英雄触发被动提款（获得金币）。**严禁**在分析中提及“德莱文刷新大招收割”这种错误说法。"
+  },
+  {
+    "hero": "Talon",
+    "enemy": "general",
+    "mutual": false,
+    "type": "RULE",
+    "priority": 900,
+    "content": "**绝对机制修正（幻觉矫正）**：\n1. **刷野效率**：男刀（Talon）的被动【刀锋之末】对野怪生效（流血伤害）。这使得他是目前版本**刷野最快且最无伤**的打野之一（通常全刷只需2分50秒左右且满血）。\n2. **严禁话术**：在分析中**绝对禁止**描述男刀“刷野慢”、“前期刷野伤”或“状态不好”。\n3. **正确应对**：对抗男刀的逻辑不是等他被野怪打残，而是必须警惕他**满血速刷**后的第一时间入侵或翻墙Gank。"
   }
 ]

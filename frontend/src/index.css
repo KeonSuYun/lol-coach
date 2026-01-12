@@ -183,4 +183,57 @@ body.transparent-mode #root {
       background: rgba(200, 170, 110, 0.3);
       border-radius: 2px;
   }
+ /* src/index.css */
+
+.hex-card {
+  position: relative;
+  /* 背景保持深蓝半透明 */
+  background: rgba(15, 23, 42, 0.85); 
+  /* 边框青色微光 */
+  border: 1px solid rgba(10, 200, 185, 0.2); 
+  
+  /* 🔥 修改这里：不再切角，使用大圆角 */
+  border-radius: 12px !important; 
+  clip-path: none !important; /* 强制取消切角 */
+  
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* 移除之前的伪元素装饰线，圆角风格不需要 */
+.hex-card::before,
+.hex-card::after {
+  display: none;
+}
+
+/* 卡片角落的高亮装饰 (伪元素实现金属加固感) */
+.hex-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 1px;
+  background: #C8AA6E;
+  z-index: 10;
+}
+.hex-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 1px;
+  background: #C8AA6E;
+  z-index: 10;
+}
+@keyframes risingParticles {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        /* 缓慢向上移动背景 */
+        background-position: 0 -120px;
+    }
+}
 }

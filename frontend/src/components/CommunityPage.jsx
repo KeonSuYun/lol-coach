@@ -82,7 +82,7 @@ export default function CommunityPage({
             }
 
             try {
-                const stored = localStorage.getItem('champions_data_v2'); 
+                const stored = localStorage.getItem('champions_data'); 
                 if (stored) {
                     setChampionList(JSON.parse(stored));
                     return;
@@ -92,7 +92,7 @@ export default function CommunityPage({
                 if (res.data && res.data.hero) {
                     const adaptedList = adaptChampionData(res.data.hero);
                     setChampionList(adaptedList);
-                    localStorage.setItem('champions_data_v2', JSON.stringify(adaptedList));
+                    localStorage.setItem('champions_data', JSON.stringify(adaptedList));
                 }
             } catch (err) { console.error(err); }
         };
@@ -201,15 +201,18 @@ export default function CommunityPage({
   const iconId = gameProfile.profileIconId || 29;
   const avatarUrl = `https://ddragon.leagueoflegends.com/cdn/14.1.1/img/profileicon/${iconId}.png`;
 
+  // ✅ 新增：定义 isPro 变量
+  const isPro = accountInfo?.is_pro === true || ['admin', 'root', 'pro', 'vip', 'svip'].includes(accountInfo?.role);
+
   // 4. 组装传给 ConsoleHeaderUser 的数据
   const userData = {
-      username: displayGameName, // 显示游戏名
-      loginId: currentUser,      // 登录名 (用于悬浮或私信ID)
+      username: displayGameName, 
+      loginId: currentUser,      
       tag: displayTag,
       avatarUrl: avatarUrl,
       activeTitle: accountInfo?.active_title || "社区成员",
       rank: displayRank,
-      isPro: isPro
+      isPro: isPro // ✅ 现在可以正常使用了
   };
     return (
         // 🔥 [优化] 背景色调整为 Slate-900 (#0F172A)

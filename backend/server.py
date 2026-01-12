@@ -2109,7 +2109,9 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
         else:
             target_mode = "personal_lane"
             style_mode = "default"
-
+    elif data.mode == "team":
+        target_mode = "team"
+        style_mode = "mode_team"
 
     if data.myHero and data.myHero != "None":
         rag_enemy = primary_enemy
@@ -2123,7 +2125,7 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
             top_tips = knowledge.get("general", [])
         else:
             top_tips = knowledge.get("matchup", []) + knowledge.get("general", [])
-            
+        
         # 🔥 B. 获取修正数据 (传入 style_mode)
         # 注意：这里不再会被覆盖了！
         corrections = await run_in_threadpool(
@@ -2210,22 +2212,22 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
 【元规则 (系统底层指令)】
 1. **身份定义**：你是 HexCoach 战术副官，服务于英雄联盟玩家。
 2. **输出协议**：
-   - 必须输出纯 JSON 格式，严格遵守 `user_template` 定义的结构。
+   - 必须输出纯 JSON 格式。
+   - **严格遵守 System Prompt 中定义的 JSON 结构**（不要自作主张）。
    - 语言仅限中文。
 3. **排版视觉规范 (强制执行)**：
-   - **摘要(concise)卡片化**：必须使用 `### 【小标题】` 来分割不同维度的分析（前端依赖此标签生成可视化卡片）。
-   - **列表结构**：内容必须按点分行，每一项以 `- ` 开头。
-   - **视觉降噪**：严禁使用 `**` 加粗（星号），重点内容仅允许使用【】包裹。
+   - **JSON 字符串处理**：JSON 值中的换行必须使用 `\\n` 转义符，**严禁**使用真实的物理换行/回车，这会导致 JSON 解析失败。
+   - **视觉降噪**：严禁使用 `**` 加粗（星号），重点内容如，**英雄名**、**关键装备**、**时间点**，仅允许使用【】包裹。
    - **拒绝堆砌**：不要把所有信息塞进一段，必须换行。
 """
 
     # 🔥 [Mode Specific] 野核专属校验 (仅野核模式追加)
     JUNGLE_FARM_RECAP = """
 === 🛑 最终校验 (FINAL CHECK) ===
-1. **逻辑自检**：
-   - 0-4分钟：必须包含【黄金路线】(F6-石-红-狼-蛙-蓝)。
-   - 5:30节点：必须包含【三狼(2)+蛤蟆(2)】的决策。
-2. **巢虫落地**：必须解释【先布阵】的具体操作。
+请确保你的 `dashboard.strategies.early` 中包含：
+1. **黄金路线**：(0:55) F6/三狼开局的具体路径。
+2. **5:30 决策点**：包含【三狼(2)+蛤蟆(2)】的刷新处理。
+3. **巢虫落地**：必须解释【先布阵】的具体操作。
 请基于上述规则生成最终 JSON。
 """
 
@@ -2342,39 +2344,42 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
     # 9. AI 调用
     if data.model_type == "reasoner":
         MODEL_NAME = "deepseek-reasoner"
-        print(f"🧠 [AI] 核心算力 Request - User: {current_user['username']}")
+        print(f"🧠 [AI] 核心算力 Request (R1) - User: {current_user['username']}")
     else:
         MODEL_NAME = "deepseek-chat"
-        print(f"🚀 [AI] 基础算力 Request - User: {current_user['username']}")
+        print(f"🚀 [AI] 基础算力 Request (V3) - User: {current_user['username']}")
 
     async def event_stream():
         try:
             stream = await client.chat.completions.create(
                 model=MODEL_NAME,
-                messages=[{"role": "system", "content": system_content}, {"role": "user", "content": user_content}],
-                stream=True, temperature=0.6, max_tokens=4000
+                messages=[
+                    {"role": "system", "content": system_content}, 
+                    {"role": "user", "content": user_content}
+                ],
+                stream=True, 
+                temperature=0.6, 
+                max_tokens=4000
             )
             
-            # 🟢 新增状态标记：是否正在输出思考过程
             is_thinking = False
             
             async for chunk in stream:
                 if chunk.choices:
                     delta = chunk.choices[0].delta
                     
-                    # 1. 尝试获取思考内容 (DeepSeek R1 特有字段 reasoning_content)
+                    # 1. 处理思考过程 (DeepSeek R1 特有)
                     reasoning = getattr(delta, 'reasoning_content', None)
-                    
                     if reasoning:
                         if not is_thinking:
-                            yield "<think>" # 💡 手动加上开始标签，前端才能识别
+                            yield "<think>" # 💡 思考开始标记
                             is_thinking = True
                         yield reasoning
                     
                     # 2. 处理正式回复 (content)
                     elif delta.content:
                         if is_thinking:
-                            yield "</think>" # 💡 思考结束，闭合标签
+                            yield "</think>" # 💡 思考结束标记
                             is_thinking = False
                         yield delta.content
                         
@@ -2383,11 +2388,25 @@ async def analyze_match(data: AnalyzeRequest, current_user: dict = Depends(get_c
                 yield "</think>"
                 
         except Exception as e:
-            print(f"❌ AI Error: {e}")
-            yield json.dumps({"concise": {"title": "错误", "content": "AI服务繁忙，请稍后重试。"}})
+            print(f"❌ AI Stream Error: {e}")
+            # 返回 JSON 格式错误以便前端解析
+            yield json.dumps({
+                "concise": {
+                    "title": "连接中断", 
+                    "content": "AI 服务响应中断，请重试。"
+                }
+            })
 
-    return StreamingResponse(event_stream(), media_type="text/plain")
-
+    # ✅ 关键修改：添加防缓冲 Headers
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no", # 关键：告诉 Nginx 不要缓存 chunks
+            "Connection": "keep-alive"
+        }
+    )
 @app.websocket("/ws/bridge")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)

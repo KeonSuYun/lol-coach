@@ -8,14 +8,15 @@ const { pathToFileURL } = require('url');
 const { autoUpdater } = require("electron-updater");
 const log = require('electron-log');
 const axios = require('axios');
+
 log.transports.file.level = 'info';
-// 让 autoUpdater 使用这个日志对象
 autoUpdater.logger = log;
 app.disableHardwareAcceleration();
 
 // === 全局变量 ===
 let dashboardWindow;
-let overlayWindow;
+let overlayWindow; // 主控台窗口 (居中)
+let hudWindow;     // HUD 小窗口 (左上角)
 let pollingInterval;
 let wssInstance = null; 
 let isMouseIgnored = true; 
@@ -23,7 +24,7 @@ let tray = null;
 let lastLcuData = null;
 let lastAiResult = null; 
 
-// 🔥 [版本升级] 升级为 8 (强制重置键位配置)
+// 🔥 [版本升级] 
 const SETTINGS_VERSION = 8; 
 autoUpdater.autoDownload = false;
 const MODE_CLIENT = 'Client';
@@ -33,44 +34,37 @@ let currentMode = MODE_CLIENT;
 
 let windowMemories = {
     [MODE_CLIENT]: null, 
-    [MODE_GAME]: null
+    [MODE_GAME]: null,
+    'HUD': null 
 };
 
 const WSS_PORT = 29150; 
 const isDev = !app.isPackaged;
-
 const PRODUCTION_URL = 'https://www.hexcoach.gg';
-const WEB_APP_URL = isDev 
-    ? 'http://localhost:5173?overlay=true' 
-    : `${PRODUCTION_URL}?overlay=true`;
-
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
 // ==========================================
-// 🌐 1. WebSocket 服务 (修复闪断版)
+// 1. WebSocket 服务
 // ==========================================
 function startWebSocketServer() {
     try {
         wssInstance = new WebSocket.Server({ port: WSS_PORT });
-
-        // 🔥 [新增] 安全发送函数，防止报错导致服务崩溃
         const safeSend = (ws, payload) => {
             try {
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
                 }
-            } catch (e) { /* 忽略发送错误 */ }
+            } catch (e) { }
         };
 
         wssInstance.on('connection', (ws) => {
-            safeSend(ws, { type: 'STATUS', data: 'connected' }); // 连上立刻发状态
+            safeSend(ws, { type: 'STATUS', data: 'connected' });
             
             ws.on('message', async (message) => {
                 try {
                     const rawMsg = message.toString();
                     const parsed = JSON.parse(rawMsg);
                     
-                    // 广播给所有客户端
                     if (wssInstance) {
                         wssInstance.clients.forEach(client => {
                             if (client !== ws && client.readyState === WebSocket.OPEN) {
@@ -85,13 +79,8 @@ function startWebSocketServer() {
                         return; 
                     }
 
-                    if (parsed.type === 'SYNC_AI_RESULT') {
-                        lastAiResult = parsed.data; 
-                    }
-
-                    if (parsed.type === 'SYNC_CLEAR_RESULT' || parsed.type === 'RESET_ANALYSIS') {
-                        lastAiResult = null;
-                    }
+                    if (parsed.type === 'SYNC_AI_RESULT') lastAiResult = parsed.data; 
+                    if (parsed.type === 'SYNC_CLEAR_RESULT' || parsed.type === 'RESET_ANALYSIS') lastAiResult = null;
 
                     const shouldBroadcast = 
                         parsed.type.startsWith('SYNC_') || 
@@ -101,26 +90,19 @@ function startWebSocketServer() {
 
                     if (shouldBroadcast) {
                         broadcast(rawMsg);
-                        // 同步给 Electron 窗口
-                        if (overlayWindow && !overlayWindow.isDestroyed()) {
-                            if (parsed.type === 'SYNC_AI_RESULT') overlayWindow.webContents.send('ai-result', parsed.data);
-                            else overlayWindow.webContents.send('broadcast-sync', parsed);
-                        }
+                        sendToAllOverlays('broadcast-sync', parsed);
+                        if (parsed.type === 'SYNC_AI_RESULT') sendToAllOverlays('ai-result', parsed.data);
+                        
                         if (dashboardWindow && !dashboardWindow.isDestroyed()) {
                              if (parsed.type === 'SYNC_AI_RESULT') dashboardWindow.webContents.send('ai-result', parsed.data);
                             else dashboardWindow.webContents.send('broadcast-sync', parsed);
                         }
                     }
-
-                } catch (e) {
-                    console.error("WS Message Error:", e);
-                }
+                } catch (e) { console.error("WS Message Error:", e); }
             });
             ws.on('error', () => {});
         });
-    } catch (e) {
-        console.error("WS Server Error:", e);
-    }
+    } catch (e) { console.error("WS Server Error:", e); }
 }
 
 function broadcast(message) {
@@ -133,14 +115,20 @@ function broadcast(message) {
     });
 }
 
+function sendToAllOverlays(channel, data) {
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send(channel, data);
+    if (hudWindow && !hudWindow.isDestroyed()) hudWindow.webContents.send(channel, data);
+}
+
 // ==========================================
-// 🎮 2. 快捷键逻辑 (Windows Only)
+// 2. 快捷键逻辑
 // ==========================================
 let activeConfig = {
     toggle: 'Home', mouseMode: 'Tilde', refresh: 'Ctrl+F',            
     toggleView: 'Ctrl+E', modePrev: 'Ctrl+Z', modeNext: 'Ctrl+C',           
     prevPage: 'Ctrl+A', nextPage: 'Ctrl+D', scrollUp: 'Ctrl+S',           
-    scrollDown: 'Ctrl+X', playAudio: 'Ctrl+Space'
+    scrollDown: 'Ctrl+X', playAudio: 'Ctrl+Space',
+    tabWin: 'Ctrl+F1', tabPlan: 'Ctrl+F2', tabRisk: 'Ctrl+F3'
 };
 
 const VK_MAP = {
@@ -184,15 +172,18 @@ function startKeyboardPolling() {
         const actions = [
             { id: 'toggle', action: () => toggleOverlay() },
             { id: 'mouseMode', action: () => switchMouseMode() },
-            { id: 'refresh', action: () => sendToOverlay('shortcut-triggered', 'refresh') },
-            { id: 'toggleView', action: () => sendToOverlay('shortcut-triggered', 'toggle_view') }, 
-            { id: 'modePrev', action: () => sendToOverlay('shortcut-triggered', 'mode_prev') },
-            { id: 'modeNext', action: () => sendToOverlay('shortcut-triggered', 'mode_next') },
-            { id: 'prevPage', action: () => sendToOverlay('shortcut-triggered', 'nav_prev') },
-            { id: 'nextPage', action: () => sendToOverlay('shortcut-triggered', 'nav_next') },
-            { id: 'scrollUp', action: () => sendToOverlay('scroll-action', 'up') },
-            { id: 'scrollDown', action: () => sendToOverlay('scroll-action', 'down') },
-            { id: 'playAudio', action: () => sendToOverlay('shortcut-triggered', 'playAudio') }
+            { id: 'refresh', action: () => sendToAllOverlays('shortcut-triggered', 'refresh') },
+            { id: 'toggleView', action: () => sendToAllOverlays('shortcut-triggered', 'toggle_view') }, 
+            { id: 'modePrev', action: () => sendToAllOverlays('shortcut-triggered', 'mode_prev') },
+            { id: 'modeNext', action: () => sendToAllOverlays('shortcut-triggered', 'mode_next') },
+            { id: 'prevPage', action: () => sendToAllOverlays('shortcut-triggered', 'nav_prev') },
+            { id: 'nextPage', action: () => sendToAllOverlays('shortcut-triggered', 'nav_next') },
+            { id: 'scrollUp', action: () => sendToAllOverlays('scroll-action', 'up') },
+            { id: 'scrollDown', action: () => sendToAllOverlays('scroll-action', 'down') },
+            { id: 'playAudio', action: () => sendToAllOverlays('shortcut-triggered', 'playAudio') },
+            { id: 'tabWin', action: () => sendToAllOverlays('shortcut-triggered', 'tab_win') },
+            { id: 'tabPlan', action: () => sendToAllOverlays('shortcut-triggered', 'tab_plan') },
+            { id: 'tabRisk', action: () => sendToAllOverlays('shortcut-triggered', 'tab_risk') }
         ];
         actions.forEach(({ id, action }) => {
             const configStr = activeConfig[id]; 
@@ -221,55 +212,97 @@ function startKeyboardPolling() {
 }
 
 function switchMouseMode() {
-    if (!overlayWindow || overlayWindow.isDestroyed()) return;
     isMouseIgnored = !isMouseIgnored;
-    if (isMouseIgnored) {
-        overlayWindow.setResizable(false);
-        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-        overlayWindow.setFocusable(false);
-        overlayWindow.webContents.send('mouse-ignore-status', true);
-    } else {
-        overlayWindow.setFocusable(true);
-        overlayWindow.setIgnoreMouseEvents(false);
-        overlayWindow.setResizable(true);
+    const windows = [overlayWindow, hudWindow];
+    
+    windows.forEach(win => {
+        if (win && !win.isDestroyed()) {
+            if (isMouseIgnored) {
+                // 🔒 锁定：鼠标穿透，不可调整大小
+                win.setResizable(false);
+                win.setIgnoreMouseEvents(true, { forward: true });
+                win.setFocusable(false);
+                win.webContents.send('mouse-ignore-status', true);
+            } else {
+                // 🔓 解锁：可点击，可调整大小
+                win.setFocusable(true);
+                win.setIgnoreMouseEvents(false);
+                win.setResizable(true); 
+                win.webContents.send('mouse-ignore-status', false);
+            }
+        }
+    });
+
+    if (!isMouseIgnored && overlayWindow && !overlayWindow.isDestroyed()) {
         overlayWindow.focus();
-        setTimeout(() => { if(overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.focus(); }, 50);
-        overlayWindow.webContents.send('mouse-ignore-status', false);
     }
 }
 
-function sendToOverlay(channel, data) {
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-        overlayWindow.webContents.send(channel, data);
-    }
+// ==========================================
+// 💾 配置管理 (带防抖)
+// ==========================================
+let saveTimer = null;
+
+// 🔥 防抖保存函数：防止拖拽时疯狂写入
+function triggerSaveSettings() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        saveSettings();
+        // console.log("💾 [Config] 窗口位置已保存");
+    }, 500); // 停止操作 500ms 后保存
 }
 
 function loadSettings(workArea) {
+    // 1. 定义出厂设置
+    // Client (BP): 右侧居中
     const clientW = 400; const clientH = 600;
     const clientX = workArea.width - clientW - 50; 
     const clientY = (workArea.height - clientH) / 2; 
     const defaultClient = { width: clientW, height: clientH, x: clientX, y: clientY };
     
+    // Game (Strategy Card): 右下角
     const gameW = 350; const gameH = 300;
-    const gameX = workArea.width - gameW - 10; 
-    const gameY = workArea.height - gameH - 440; 
+    const gameX = workArea.width - gameW - 20; 
+    const gameY = workArea.height - gameH - 150; // 留出一点底部空隙
     const defaultGame = { width: gameW, height: gameH, x: gameX, y: gameY };
 
+    // 🔥 HUD: 右上角 (Mini Window)
+    // 根据截图，它在右侧上方
+    const hudW = 320; const hudH = 180;
+    const hudX = workArea.width - hudW - 20;
+    const hudY = 100; // 距离顶部 100px
+    const defaultHud = { width: hudW, height: hudH, x: hudX, y: hudY };
+
+    // 2. 先初始化内存 (防止文件读取失败导致 null)
     windowMemories[MODE_CLIENT] = defaultClient;
     windowMemories[MODE_GAME] = defaultGame;
+    windowMemories['HUD'] = defaultHud;
 
+    // 3. 读取文件并合并
     try {
         if (fs.existsSync(SETTINGS_PATH)) {
             const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+            
             if (data.version === SETTINGS_VERSION) {
                 if (data.shortcuts) activeConfig = { ...activeConfig, ...data.shortcuts };
                 if (data.windowMemories) {
-                    if(data.windowMemories[MODE_CLIENT]) windowMemories[MODE_CLIENT] = { ...defaultClient, ...data.windowMemories[MODE_CLIENT] };
-                    if(data.windowMemories[MODE_GAME]) windowMemories[MODE_GAME] = { ...defaultGame, ...data.windowMemories[MODE_GAME] };
+                    if(data.windowMemories[MODE_CLIENT]) {
+                        windowMemories[MODE_CLIENT] = { ...defaultClient, ...data.windowMemories[MODE_CLIENT] };
+                    }
+                    if(data.windowMemories[MODE_GAME]) {
+                        windowMemories[MODE_GAME] = { ...defaultGame, ...data.windowMemories[MODE_GAME] };
+                    }
+                    if(data.windowMemories['HUD']) {
+                        windowMemories['HUD'] = { ...defaultHud, ...data.windowMemories['HUD'] };
+                    }
                 }
-            } else { saveSettings(); }
+            } else { 
+                saveSettings(); 
+            }
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error("❌ Load Settings Error:", e);
+    }
 }
 
 function saveSettings(newShortcuts = null) {
@@ -277,10 +310,11 @@ function saveSettings(newShortcuts = null) {
         const shortcutsToSave = newShortcuts ? { ...activeConfig, ...newShortcuts } : activeConfig;
         const data = { version: SETTINGS_VERSION, shortcuts: shortcutsToSave, windowMemories: windowMemories };
         fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2));
-    } catch (e) {}
+    } catch (e) {
+        console.error("❌ Save Settings Error:", e);
+    }
 }
 
-// 托盘
 function createTray() {
     const iconPath = path.join(__dirname, 'resources', 'icon.ico'); 
     try {
@@ -293,6 +327,7 @@ function createTray() {
             { label: '🛠️ 开发者工具', click: () => {
                 if (dashboardWindow) dashboardWindow.webContents.openDevTools({ mode: 'detach' });
                 if (overlayWindow) overlayWindow.webContents.openDevTools({ mode: 'detach' });
+                if (hudWindow) hudWindow.webContents.openDevTools({ mode: 'detach' });
             }},
             { label: '显示/隐藏 (Home)', click: () => toggleOverlay() },
             { type: 'separator' },
@@ -303,41 +338,43 @@ function createTray() {
         tray.on('double-click', () => switchMouseMode());
     } catch (e) {}
 }
+
 async function getAppBaseUrl() {
     if (isDev) return 'http://localhost:5173';
     try {
-        // 尝试探测本地前端
         await axios.get('http://localhost:5173', { timeout: 300 });
-        console.log("✅ 调试模式：加载本地前端 (localhost:5173)");
+        console.log("✅ 调试模式：加载本地前端");
         return 'http://localhost:5173';
     } catch (e) {
         return PRODUCTION_URL;
     }
 }
+
 async function createWindows() {
     const workArea = screen.getPrimaryDisplay().workAreaSize;
     loadSettings(workArea); 
 
-    // 🔥 [新增] 动态获取 URL
     const BASE_URL = await getAppBaseUrl(); 
-    const APP_URL = `${BASE_URL}?overlay=true`;
+    const CONSOLE_URL = `${BASE_URL}?overlay=true&type=console`;
+    const HUD_URL = `${BASE_URL}?overlay=true&type=hud`;
 
-    console.log(`🚀 窗口正在加载 URL: ${BASE_URL}`);
-
+    // --- A. 后台窗口 (必须有 skipTaskbar) ---
     dashboardWindow = new BrowserWindow({
-        width: 320, height: 480, show: false, frame: false, backgroundColor: '#010A13',
+        width: 320, height: 480, show: false, frame: false, 
+        skipTaskbar: true, // 🔥 修复：任务栏图标问题
         webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
     });
-    // 🔥 [修改] 使用动态 URL
     dashboardWindow.loadURL(BASE_URL);
 
+    // --- B. 主控台窗口 ---
     const initBounds = windowMemories[MODE_CLIENT];
-
     overlayWindow = new BrowserWindow({
         width: initBounds.width, height: initBounds.height, 
         x: Number.isInteger(initBounds.x) ? initBounds.x : undefined, 
         y: Number.isInteger(initBounds.y) ? initBounds.y : undefined, 
-        transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: false, 
+        transparent: true, frame: false, alwaysOnTop: true, 
+        skipTaskbar: true, // 🔥 确保不显示
+        hasShadow: false, 
         resizable: true, focusable: false, minWidth: 200, minHeight: 40,
         webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
     });
@@ -345,51 +382,98 @@ async function createWindows() {
     overlayWindow.setAlwaysOnTop(true, 'screen-saver');
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     if (isMouseIgnored) overlayWindow.setResizable(false);
+    overlayWindow.loadURL(CONSOLE_URL);
 
-    // 🔥 [修改] 使用动态 URL
-    overlayWindow.loadURL(APP_URL);
+    // --- C. HUD 小窗口 ---
+    // 🔥 [核心修复] 默认高度改为 260
+    const hudBounds = windowMemories['HUD']; 
+    
+    hudWindow = new BrowserWindow({
+        width: hudBounds.width,
+        height: hudBounds.height,
+        x: hudBounds.x,       
+        y: hudBounds.y,
+        transparent: true, 
+        frame: false, 
+        alwaysOnTop: true, 
+        skipTaskbar: true, 
+        hasShadow: false,
+        resizable: true, 
+        focusable: false,
+        show: false, // 🔥 [关键修改] 初始化时强制隐藏
+        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
+    });
 
+    hudWindow.setAlwaysOnTop(true, 'screen-saver');
+    hudWindow.setIgnoreMouseEvents(true, { forward: true });
+    if (isMouseIgnored) hudWindow.setResizable(false);
+    hudWindow.loadURL(HUD_URL);
 
+    // --- 事件监听 (优化版) ---
     overlayWindow.webContents.on('did-finish-load', () => {
         broadcast(JSON.stringify({ type: 'REQUEST_SYNC' }));
-        if (lastLcuData) overlayWindow.webContents.send('lcu-update', lastLcuData);
-        // 🔥 主动推送版本号
-        overlayWindow.webContents.send('version-info', app.getVersion());
+        if (lastLcuData) sendToAllOverlays('lcu-update', lastLcuData);
+        sendToAllOverlays('version-info', app.getVersion());
     });
     
-    dashboardWindow.webContents.on('did-finish-load', () => {
-        // 🔥 主动推送版本号给主窗口
-        dashboardWindow.webContents.send('version-info', app.getVersion());
-    });
-
-    const saveCurrentBounds = () => {
+    // 🔥 使用防抖保存
+    const updateMainBounds = () => {
         if (!overlayWindow || overlayWindow.isDestroyed()) return;
         windowMemories[currentMode] = overlayWindow.getBounds();
-        saveSettings();
+        triggerSaveSettings(); // <--- 防抖
     };
-    overlayWindow.on('resize', saveCurrentBounds);
-    overlayWindow.on('move', saveCurrentBounds);
+    overlayWindow.on('resize', updateMainBounds);
+    overlayWindow.on('move', updateMainBounds);
+
+    const updateHudBounds = () => {
+        if (!hudWindow || hudWindow.isDestroyed()) return;
+        windowMemories['HUD'] = hudWindow.getBounds();
+        triggerSaveSettings(); // <--- 防抖
+    };
+    hudWindow.on('resize', updateHudBounds);
+    hudWindow.on('move', updateHudBounds);
 
     let hasWarnedAdmin = false;
     connectToLCU((data) => {
         lastLcuData = data;
         const statusMsg = (data.myTeam && data.myTeam.length > 0) ? 'connected' : 'waiting';
+        
         if (data.gamePhase) {
             let targetMode = data.gamePhase === 'InProgress' ? MODE_GAME : MODE_CLIENT;
+            
+            // 🔥 [新增逻辑] HUD 显隐控制
+            // 只有在 InProgress (游戏内) 且 overlayWindow 可见时，才显示 HUD
+            if (hudWindow && !hudWindow.isDestroyed()) {
+                if (data.gamePhase === 'InProgress') {
+                    // 如果主窗口是显示的，HUD 也应该显示
+                    if (overlayWindow && overlayWindow.isVisible()) {
+                        hudWindow.show();
+                        // 重新应用鼠标穿透设置，防止显示后状态重置
+                        if (isMouseIgnored) hudWindow.setIgnoreMouseEvents(true, { forward: true });
+                    }
+                } else {
+                    // 游戏外强制隐藏 HUD
+                    hudWindow.hide();
+                }
+            }
+
             if (targetMode !== currentMode) {
-                if (overlayWindow && !overlayWindow.isDestroyed()) windowMemories[currentMode] = overlayWindow.getBounds();
+                // ... (原有切换窗口位置逻辑保持不变)
+                if (overlayWindow && !overlayWindow.isDestroyed()) {
+                    windowMemories[currentMode] = overlayWindow.getBounds();
+                    triggerSaveSettings();
+                }
                 currentMode = targetMode;
                 const targetBounds = windowMemories[targetMode];
                 if (targetBounds && overlayWindow) overlayWindow.setBounds(targetBounds);
             }
-            if (overlayWindow) overlayWindow.webContents.send('game-phase', data.gamePhase);
-            
+            sendToAllOverlays('game-phase', data.gamePhase);
         }
-        if (dashboardWindow) {
+        if (dashboardWindow && !dashboardWindow.isDestroyed()) {
             dashboardWindow.webContents.send('lcu-status', statusMsg);
             dashboardWindow.webContents.send('lcu-update', data);
         }
-        if (overlayWindow) overlayWindow.webContents.send('lcu-update', data);
+        sendToAllOverlays('lcu-update', data);
         broadcast({ type: 'CHAMP_SELECT', data: data });
         broadcast({ type: 'STATUS', data: statusMsg });
     }, (warningType) => { 
@@ -403,68 +487,52 @@ async function createWindows() {
     });
 }
 
-// ==========================================
-// 🚀 自动更新逻辑
-// ==========================================
 function initAutoUpdater() {
-    // 1. 发送消息给前端的辅助函数
     function sendUpdateMessage(type, text, info = null) {
-        const payload = { 
-            message: text, 
-            type: type, 
-            info: info 
-        };
-        console.log(`[AutoUpdater] Sending: ${type} - ${text}`); // 🔥 后端日志
-        
-        // 广播给所有窗口
-        if (overlayWindow && !overlayWindow.isDestroyed()) {
-            overlayWindow.webContents.send('update-message', payload);
-        }
+        const payload = { message: text, type: type, info: info };
+        sendToAllOverlays('update-message', payload);
         if (dashboardWindow && !dashboardWindow.isDestroyed()) {
             dashboardWindow.webContents.send('update-message', payload);
         }
     }
-
-    // 2. 监听各种更新事件
-    autoUpdater.on('checking-for-update', () => {
-        sendUpdateMessage('checking', '正在检查更新...');
-    });
-
-    autoUpdater.on('update-available', (info) => {
-        // 🔥 关键：通知前端显示“发现新版本”弹窗
-        sendUpdateMessage('available', '发现新版本', info);
-    });
-
-    autoUpdater.on('update-not-available', (info) => {
-        sendUpdateMessage('not-available', '当前已是最新版本');
-    });
-
-    autoUpdater.on('error', (err) => {
-        sendUpdateMessage('error', '更新检查失败: ' + err);
-        console.error("[AutoUpdater] Error:", err);
-    });
-
-    autoUpdater.on('download-progress', (progressObj) => {
-        let log_message = "下载速度: " + progressObj.bytesPerSecond;
-        log_message = log_message + ' - 已下载 ' + progressObj.percent + '%';
-        log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
-        sendUpdateMessage('downloading', '正在下载...', { percent: progressObj.percent });
-    });
-
-    autoUpdater.on('update-downloaded', (info) => {
-        // 🔥 关键：通知前端显示“立即重启”按钮
-        sendUpdateMessage('downloaded', '下载完成，准备重启', info);
-    });
+    autoUpdater.on('checking-for-update', () => sendUpdateMessage('checking', '正在检查更新...'));
+    autoUpdater.on('update-available', (info) => sendUpdateMessage('available', '发现新版本', info));
+    autoUpdater.on('update-not-available', (info) => sendUpdateMessage('not-available', '当前已是最新版本'));
+    autoUpdater.on('error', (err) => sendUpdateMessage('error', '更新检查失败: ' + err));
+    autoUpdater.on('download-progress', (progressObj) => sendUpdateMessage('downloading', '正在下载...', { percent: progressObj.percent }));
+    autoUpdater.on('update-downloaded', (info) => sendUpdateMessage('downloaded', '下载完成，准备重启', info));
 }
 
 function toggleOverlay() {
-    if (!overlayWindow || overlayWindow.isDestroyed()) return;
-    if (overlayWindow.isVisible()) overlayWindow.hide();
-    else {
-        overlayWindow.show();
-        if (isMouseIgnored) overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-        overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-    }
+    const isMainVisible = overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible();
+    const windows = [overlayWindow, hudWindow];
+    
+    // 🔥 [关键修改] 判断当前是否在游戏内
+    const isInGame = currentMode === MODE_GAME;
+
+    windows.forEach(win => {
+        if (win && !win.isDestroyed()) {
+            if (isMainVisible) {
+                // 如果主窗口当前是显示的，那么全部隐藏
+                win.hide();
+            } else {
+                // 如果主窗口当前是隐藏的，准备显示...
+                
+                // 1. 如果是 HUD 窗口，且不在游戏内，则跳过显示（保持隐藏）
+                if (win === hudWindow && !isInGame) {
+                    return; 
+                }
+
+                // 2. 其他情况（主窗口，或游戏内的HUD），正常显示
+                win.show();
+                win.setSkipTaskbar(true); 
+                if (isMouseIgnored) {
+                    win.setIgnoreMouseEvents(true, { forward: true });
+                }
+                win.setAlwaysOnTop(true, 'screen-saver');
+            }
+        }
+    });
 }
 
 app.whenReady().then(async () => {
@@ -473,8 +541,15 @@ app.whenReady().then(async () => {
     startKeyboardPolling();
     createTray();
     initAutoUpdater();
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show(); 
+        overlayWindow.setSkipTaskbar(true);
+    }
     
-    // 🔥 [修复] 强制延时检查更新，确保窗口就绪
+    // 再次强制隐藏 HUD (双重保险)
+    if (hudWindow && !hudWindow.isDestroyed()) {
+        hudWindow.hide(); 
+    }
     if (!isDev) {
         setTimeout(() => autoUpdater.checkForUpdates(), 5000);
         setInterval(() => autoUpdater.checkForUpdates(), 3600000);
@@ -482,16 +557,14 @@ app.whenReady().then(async () => {
 });
 
 ipcMain.on('start-download', () => autoUpdater.downloadUpdate());
-ipcMain.on('restart-app', () => {
-    console.log("🔄 [Main] 接收到重启指令，正在执行强制安装...");
-    
-    autoUpdater.quitAndInstall(false, true); 
-});
+ipcMain.on('restart-app', () => autoUpdater.quitAndInstall(false, true));
 app.on('will-quit', () => { if (pollingInterval) clearInterval(pollingInterval); globalShortcut.unregisterAll(); });
+
 ipcMain.on('update-visuals', (event, visualConfig) => {
-    if (overlayWindow) overlayWindow.webContents.send('update-visuals', visualConfig);
-    if (dashboardWindow) dashboardWindow.webContents.send('update-visuals', visualConfig);
+    sendToAllOverlays('update-visuals', visualConfig);
+    if (dashboardWindow && !dashboardWindow.isDestroyed()) dashboardWindow.webContents.send('update-visuals', visualConfig);
 });
+
 app.on('window-all-closed', () => app.quit());
 ipcMain.on('req-lcu-profile', async (event) => {
     const profileData = await getProfileData();
@@ -501,7 +574,7 @@ ipcMain.handle('get-shortcuts', () => activeConfig);
 ipcMain.on('update-shortcuts', (event, newShortcuts) => {
     activeConfig = { ...activeConfig, ...newShortcuts };
     saveSettings(newShortcuts);
-    if (overlayWindow) overlayWindow.webContents.send('shortcuts-updated', activeConfig);
+    sendToAllOverlays('shortcuts-updated', activeConfig);
 });
 ipcMain.handle('get-mouse-status', () => isMouseIgnored);
 ipcMain.on('minimize-app', () => dashboardWindow?.minimize());

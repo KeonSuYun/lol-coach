@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { X, Crown, Zap, CheckCircle2, Gem, MessageCircle, AlertTriangle, Copy, Check, ExternalLink, Star } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
-// 🟢 你的海报图片路径 (如果没有，代码会自动显示深蓝渐变兜底)
-const POSTER_IMG = "/assets/hex-poster.jpg"; 
 
 // 🟢 配置：点击客服文字跳转的链接
 const QQ_LINK = "https://qm.qq.com/q/tQL0H4Dmak"; 

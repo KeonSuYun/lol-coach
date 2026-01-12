@@ -61,7 +61,8 @@ export default function AnalysisButton({
 
     return (
         <div className="w-full max-w-xl mx-auto relative group z-20 mb-6">
-            <div className={`absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000 ${isAnalyzing ? 'animate-pulse opacity-50' : ''}`}></div>
+            {/* 核心修改：加强背景流光，从原来的 blur 变为更动态的 pulse + blur */}
+            <div className={`absolute -inset-[2px] bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 rounded-2xl blur-md opacity-40 group-hover:opacity-75 transition duration-1000 group-hover:duration-200 animate-gradient-xy ${isAnalyzing ? 'animate-pulse opacity-80' : ''}`}></div>
             
             <div className="relative flex h-14 md:h-16 bg-[#091428] border border-[#C8AA6E]/30 rounded-xl overflow-hidden shadow-2xl">
                 
@@ -108,7 +109,7 @@ export default function AnalysisButton({
                     )}
                 </button>
 
-                {/* === 右侧：分析按钮 === */}
+                {/* === 右侧：分析按钮 (增强版) === */}
                 <button 
                     onClick={handleClickAnalyze}
                     disabled={isAnalyzing || (!selectedHero && !allowEmpty)}
@@ -147,7 +148,7 @@ export default function AnalysisButton({
                         </>
                     )}
                     {(selectedHero || allowEmpty) && !isAnalyzing && (
-                        <div className="absolute top-0 -left-[100%] w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 animate-[shimmer_2s_infinite]"></div>
+                        <div className="absolute top-0 -left-[100%] w-[50%] h-full bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 animate-[shimmer_2s_infinite]"></div>
                     )}
                 </button>
             </div>

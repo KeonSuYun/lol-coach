@@ -1,132 +1,177 @@
-import React, { useMemo } from 'react';
-import { Zap, Lock, Unlock, Activity, AlertCircle } from 'lucide-react';
-import AnalysisResult from './AnalysisResult';
+import React, { useState, useEffect, useMemo } from 'react';
+import MiniHUD from './MiniHUD';
+import HexDashboard from './HexDashboard'; 
+import { Lock, Unlock, Eye, EyeOff } from 'lucide-react';
 
-const GameHudFrame = ({ 
+export default function GameHudFrame({ 
     aiResults, 
-    effectiveMode, 
-    isAnalyzing, 
-    viewMode, 
-    activeTab, 
-    setActiveTab, 
-    isMouseLocked, // 来自 OverlayConsole 的状态 (true=穿透/锁定, false=可交互)
-    mouseKey,      // 快捷键提示
-    visualConfig   // 透明度/缩放配置
-}) => {
+    isMouseLocked, 
+    mouseKey,
+    visualConfig
+}) {
     
-    // 动态样式计算
-    const containerStyle = useMemo(() => {
-        const baseAlpha = isMouseLocked ? 0.2 : 0.8; // 锁定态背景几乎透明，交互态变深
-        const scale = visualConfig?.fontSize || 1.0;
-        
-        return {
-            backgroundColor: `rgba(0, 0, 0, ${baseAlpha})`,
-            backdropFilter: isMouseLocked ? 'none' : 'blur(4px)',
-            zoom: scale,
-            // 游戏内核心：文字描边，防止背景太亮看不清
-            textShadow: '1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0,0,0,0.8)'
+    // =================================================================
+    // 1. 数据流解析
+    // =================================================================
+    const dashboardData = useMemo(() => {
+        if (!aiResults) return null;
+        let dashboard = null;
+
+        // A. 对象格式
+        if (typeof aiResults === 'object') {
+            dashboard = aiResults.dashboard;
+        } 
+        // B. 字符串格式 (流式贪吃蛇解析)
+        else if (typeof aiResults === 'string') {
+            try {
+                const full = JSON.parse(aiResults);
+                dashboard = full.dashboard;
+            } catch (e) {
+                const dashStart = aiResults.indexOf('"dashboard"');
+                if (dashStart !== -1) {
+                    const braceStart = aiResults.indexOf('{', dashStart);
+                    if (braceStart !== -1) {
+                        let balance = 0;
+                        let braceEnd = -1;
+                        for (let i = braceStart; i < aiResults.length; i++) {
+                            if (aiResults[i] === '{') balance++;
+                            else if (aiResults[i] === '}') {
+                                balance--;
+                                if (balance === 0) {
+                                    braceEnd = i;
+                                    break;
+                                }
+                            }
+                        }
+                        if (braceEnd !== -1) {
+                            try {
+                                const jsonStr = aiResults.substring(braceStart, braceEnd + 1);
+                                dashboard = JSON.parse(jsonStr);
+                            } catch (err) {}
+                        }
+                    }
+                }
+            }
+        }
+        return dashboard;
+    }, [aiResults]);
+
+    // 智能路由数据源
+    const hudData = useMemo(() => {
+        if (!dashboardData) return null;
+        if (dashboardData.team_top_left_cards) return dashboardData.team_top_left_cards;
+        if (dashboardData.hud) return dashboardData.hud;
+        return null;
+    }, [dashboardData]);
+
+    // =================================================================
+    // 2. 交互状态管理
+    // =================================================================
+    const [showMainHud, setShowMainHud] = useState(true); 
+    const [tempUnlock, setTempUnlock] = useState(false); 
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Alt' || e.code === 'AltLeft') setTempUnlock(true);
+            if (e.key === 'Tab') {
+                e.preventDefault(); 
+                setShowMainHud(prev => !prev);
+            }
         };
-    }, [isMouseLocked, visualConfig]);
+        const handleKeyUp = (e) => {
+            if (e.key === 'Alt' || e.code === 'AltLeft') setTempUnlock(false);
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, []);
 
-    // 状态条颜色
-    const statusColor = isAnalyzing ? 'bg-blue-500' : (aiResults ? 'bg-[#C8AA6E]' : 'bg-slate-600');
-    const statusGlow = isAnalyzing ? 'shadow-[0_0_10px_#3b82f6]' : (aiResults ? 'shadow-[0_0_10px_#C8AA6E]' : '');
+    // 穿透逻辑：只有在锁定且未按Alt时，才穿透
+    const pointerEventsClass = (isMouseLocked && !tempUnlock) ? 'pointer-events-none' : 'pointer-events-auto';
+    const scale = visualConfig?.fontSize || 1.0; 
+    
+    // 缩放基准点不同：左上角以左上缩放，中间以顶部居中缩放
+    const leftScaleStyle = { transform: `scale(${scale})`, transformOrigin: 'top left' };
+    const centerScaleStyle = { transform: `scale(${scale})`, transformOrigin: 'top center' };
 
+    // =================================================================
+    // 3. 渲染视图 (Fixed 布局分离)
+    // =================================================================
     return (
-        <div 
-            className={`
-                w-full h-full flex flex-col relative transition-all duration-300 overflow-hidden
-                ${!isMouseLocked ? 'border-2 border-[#C8AA6E] rounded-lg shadow-2xl' : 'border border-transparent'}
-            `}
-            style={containerStyle}
-        >
-            {/* --- 顶部：极简状态条 (HUD Header) --- */}
-            {/* 只有在非穿透模式，或者正在分析时，才显示明显的头部，否则尽量隐形 */}
-            <div className={`
-                shrink-0 h-1 md:h-1.5 w-full flex items-center transition-all duration-500
-                ${statusColor} ${statusGlow}
-                ${!isMouseLocked ? 'opacity-100' : 'opacity-40'}
-            `}>
-                {/* 拖拽手柄 (仅非锁定时显示) */}
-                {!isMouseLocked && (
-                    <div className="absolute top-0 right-0 left-0 h-6 bg-transparent cursor-move drag-region group z-50">
-                        <div className="mx-auto w-12 h-1 bg-white/20 mt-2 rounded-full group-hover:bg-white/50 transition-colors"/>
-                    </div>
-                )}
-            </div>
+        <div className="relative w-screen h-screen overflow-hidden font-sans">
+            
+            {/* 🟢 1. Mini HUD (固定在屏幕左上角) 
+               位置：Top 50px, Left 20px
+            */}
+            {hudData && (
+                <div 
+                    className={`fixed top-12 left-5 z-50 transition-opacity duration-300 ${pointerEventsClass}`}
+                    style={leftScaleStyle}
+                >
+                    <MiniHUD data={hudData} />
+                </div>
+            )}
 
-            {/* --- 中间：内容区域 --- */}
-            <div className="flex-1 min-h-0 relative overflow-hidden">
-                {aiResults ? (
-                    <div className="h-full overflow-y-auto no-scrollbar scroll-smooth pl-2 pr-1 pt-1">
-                        <AnalysisResult 
-                            aiResult={aiResults}
-                            isAnalyzing={isAnalyzing}
-                            viewMode={viewMode}
-                            forceTab={activeTab} 
-                            setActiveTab={setActiveTab}
-                            isInGame={true}  // 🔥 触发紧凑模式样式
-                            isOverlay={true}
-                            globalScale={1.0} // 缩放由外层容器控制
-                        />
+            {/* 🔵 2. Main Dashboard (详情页 - 顶部居中 / 地图上方) 
+               位置：Top 0, Left 50% (居中)
+            */}
+            <div 
+                className={`
+                    fixed top-0 left-1/2 -translate-x-1/2 w-[720px] z-40 
+                    transition-all duration-300 ease-out
+                    ${showMainHud ? 'translate-y-0 opacity-100' : '-translate-y-[120%] opacity-0'} 
+                    ${pointerEventsClass}
+                `}
+                style={centerScaleStyle}
+            >
+                <div className="bg-[#0f172a]/95 border-b border-x border-amber-500/30 rounded-b-xl shadow-2xl backdrop-blur-md overflow-hidden">
+                    {/* 顶部提示栏 */}
+                    <div className="flex justify-between items-center text-[10px] text-slate-500 bg-black/40 px-3 py-1 border-b border-white/5 select-none">
+                        <div className="flex gap-4">
+                            <span className="flex items-center gap-1"><b className="text-amber-400 font-mono">TAB</b> 切换详情</span>
+                            <span className="flex items-center gap-1"><b className="text-amber-400 font-mono">ALT</b> 解锁鼠标</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 opacity-80">
+                            {isMouseLocked && !tempUnlock ? <Lock size={10} /> : <Unlock size={10} className="text-amber-400"/>}
+                            <span className="font-mono uppercase">{isMouseLocked && !tempUnlock ? "穿透中" : "可操作"}</span>
+                        </div>
                     </div>
-                ) : (
-                    // 空状态占位
-                    <div className="h-full flex flex-col items-center justify-center text-white/50 space-y-2">
-                        {isAnalyzing ? (
-                            <Zap size={24} className="animate-spin text-blue-400"/>
+                    
+                    {/* 仪表盘本体 */}
+                    <div className="p-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                        {dashboardData ? (
+                            <HexDashboard 
+                                data={dashboardData} 
+                                isFarming={dashboardData?.meta?.style === 'farming' || dashboardData?.meta?.style === 'tempo'}
+                                role={dashboardData?.meta?.role}
+                            />
                         ) : (
-                            <Activity size={24} className="opacity-50"/>
+                            <div className="text-center text-slate-500 py-6 text-xs flex flex-col items-center gap-2">
+                                <span>等待战术数据...</span>
+                            </div>
                         )}
-                        <span className="text-xs font-bold tracking-widest uppercase">
-                            {isAnalyzing ? "TACTICAL ANALYSIS..." : "AWAITING DATA"}
-                        </span>
-                    </div>
-                )}
-            </div>
-
-            {/* --- 底部：极简信息栏 (HUD Footer) --- */}
-            <div className={`
-                shrink-0 flex justify-between items-center px-2 py-1 
-                text-[9px] font-mono tracking-wider
-                ${!isMouseLocked ? 'bg-black/60 border-t border-white/10' : 'bg-transparent text-white/40'}
-            `}>
-                {/* 左侧：分页指示器 (类似 iPhone 底部圆点) */}
-                <div className="flex gap-1">
-                    {/* 假设最多5页，这里应该根据 activeTabsData 生成，简化处理先写死或传参 */}
-                    {[0, 1, 2].map(idx => (
-                        <div key={idx} className={`
-                            w-1.5 h-1.5 rounded-full transition-colors 
-                            ${activeTab === idx ? 'bg-[#C8AA6E] shadow-[0_0_5px_currentColor]' : 'bg-white/20'}
-                        `}/>
-                    ))}
-                </div>
-
-                {/* 右侧：状态图标 */}
-                <div className="flex items-center gap-2">
-                    {/* 锁定状态提示 */}
-                    <div className="flex items-center gap-1 opacity-70">
-                        {isMouseLocked ? <Lock size={8} /> : <Unlock size={8} className="text-[#C8AA6E]" />}
-                        <span className="uppercase">{mouseKey}</span>
                     </div>
                 </div>
             </div>
 
-            {/* --- 交互模式下的额外遮罩 (Edit Mode Overlay) --- */}
-            {!isMouseLocked && (
-                <div className="absolute inset-0 pointer-events-none border-[1px] border-white/5 rounded-lg z-[60]">
-                    <div className="absolute top-2 right-2 px-2 py-1 bg-black/80 rounded text-[10px] text-[#C8AA6E] border border-[#C8AA6E]/30 shadow-lg">
-                        编辑模式
+            {/* 🔴 3. 辅助提示 (底部) */}
+            {tempUnlock && isMouseLocked && (
+                <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-amber-600/90 text-white text-xs px-4 py-2 rounded-full animate-bounce shadow-lg z-[60] pointer-events-none backdrop-blur">
+                    👆 鼠标已临时激活
+                </div>
+            )}
+            
+            {/* 隐藏提示 (当大面板隐藏时显示一个小眼睛) */}
+            {!showMainHud && dashboardData && (
+                <div className="fixed top-2 left-1/2 -translate-x-1/2 opacity-50 hover:opacity-100 transition-opacity z-40">
+                    <div className="bg-black/50 p-1.5 rounded-full border border-white/10 text-slate-400">
+                        <EyeOff size={14} />
                     </div>
-                    {/* 四角装饰 */}
-                    <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-[#C8AA6E]"/>
-                    <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-[#C8AA6E]"/>
-                    <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-[#C8AA6E]"/>
-                    <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-[#C8AA6E]"/>
                 </div>
             )}
         </div>
     );
 };
-
-export default GameHudFrame;
